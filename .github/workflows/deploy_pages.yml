@@ -27,10 +27,10 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Inject API Key
         run: |
-          sed -i 's|__GEMINI_API_KEY_PLACEHOLDER__/${{ secrets.GEMINI_API_KEY }}/g' index.html
-          sed -i 's|__CMC_API_KEY__/${{ secrets.CMC_API_KEY }}/g' index.html
-          sed -i 's|__SUPABASE_URL_PLACEHOLDER__/${{ secrets.SUPABASE_URL }}/g' index.html
-          sed -i 's|__SUPABASE_ANON_KEY_PLACEHOLDER__/${{ secrets.SUPABASE_ANON_KEY }}/g' index.html
+          sed -i 's|__GEMINI_API_KEY_PLACEHOLDER__|${{ secrets.GEMINI_API_KEY }}|g' index.html
+          sed -i 's|__CMC_API_KEY__|${{ secrets.CMC_API_KEY }}|g' index.html
+          sed -i 's|__SUPABASE_URL_PLACEHOLDER__|${{ secrets.SUPABASE_URL }}|g' index.html
+          sed -i 's|__SUPABASE_ANON_KEY_PLACEHOLDER__|${{ secrets.SUPABASE_ANON_KEY }}|g' index.html
       - name: Verify Injection (Debug)
         run: |
           if grep -q "__GEMINI_API_KEY_PLACEHOLDER__" index.html; then
