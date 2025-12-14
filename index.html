@@ -2280,9 +2280,32 @@
         };
 
         // --- Watchlist Dashboard Feature ---
-        const WatchlistDashboard = ({ watchlist, onUpdateWatchlist }) => {
+        const WatchlistDashboard = ({ watchlist, onUpdateWatchlist, isPremium }) => {
             const [assetsData, setAssetsData] = useState([]);
             const [loading, setLoading] = useState(true);
+
+            if (!isPremium) {
+                return (
+                    <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
+                        <div className="bg-slate-800 p-6 rounded-full border border-slate-700 shadow-2xl shadow-black relative">
+                            <Lock size={64} className="text-slate-500" />
+                            <div className="absolute -top-2 -right-2 bg-amber-500 text-slate-900 font-bold px-3 py-1 rounded-full text-xs shadow-lg animate-bounce">
+                                PRO
+                            </div>
+                        </div>
+                        <div>
+                            <h2 className="text-3xl font-bold text-white mb-2">解鎖我的自選儀表板</h2>
+                            <p className="text-slate-400 max-w-md mx-auto">
+                                升級至 Premium 會員，即可建立專屬的跨市場投資組合，並獲得即時 DCA 策略建議。
+                            </p>
+                        </div>
+                        <a href="#" className="flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-bold rounded-2xl transition-all shadow-xl shadow-amber-900/20 hover:scale-105 hover:shadow-amber-500/30 group">
+                            <Sparkles className="group-hover:rotate-12 transition-transform" />
+                            立即升級 Pro 版本
+                        </a>
+                    </div>
+                );
+            }
 
             // Helper: Format Price
             const formatPrice = (price) => {
@@ -2681,6 +2704,7 @@
                                         <WatchlistDashboard
                                             watchlist={watchlist}
                                             onUpdateWatchlist={handleUpdateWatchlist}
+                                            isPremium={isPremium}
                                         />
                                     )}
                                 </>
