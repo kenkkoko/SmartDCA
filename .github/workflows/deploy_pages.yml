@@ -1,0 +1,55 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Inject API Key
+        run: |
+          sed -i 's/__GEMINI_API_KEY_PLACEHOLDER__/${{ secrets.GEMINI_API_KEY }}/g' index.html
+          sed -i 's/__CMC_API_KEY__/${{ secrets.CMC_API_KEY }}/g' index.html
+      - name: Verify Injection (Debug)
+        run: |
+          if grep -q "__GEMINI_API_KEY_PLACEHOLDER__" index.html; then
+            echo "::error::Gemini Placeholder still found!"
+            exit 1
+          fi
+          if grep -q "__CMC_API_KEY__" index.html; then
+            echo "::error::CMC Placeholder still found!"
+            exit 1
+          fi
+          # Check for the standard Google API Key prefix "AIza"
+          if grep -q "AIza" index.html; then
+             echo "Success: API Key injection verified."
+          else
+             echo "::error::API Key not found in index.html. The secret might be empty."
+             exit 1
+          fi
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
