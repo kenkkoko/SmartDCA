@@ -1320,76 +1320,8 @@
             };
             const suggestion = fngData ? getSuggestion(fngData.value) : null;
 
-            // Stock Price vs FNG Chart (Mixed Chart)
-            const StockFNGChart = ({ data, symbol }) => {
-                if (!data || data.length === 0) return null;
+            // Moved StockFNGChart to global scope for reuse
 
-                const chartData = {
-                    labels: data.map(d => d.date),
-                    datasets: [
-                        {
-                            label: `${symbol} 價格`,
-                            data: data.map(d => d.price),
-                            borderColor: '#3b82f6',
-                            backgroundColor: (context) => {
-                                const ctx = context.chart.ctx;
-                                const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-                                gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
-                                gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
-                                return gradient;
-                            },
-                            yAxisID: 'y',
-                            borderWidth: 2,
-                            fill: true,
-                            tension: 0.4,
-                            pointBackgroundColor: data.map(d => {
-                                if (d.fng <= 25) return '#ef4444';
-                                if (d.fng <= 44) return '#f97316';
-                                return 'rgba(0,0,0,0)';
-                            }),
-                            pointBorderColor: data.map(d => {
-                                if (d.fng <= 25) return '#ef4444';
-                                if (d.fng <= 44) return '#f97316';
-                                return 'rgba(0,0,0,0)';
-                            }),
-                            pointRadius: data.map(d => {
-                                if (d.fng <= 44) return 3;
-                                return 0;
-                            }),
-                            pointHoverRadius: 4,
-                        }
-                    ]
-                };
-
-                const options = {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                            callbacks: {
-                                label: (context) => {
-                                    const idx = context.dataIndex;
-                                    const d = data[idx];
-                                    return [
-                                        `價格: $${d.price.toLocaleString()}`,
-                                        `市場 FNG: ${d.fng}`,
-                                        d.fng <= 40 ? '🔴 建議 DCA 買入點' : '⚪ 觀望'
-                                    ];
-                                }
-                            }
-                        },
-                        title: { display: true, text: `${symbol} 價格走勢與市場恐懼指數 (紅/橘點代表市場恐懼)`, color: '#94a3b8' }
-                    },
-                    scales: {
-                        y: { type: 'linear', display: true, position: 'left', grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
-                        x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { display: false } }
-                    }
-                };
-                return <ChartComponent data={chartData} options={options} />;
-            };
 
             return (
                 <div className="space-y-6">
@@ -2452,6 +2384,102 @@
                 onUpdateWatchlist(newList);
             };
 
+            const [selectedAssetForChart, setSelectedAssetForChart] = useState(null);
+            const [chartData, setChartData] = useState([]);
+            const [chartLoading, setChartLoading] = useState(false);
+            const [chartError, setChartError] = useState(null);
+            // We need FNG data for the chart. Since we don't store it globally, we might need to fetch it or pass it.
+            // For simplicity and independence, we will fetch the relevant FNG index based on asset type.
+            // Crypto -> Alternative.me (we can't easily get history from client side without proxy sometimes, but let's try or use a static/mock approach if it fails, or better yet, use the same proxy logic as CryptoDashboard)
+            // Stock -> CNN (via proxy)
+
+            const fetchAssetHistory = async (symbol, type) => {
+                setChartLoading(true);
+                setChartError(null);
+                setChartData([]);
+                try {
+                    let historyData = [];
+                    let fngMap = new Map();
+
+                    // 1. Fetch FNG History (Contextual)
+                    if (type === 'CRYPTO') {
+                        // Fetch Crypto FNG History
+                        const res = await fetch('https://api.alternative.me/fng/?limit=365');
+                        const data = await res.json();
+                        if (data.data) {
+                            data.data.forEach(item => {
+                                const dateStr = new Date(parseInt(item.timestamp) * 1000).toISOString().split('T')[0];
+                                fngMap.set(dateStr, parseInt(item.value));
+                            });
+                        }
+                    } else {
+                        // Fetch CNN FNG History (Stocks)
+                        try {
+                            const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://production.dataviz.cnn.io/index/fearandgreed/graphdata');
+                            const fngResponse = await fetch(proxyUrl);
+                            const fngJson = await fngResponse.json();
+                            if (fngJson.fear_and_greed_historical && fngJson.fear_and_greed_historical.data) {
+                                fngJson.fear_and_greed_historical.data.forEach(item => {
+                                    const dateStr = new Date(item.x).toISOString().split('T')[0];
+                                    fngMap.set(dateStr, Math.round(item.y));
+                                });
+                            }
+                        } catch (e) {
+                            console.warn("CNN FNG Fetch Warning", e);
+                        }
+                    }
+
+                    // 2. Fetch Price History
+                    if (type === 'CRYPTO') {
+                        const map = { 'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'DOGE': 'dogecoin', 'BITCOIN': 'bitcoin' };
+                        let id = map[symbol.toUpperCase()] || symbol.toLowerCase();
+                        const histRes = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=365`);
+                        const histJson = await histRes.json();
+                        if (histJson.prices) {
+                            historyData = histJson.prices.map(p => {
+                                const dateStr = new Date(p[0]).toISOString().split('T')[0];
+                                return { date: dateStr, price: p[1], fng: fngMap.get(dateStr) || 50 };
+                            });
+                        }
+                    } else {
+                        // Stocks
+                        const yfSymbol = type === 'TW' && !symbol.includes('.') ? `${symbol}.TW` : symbol;
+                        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1d&range=1y`;
+                        const res = await fetch('https://corsproxy.io/?' + encodeURIComponent(url));
+                        const json = await res.json();
+                        if (json.chart && json.chart.result) {
+                            const result = json.chart.result[0];
+                            const timestamps = result.timestamp;
+                            const closes = result.indicators.quote[0].close;
+                            historyData = timestamps.map((t, i) => {
+                                if (closes[i] === null) return null;
+                                const dateStr = new Date(t * 1000).toISOString().split('T')[0];
+                                return { date: dateStr, price: closes[i], fng: fngMap.get(dateStr) || 50 };
+                            }).filter(x => x);
+                        }
+                    }
+
+                    if (historyData.length === 0) throw new Error("無歷史數據");
+                    setChartData(historyData);
+
+                } catch (e) {
+                    console.error(e);
+                    setChartError("無法讀取圖表數據");
+                } finally {
+                    setChartLoading(false);
+                }
+            };
+
+            const handleAssetClick = (asset) => {
+                setSelectedAssetForChart(asset);
+                fetchAssetHistory(asset.symbol, asset.type);
+            };
+
+            const closeModal = () => {
+                setSelectedAssetForChart(null);
+                setChartData([]);
+            };
+
             if (loading) return <div className="flex justify-center py-20"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>;
 
             if (!watchlist || watchlist.length === 0) return (
@@ -2463,62 +2491,102 @@
             );
 
             return (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {assetsData.map((item) => {
-                        const strategy = calculateDCAStrategy(item.price, item.low, item.high);
-                        return (
-                            <div key={item.symbol} className="bg-slate-900 rounded-2xl border border-slate-700 p-5 relative group hover:border-blue-500 transition-colors">
-                                <button
-                                    onClick={() => handleDelete(item.symbol)}
-                                    className="absolute top-4 right-4 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {assetsData.map((item) => {
+                            const strategy = calculateDCAStrategy(item.price, item.low, item.high);
+                            return (
+                                <div
+                                    key={item.symbol}
+                                    onClick={() => handleAssetClick(item)}
+                                    className="bg-slate-900 rounded-2xl border border-slate-700 p-5 relative group hover:border-blue-500 transition-colors cursor-pointer"
                                 >
-                                    ✕
-                                </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleDelete(item.symbol); }}
+                                        className="absolute top-4 right-4 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 z-10"
+                                    >
+                                        ✕
+                                    </button>
 
-                                <div className="flex items-center gap-2 mb-4">
-                                    <span className="text-xs font-bold px-2 py-1 bg-slate-800 rounded text-slate-400">{item.type}</span>
-                                    <h3 className="text-xl font-bold text-white tracking-widest">{item.symbol}</h3>
-                                </div>
-
-                                <div className="flex items-baseline gap-2 mb-4">
-                                    <span className="text-2xl font-mono text-white">${formatPrice(item.price)}</span>
-                                    {item.changePercent !== undefined && (
-                                        <span className={`text-sm font-bold ${item.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                            {item.changePercent > 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
-                                        </span>
-                                    )}
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-2 text-xs text-slate-400 mb-4 bg-slate-800/50 p-3 rounded-lg">
-                                    <div>
-                                        <div className="opacity-70">1Y High</div>
-                                        <div className="font-mono text-slate-200">${formatPrice(item.high)}</div>
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <span className="text-xs font-bold px-2 py-1 bg-slate-800 rounded text-slate-400">{item.type}</span>
+                                        <h3 className="text-xl font-bold text-white tracking-widest">{item.symbol}</h3>
                                     </div>
-                                    <div>
-                                        <div className="opacity-70">1Y Low</div>
-                                        <div className="font-mono text-slate-200">${formatPrice(item.low)}</div>
-                                    </div>
-                                </div>
 
-                                <div className={`flex items-center justify-between px-3 py-2 rounded-lg ${strategy.bg} border border-white/5`}>
-                                    <div className="flex items-center gap-2">
-                                        <span>{strategy.icon}</span>
-                                        <span className={`font-bold ${strategy.color}`}>{strategy.action}</span>
+                                    <div className="flex items-baseline gap-2 mb-4">
+                                        <span className="text-2xl font-mono text-white">${formatPrice(item.price)}</span>
+                                        {item.changePercent !== undefined && (
+                                            <span className={`text-sm font-bold ${item.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                {item.changePercent > 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
+                                            </span>
+                                        )}
                                     </div>
-                                    {/* Position Bar */}
-                                    {item.high && item.low && (
-                                        <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                                            <div
-                                                className={`h-full ${strategy.color.replace('text-', 'bg-')}`}
-                                                style={{ width: `${Math.max(0, Math.min(100, ((item.price - item.low) / (item.high - item.low)) * 100))}%` }}
-                                            ></div>
+
+                                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-400 mb-4 bg-slate-800/50 p-3 rounded-lg">
+                                        <div>
+                                            <div className="opacity-70">1Y High</div>
+                                            <div className="font-mono text-slate-200">${formatPrice(item.high)}</div>
                                         </div>
+                                        <div>
+                                            <div className="opacity-70">1Y Low</div>
+                                            <div className="font-mono text-slate-200">${formatPrice(item.low)}</div>
+                                        </div>
+                                    </div>
+
+                                    <div className={`flex items-center justify-between px-3 py-2 rounded-lg ${strategy.bg} border border-white/5`}>
+                                        <div className="flex items-center gap-2">
+                                            <span>{strategy.icon}</span>
+                                            <span className={`font-bold ${strategy.color}`}>{strategy.action}</span>
+                                        </div>
+                                        {/* Position Bar */}
+                                        {item.high && item.low && (
+                                            <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                                                <div
+                                                    className={`h-full ${strategy.color.replace('text-', 'bg-')}`}
+                                                    style={{ width: `${Math.max(0, Math.min(100, ((item.price - item.low) / (item.high - item.low)) * 100))}%` }}
+                                                ></div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="text-center mt-3 text-xs text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        點擊查看圖表分析
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Chart Modal */}
+                    {selectedAssetForChart && (
+                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] backdrop-blur-sm p-4" onClick={closeModal}>
+                            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl w-full max-w-2xl overflow-hidden relative" onClick={e => e.stopPropagation()}>
+                                <div className="p-4 border-b border-slate-800 flex justify-between items-center">
+                                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                                        <TrendingUp size={20} className="text-blue-500" />
+                                        {selectedAssetForChart.symbol} 價格 vs 情緒
+                                    </h3>
+                                    <button onClick={closeModal} className="text-slate-500 hover:text-white transition-colors">✕</button>
+                                </div>
+                                <div className="p-4 h-[350px]">
+                                    {chartLoading ? (
+                                        <div className="h-full flex items-center justify-center text-slate-500 gap-2">
+                                            <RefreshCw className="animate-spin" size={24} /> 載入歷史數據中...
+                                        </div>
+                                    ) : chartError ? (
+                                        <div className="h-full flex items-center justify-center text-red-400">
+                                            {chartError}
+                                        </div>
+                                    ) : (
+                                        <StockFNGChart data={chartData} symbol={selectedAssetForChart.symbol} />
                                     )}
+                                </div>
+                                <div className="bg-slate-950/50 p-3 text-xs text-center text-slate-500">
+                                    {selectedAssetForChart.type === 'CRYPTO' ? '數據來源: CoinGecko & Alternative.me' : '數據來源: Yahoo Finance & CNN Fear/Greed'}
                                 </div>
                             </div>
-                        );
-                    })}
-                </div>
+                        </div>
+                    )}
+                </>
             );
         };
 
@@ -2668,10 +2736,19 @@
                         </header>
 
                         {/* Navigation Tabs */}
-                        <nav className="flex p-1 bg-slate-800/50 backdrop-blur-md rounded-xl mb-6 border border-slate-700/50 sticky top-4 z-50 shadow-xl">
+                        <nav className="flex overflow-x-auto p-1 bg-slate-800/50 backdrop-blur-md rounded-xl mb-6 border border-slate-700/50 sticky top-4 z-50 shadow-xl no-scrollbar">
+                            <style>{`
+                                .no-scrollbar::-webkit-scrollbar {
+                                    display: none;
+                                }
+                                .no-scrollbar {
+                                    -ms-overflow-style: none; 
+                                    scrollbar-width: none; 
+                                }
+                            `}</style>
                             <button
                                 onClick={() => setActiveTab('crypto')}
-                                className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 ${activeTab === 'crypto'
+                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap shrink-0 ${activeTab === 'crypto'
                                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 scale-[1.02]'
                                     : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
                                     }`}
@@ -2681,7 +2758,7 @@
                             </button>
                             <button
                                 onClick={() => setActiveTab('stock')}
-                                className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 ${activeTab === 'stock'
+                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap shrink-0 ${activeTab === 'stock'
                                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 scale-[1.02]'
                                     : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
                                     }`}
@@ -2691,7 +2768,7 @@
                             </button>
                             <button
                                 onClick={() => setActiveTab('taiwan')}
-                                className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 ${activeTab === 'taiwan'
+                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap shrink-0 ${activeTab === 'taiwan'
                                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 scale-[1.02]'
                                     : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
                                     }`}
@@ -2702,7 +2779,7 @@
                             {user && (
                                 <button
                                     onClick={() => setActiveTab('watchlist')}
-                                    className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 ${activeTab === 'watchlist'
+                                    className={`flex-1 min-w-fit px-4 py-2.5 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap shrink-0 ${activeTab === 'watchlist'
                                         ? 'bg-yellow-600 text-white shadow-lg shadow-yellow-900/20 scale-[1.02]'
                                         : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
                                         }`}
@@ -2763,5 +2840,3 @@
 </body>
 
 </html>
-
-
