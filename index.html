@@ -292,10 +292,15 @@
             };
 
             if (user) {
+                const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture;
                 return (
                     <div className="flex items-center gap-3 bg-slate-800 py-1.5 px-3 rounded-full border border-slate-700">
                         <div className="flex items-center gap-2">
-                            <div className="bg-blue-600 rounded-full p-1"><User size={14} /></div>
+                            {avatarUrl ? (
+                                <img src={avatarUrl} alt="User Avatar" className="w-6 h-6 rounded-full border border-slate-600" />
+                            ) : (
+                                <div className="bg-blue-600 rounded-full p-1"><User size={14} /></div>
+                            )}
                             <span className="text-xs font-medium text-slate-300 hidden md:block">{user.email.split('@')[0]}</span>
                         </div>
                         <button onClick={handleLogout} className="text-slate-400 hover:text-red-400 transition-colors">
