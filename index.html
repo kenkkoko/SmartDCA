@@ -310,7 +310,8 @@
                                 onClick={() => window.open(LEMON_PORTAL_URL, '_blank')}
                                 className="text-xs bg-slate-700 hover:bg-slate-600 text-amber-500 font-bold px-2 py-1 rounded transition-colors"
                             >
-                                管理訂閱
+                                <span className="hidden md:inline">管理訂閱</span>
+                                <span className="md:hidden">管理</span>
                             </button>
                         ) : (
                             <button
@@ -337,7 +338,7 @@
                         onClick={() => setShowLoginModal(true)}
                         className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full text-sm font-bold transition-all shadow-lg shadow-indigo-900/20"
                     >
-                        <User size={16} /> 登入 / 註冊
+                        <User size={16} /> 登入 
                     </button>
 
                     {showLoginModal && (
@@ -614,7 +615,7 @@
                         className="px-4 py-2 bg-slate-700 text-slate-400 rounded-lg text-sm font-bold flex items-center gap-2 mx-auto transition-all shadow-lg border border-slate-600 cursor-not-allowed"
                     >
                         <Lock size={16} />
-                        AI 分析今日新聞重點 (Pro)
+                        AI 分析今日新聞重點
                     </button>
                     <p className="text-xs text-amber-500 mt-2 font-bold">升級 Premium 解鎖 AI 新聞摘要</p>
                 </div>
@@ -2959,7 +2960,8 @@
                                     }`}
                             >
                                 <img src="https://assets.coingecko.com/coins/images/1/small/bitcoin.png" className="w-4 h-4 opacity-80" alt="Crypto" />
-                                加密貨幣
+                                <span className="hidden md:inline">加密貨幣</span>
+                                <span className="md:hidden">加密</span>
                             </button>
                             <button
                                 onClick={() => setActiveTab('stock')}
@@ -2969,7 +2971,8 @@
                                     }`}
                             >
                                 <Globe size={16} />
-                                美股市場
+                                <span className="hidden md:inline">美股市場</span>
+                                <span className="md:hidden">美股</span>
                             </button>
                             <button
                                 onClick={() => setActiveTab('taiwan')}
@@ -2979,7 +2982,8 @@
                                     }`}
                             >
                                 <Activity size={16} />
-                                臺股市場
+                                <span className="hidden md:inline">台股市場</span>
+                                <span className="md:hidden">台股</span>
                             </button>
                             {user && (
                                 <button
@@ -2990,7 +2994,8 @@
                                         }`}
                                 >
                                     <span className="text-yellow-400">⭐</span>
-                                    我的自選
+                                    <span className="hidden md:inline">我的自選</span>
+                                    <span className="md:hidden">自選</span>
                                 </button>
                             )}
                         </nav>
