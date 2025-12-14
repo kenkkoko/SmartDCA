@@ -233,7 +233,7 @@
         const { Bell, TrendingUp, AlertTriangle, Info, RefreshCw, Smartphone, ArrowUp, ArrowDown, Newspaper, Sparkles, ExternalLink, Bot, Globe, Activity, BellRing, BellOff, LogOut, User, Lock } = Icons;
 
         // --- Auth Component ---
-        const AuthComponent = ({ user, setUser }) => {
+        const AuthComponent = ({ user, setUser, isPremium }) => {
             const [localLoading, setLocalLoading] = useState(false);
             const [showLoginModal, setShowLoginModal] = useState(false);
             const [email, setEmail] = useState('');
@@ -303,7 +303,28 @@
                             )}
                             <span className="text-xs font-medium text-slate-300 hidden md:block">{user.email.split('@')[0]}</span>
                         </div>
-                        <button onClick={handleLogout} className="text-slate-400 hover:text-red-400 transition-colors">
+
+                        {/* Subscription Management */}
+                        {isPremium ? (
+                            <button
+                                onClick={() => window.open(LEMON_PORTAL_URL, '_blank')}
+                                className="text-xs bg-slate-700 hover:bg-slate-600 text-amber-500 font-bold px-2 py-1 rounded transition-colors"
+                            >
+                                管理訂閱
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => {
+                                    const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
+                                    window.open(checkoutUrl, '_blank');
+                                }}
+                                className="text-xs bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-bold px-2 py-1 rounded transition-colors flex items-center gap-1"
+                            >
+                                <Sparkles size={10} /> 升級 Pro
+                            </button>
+                        )}
+
+                        <button onClick={handleLogout} className="text-slate-400 hover:text-red-400 transition-colors ml-1">
                             <LogOut size={16} />
                         </button>
                     </div>
@@ -1053,9 +1074,17 @@
                     </button>
 
                     {isLocked && (
-                        <a href="#" className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold rounded-lg hover:from-amber-400 hover:to-amber-500 transition-all shadow-lg shadow-amber-900/20 whitespace-nowrap">
+                        <button
+                            onClick={() => {
+                                const emailParam = symbol ? `&checkout[custom][symbol]=${symbol}` : '';
+                                // Note: We need email here. SymbolSearch consumes 'symbol' and 'onSearch'. 
+                                // It receives 'isLocked'. It doesn't receive user email.
+                                // We need to update SymbolSearch props.
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold rounded-lg hover:from-amber-400 hover:to-amber-500 transition-all shadow-lg shadow-amber-900/20 whitespace-nowrap"
+                        >
                             <Sparkles size={16} /> 升級 Pro
-                        </a>
+                        </button>
                     )}
                 </div>
             );
@@ -1085,6 +1114,9 @@
 
         // --- API Keys ---
         const CMC_API_KEY = '__CMC_API_KEY__';
+        // Lemon Squeezy Configuration
+        const LEMON_CHECKOUT_URL = 'https://smartdca.lemonsqueezy.com/buy/931e6d89-3193-4216-8c9b-a2d88c6e4acc';
+        const LEMON_PORTAL_URL = 'https://smartdca.lemonsqueezy.com/billing';
 
         // --- 美股儀表板元件 ---
         const StockDashboard = ({ notificationsEnabled, toggleNotifications, userInfo = { isPremium: false, watchlist: [] }, onUpdateWatchlist }) => {
@@ -1365,6 +1397,7 @@
                         symbol={selectedSymbol}
                         onSearch={setSelectedSymbol}
                         isLocked={!userInfo.isPremium}
+                        userEmail={userInfo.email}
                     />
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1787,6 +1820,7 @@
                         onSearch={setSelectedSymbol}
                         placeholder="輸入代號 (e.g. 2330)"
                         isLocked={!userInfo.isPremium}
+                        userEmail={userInfo.email}
                     />
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2184,6 +2218,7 @@
                         placeholder="輸入幣種 (e.g. solana)"
                         transformInput={(s) => s.toLowerCase()}
                         isLocked={!userInfo.isPremium}
+                        userEmail={userInfo.email}
                     />
                     <div className="flex gap-4 w-full flex-wrap">
                         <div onClick={() => setSelectedCoin('bitcoin')} className={`cursor-pointer flex flex-col flex-1 p-4 rounded-xl border transition-all ${selectedCoin === 'bitcoin' ? 'bg-slate-800 border-blue-500 shadow-lg' : 'bg-slate-900/50 border-slate-800'}`}>
@@ -2280,7 +2315,7 @@
         };
 
         // --- Watchlist Dashboard Feature ---
-        const WatchlistDashboard = ({ watchlist, onUpdateWatchlist, isPremium }) => {
+        const WatchlistDashboard = ({ watchlist, onUpdateWatchlist, isPremium, user }) => {
             const [assetsData, setAssetsData] = useState([]);
             const [loading, setLoading] = useState(true);
 
@@ -2299,10 +2334,16 @@
                                 升級至 Premium 會員，即可建立專屬的跨市場投資組合，並獲得即時 DCA 策略建議。
                             </p>
                         </div>
-                        <a href="#" className="flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-bold rounded-2xl transition-all shadow-xl shadow-amber-900/20 hover:scale-105 hover:shadow-amber-500/30 group">
+                        <button
+                            onClick={() => {
+                                const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
+                                window.open(checkoutUrl, '_blank');
+                            }}
+                            className="flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-bold rounded-2xl transition-all shadow-xl shadow-amber-900/20 hover:scale-105 hover:shadow-amber-500/30 group"
+                        >
                             <Sparkles className="group-hover:rotate-12 transition-transform" />
                             立即升級 Pro 版本
-                        </a>
+                        </button>
                     </div>
                 );
             }
@@ -2622,7 +2663,7 @@
                                     {notificationsEnabled ? <BellRing size={16} /> : <BellOff size={16} />}
                                 </button>
 
-                                <AuthComponent user={user} setUser={setUser} />
+                                <AuthComponent user={user} setUser={setUser} isPremium={isPremium} />
                             </div>
                         </header>
 
@@ -2682,7 +2723,7 @@
                                         <CryptoDashboard
                                             notificationsEnabled={notificationsEnabled}
                                             toggleNotifications={toggleNotifications}
-                                            userInfo={{ isPremium, watchlist }}
+                                            userInfo={{ isPremium, watchlist, email: user?.email }}
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                         />
                                     )}
@@ -2690,13 +2731,13 @@
                                         <StockDashboard
                                             notificationsEnabled={notificationsEnabled}
                                             toggleNotifications={toggleNotifications}
-                                            userInfo={{ isPremium, watchlist }}
+                                            userInfo={{ isPremium, watchlist, email: user?.email }}
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                         />
                                     )}
                                     {activeTab === 'taiwan' && (
                                         <TaiwanDashboard
-                                            userInfo={{ isPremium, watchlist }}
+                                            userInfo={{ isPremium, watchlist, email: user?.email }}
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                         />
                                     )}
@@ -2705,6 +2746,7 @@
                                             watchlist={watchlist}
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                             isPremium={isPremium}
+                                            user={user}
                                         />
                                     )}
                                 </>
