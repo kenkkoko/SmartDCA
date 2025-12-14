@@ -2314,10 +2314,275 @@
             );
         };
 
+        // --- Shared Chart Components & Logic ---
+
+        // 1. Universal FNG Chart (Price + Colored Dots)
+        const UniversalFNGChart = ({ data, symbol, title }) => {
+            if (!data || data.length === 0) return null;
+
+            const chartData = {
+                labels: data.map(d => d.date),
+                datasets: [
+                    {
+                        label: `${symbol} 價格`,
+                        data: data.map(d => d.price),
+                        borderColor: '#3b82f6',
+                        backgroundColor: (context) => {
+                            const ctx = context.chart.ctx;
+                            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
+                            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+                            return gradient;
+                        },
+                        yAxisID: 'y',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: data.map(d => {
+                            // Logic adapted for general FNG (0-100) or RSI (0-100)
+                            // For FNG: Low is Fear (Buy) -> Red/Orange
+                            // For RSI: Low is Oversold (Buy) -> Red/Orange
+                            // So logic is consistent: Low Value = Buy Signal (Red/Orange)
+                            if (d.fng <= 25) return '#ef4444'; // Red
+                            if (d.fng <= 45) return '#f97316'; // Orange
+                            return 'rgba(0,0,0,0)';
+                        }),
+                        pointBorderColor: data.map(d => {
+                            if (d.fng <= 25) return '#ef4444';
+                            if (d.fng <= 45) return '#f97316';
+                            return 'rgba(0,0,0,0)';
+                        }),
+                        pointRadius: data.map(d => {
+                            if (d.fng <= 45) return 3;
+                            return 0;
+                        }),
+                        pointHoverRadius: 4,
+                    }
+                ]
+            };
+
+            const options = {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        callbacks: {
+                            label: (context) => {
+                                const idx = context.dataIndex;
+                                const d = data[idx];
+                                return [
+                                    `價格: $${d.price.toLocaleString()}`,
+                                    `指標: ${d.fng} (${d.classification || 'N/A'})`,
+                                    d.fng <= 40 ? '🔴 建議 DCA 買入點' : '⚪ 觀望'
+                                ];
+                            }
+                        }
+                    },
+                    title: { display: true, text: title || `${symbol} 趨勢圖 (紅/橘點為買入訊號)`, color: '#94a3b8' }
+                },
+                scales: {
+                    y: { type: 'linear', display: true, position: 'left', grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
+                    x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { display: false } }
+                }
+            };
+            return <ChartComponent data={chartData} options={options} />;
+        };
+
+        // 2. Chart Modal
+        const ChartModal = ({ symbol, type, onClose }) => {
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [chartData, setChartData] = useState([]);
+            const [stats, setStats] = useState(null); // { currentFng, classification, etc }
+
+            useEffect(() => {
+                const loadData = async () => {
+                    setLoading(true);
+                    setError(null);
+                    try {
+                        let mergedData = [];
+                        let currentStats = {};
+
+                        if (type === 'US') {
+                            // Fetch CNN FNG + Yahoo
+                            const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://production.dataviz.cnn.io/index/fearandgreed/graphdata');
+                            const fngRes = await fetch(proxyUrl);
+                            const fngJson = await fngRes.json();
+                            const fngMap = new Map();
+                            if (fngJson.fear_and_greed_historical?.data) {
+                                fngJson.fear_and_greed_historical.data.forEach(item => {
+                                    fngMap.set(new Date(item.x).toISOString().split('T')[0], Math.round(item.y));
+                                });
+                            }
+
+                            // Yahoo
+                            const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y`;
+                            const yfRes = await fetch('https://corsproxy.io/?' + encodeURIComponent(yfUrl));
+                            const yfJson = await yfRes.json();
+                            const result = yfJson.chart.result[0];
+                            const quotes = result.indicators.quote[0].close;
+                            const times = result.timestamp;
+
+                            mergedData = times.map((t, i) => {
+                                const date = new Date(t * 1000).toISOString().split('T')[0];
+                                const price = quotes[i];
+                                if (!price) return null;
+                                let fng = fngMap.get(date) || 50;
+                                return { date, price, fng, classification: fng <= 25 ? 'Extreme Fear' : fng <= 45 ? 'Fear' : 'Neutral' };
+                            }).filter(d => d);
+
+                            currentStats = {
+                                value: Math.round(fngJson.fear_and_greed.score),
+                                label: fngJson.fear_and_greed.rating
+                            };
+                        } else if (type === 'CRYPTO') {
+                            // CoinGecko + Alt.me
+                            const map = { 'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'DOGE': 'dogecoin', 'BNB': 'binancecoin' };
+                            const id = map[symbol.toUpperCase()] || symbol.toLowerCase();
+
+                            // FNG
+                            const fngRes = await fetch('https://api.alternative.me/fng/?limit=365');
+                            const fngJson = await fngRes.json();
+                            const fngMap = new Map();
+                            fngJson.data.forEach(item => fngMap.set(new Date(item.timestamp * 1000).toISOString().split('T')[0], parseInt(item.value)));
+
+                            // CoinGecko
+                            const cgRes = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=365&interval=daily`);
+                            if (!cgRes.ok) throw new Error("CoinGecko Error");
+                            const cgJson = await cgRes.json();
+
+                            mergedData = cgJson.prices.map(([ts, price]) => {
+                                const date = new Date(ts).toISOString().split('T')[0];
+                                const fng = fngMap.get(date) || 50;
+                                return { date, price, fng, classification: fng <= 25 ? 'Extreme Fear' : fng <= 45 ? 'Fear' : 'Neutral' };
+                            });
+                            const last = fngJson.data[0];
+                            currentStats = { value: last.value, label: last.value_classification };
+
+                        } else if (type === 'TW') {
+                            // Yahoo + RSI
+                            const yfSymbol = symbol.includes('.') ? symbol : `${symbol}.TW`;
+                            const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1d&range=1y`;
+                            const yfRes = await fetch('https://corsproxy.io/?' + encodeURIComponent(yfUrl));
+                            const yfJson = await yfRes.json();
+                            const result = yfJson.chart.result[0];
+                            const quotes = result.indicators.quote[0].close;
+                            const times = result.timestamp;
+
+                            const cleanData = times.map((t, i) => ({ price: quotes[i], date: new Date(t * 1000).toISOString().split('T')[0] })).filter(d => d.price);
+
+                            // Calc RSI (Global Helper Logic)
+                            const rsiData = [];
+                            let period = 14;
+                            let gains = 0, losses = 0;
+                            // Note: simplified RSI calc for brevity inside modal
+                            for (let i = 1; i <= period; i++) {
+                                const chg = cleanData[i].price - cleanData[i - 1].price;
+                                if (chg > 0) gains += chg; else losses -= chg;
+                            }
+                            let avgGain = gains / period, avgLoss = losses / period;
+
+                            for (let i = period + 1; i < cleanData.length; i++) {
+                                const chg = cleanData[i].price - cleanData[i - 1].price;
+                                avgGain = ((avgGain * 13) + (chg > 0 ? chg : 0)) / 14;
+                                avgLoss = ((avgLoss * 13) + (chg < 0 ? -chg : 0)) / 14;
+                                let rs = avgGain / avgLoss;
+                                let rsi = 100 - (100 / (1 + rs));
+                                rsiData.push({ ...cleanData[i], fng: Math.round(rsi), classification: rsi <= 30 ? 'Oversold' : rsi >= 70 ? 'Overbought' : 'Neutral' });
+                            }
+                            mergedData = rsiData;
+                            if (mergedData.length > 0) {
+                                const last = mergedData[mergedData.length - 1];
+                                currentStats = { value: last.fng, label: last.classification };
+                            }
+                        }
+
+                        setChartData(mergedData);
+                        setStats(currentStats);
+                    } catch (e) {
+                        console.error(e);
+                        setError("無法載入圖表數據: " + e.message);
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+                loadData();
+            }, [symbol, type]);
+
+            return (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] backdrop-blur-sm p-4" onClick={onClose}>
+                    <div className="bg-slate-900 w-full max-w-3xl rounded-2xl border border-slate-700 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50 backdrop-blur">
+                            <div>
+                                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                                    <TrendingUp size={20} className="text-blue-500" />
+                                    {symbol} 趨勢分析
+                                </h3>
+                                <p className="text-xs text-slate-400">{type === 'TW' ? '價格 vs RSI (趨勢強弱)' : '價格 vs 恐懼貪婪指數'}</p>
+                            </div>
+                            <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-white">
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto">
+                            {loading ? (
+                                <div className="h-64 flex items-center justify-center text-slate-500 gap-2">
+                                    <RefreshCw className="animate-spin" /> 分析數據中...
+                                </div>
+                            ) : error ? (
+                                <div className="h-64 flex items-center justify-center text-red-400 gap-2">
+                                    <AlertTriangle /> {error}
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="h-[350px] w-full bg-slate-950/50 rounded-xl p-2">
+                                        <UniversalFNGChart
+                                            data={chartData}
+                                            symbol={symbol}
+                                            title={type === 'TW' ? `${symbol} 歷史走勢 (紅點=RSI超賣)` : undefined}
+                                        />
+                                    </div>
+
+                                    {stats && (
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                                                <div className="text-slate-400 text-xs mb-1">當前指標 ({type === 'TW' ? 'RSI' : 'FNG'})</div>
+                                                <div className="text-2xl font-bold text-white flex items-baseline gap-2">
+                                                    {stats.value}
+                                                    <span className="text-sm font-normal text-slate-400">/ 100</span>
+                                                </div>
+                                                <div className={`text-sm font-bold ${stats.value <= 40 ? 'text-red-400' : stats.value >= 75 ? 'text-green-400' : 'text-blue-400'}`}>
+                                                    {stats.label}
+                                                </div>
+                                            </div>
+                                            <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                                                <div className="text-slate-400 text-xs mb-1">AI 策略建議</div>
+                                                <div className="text-lg font-bold text-white">
+                                                    {stats.value <= 30 ? '🟢 強力買入區' : stats.value <= 50 ? '🟡 分批買入區 (DCA)' : '⚪ 觀望 / 止盈'}
+                                                </div>
+                                                <p className="text-xs text-slate-500 mt-1">
+                                                    {stats.value <= 50 ? '市場情緒低迷，適合執行 DCA 累積籌碼。' : '市場情緒樂觀，建議謹慎操作。'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         // --- Watchlist Dashboard Feature ---
         const WatchlistDashboard = ({ watchlist, onUpdateWatchlist, isPremium, user }) => {
             const [assetsData, setAssetsData] = useState([]);
             const [loading, setLoading] = useState(true);
+            const [selectedChartItem, setSelectedChartItem] = useState(null); // { symbol, type }
 
             if (!isPremium) {
                 return (
@@ -2463,62 +2728,79 @@
             );
 
             return (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {assetsData.map((item) => {
-                        const strategy = calculateDCAStrategy(item.price, item.low, item.high);
-                        return (
-                            <div key={item.symbol} className="bg-slate-900 rounded-2xl border border-slate-700 p-5 relative group hover:border-blue-500 transition-colors">
-                                <button
-                                    onClick={() => handleDelete(item.symbol)}
-                                    className="absolute top-4 right-4 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {assetsData.map((item) => {
+                            const strategy = calculateDCAStrategy(item.price, item.low, item.high);
+                            return (
+                                <div
+                                    key={item.symbol}
+                                    className="bg-slate-900 rounded-2xl border border-slate-700 p-5 relative group hover:border-blue-500 transition-colors cursor-pointer"
+                                    onClick={() => setSelectedChartItem({ symbol: item.symbol, type: item.type })}
                                 >
-                                    ✕
-                                </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleDelete(item.symbol); }}
+                                        className="absolute top-4 right-4 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 z-10"
+                                    >
+                                        ✕
+                                    </button>
 
-                                <div className="flex items-center gap-2 mb-4">
-                                    <span className="text-xs font-bold px-2 py-1 bg-slate-800 rounded text-slate-400">{item.type}</span>
-                                    <h3 className="text-xl font-bold text-white tracking-widest">{item.symbol}</h3>
-                                </div>
-
-                                <div className="flex items-baseline gap-2 mb-4">
-                                    <span className="text-2xl font-mono text-white">${formatPrice(item.price)}</span>
-                                    {item.changePercent !== undefined && (
-                                        <span className={`text-sm font-bold ${item.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                            {item.changePercent > 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
-                                        </span>
-                                    )}
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-2 text-xs text-slate-400 mb-4 bg-slate-800/50 p-3 rounded-lg">
-                                    <div>
-                                        <div className="opacity-70">1Y High</div>
-                                        <div className="font-mono text-slate-200">${formatPrice(item.high)}</div>
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <span className="text-xs font-bold px-2 py-1 bg-slate-800 rounded text-slate-400">{item.type}</span>
+                                        <h3 className="text-xl font-bold text-white tracking-widest">{item.symbol}</h3>
                                     </div>
-                                    <div>
-                                        <div className="opacity-70">1Y Low</div>
-                                        <div className="font-mono text-slate-200">${formatPrice(item.low)}</div>
-                                    </div>
-                                </div>
 
-                                <div className={`flex items-center justify-between px-3 py-2 rounded-lg ${strategy.bg} border border-white/5`}>
-                                    <div className="flex items-center gap-2">
-                                        <span>{strategy.icon}</span>
-                                        <span className={`font-bold ${strategy.color}`}>{strategy.action}</span>
+                                    <div className="flex items-baseline gap-2 mb-4">
+                                        <span className="text-2xl font-mono text-white">${formatPrice(item.price)}</span>
+                                        {item.changePercent !== undefined && (
+                                            <span className={`text-sm font-bold ${item.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                {item.changePercent > 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
+                                            </span>
+                                        )}
                                     </div>
-                                    {/* Position Bar */}
-                                    {item.high && item.low && (
-                                        <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                                            <div
-                                                className={`h-full ${strategy.color.replace('text-', 'bg-')}`}
-                                                style={{ width: `${Math.max(0, Math.min(100, ((item.price - item.low) / (item.high - item.low)) * 100))}%` }}
-                                            ></div>
+
+                                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-400 mb-4 bg-slate-800/50 p-3 rounded-lg">
+                                        <div>
+                                            <div className="opacity-70">1Y High</div>
+                                            <div className="font-mono text-slate-200">${formatPrice(item.high)}</div>
                                         </div>
-                                    )}
+                                        <div>
+                                            <div className="opacity-70">1Y Low</div>
+                                            <div className="font-mono text-slate-200">${formatPrice(item.low)}</div>
+                                        </div>
+                                    </div>
+
+                                    <div className={`flex items-center justify-between px-3 py-2 rounded-lg ${strategy.bg} border border-white/5`}>
+                                        <div className="flex items-center gap-2">
+                                            <span>{strategy.icon}</span>
+                                            <span className={`font-bold ${strategy.color}`}>{strategy.action}</span>
+                                        </div>
+                                        {/* Position Bar */}
+                                        {item.high && item.low && (
+                                            <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                                                <div
+                                                    className={`h-full ${strategy.color.replace('text-', 'bg-')}`}
+                                                    style={{ width: `${Math.max(0, Math.min(100, ((item.price - item.low) / (item.high - item.low)) * 100))}%` }}
+                                                ></div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="mt-3 text-xs text-center text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        點擊查看趨勢圖表 ↗
+                                    </div>
                                 </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                            );
+                        })}
+                    </div>
+
+                    {selectedChartItem && (
+                        <ChartModal
+                            symbol={selectedChartItem.symbol}
+                            type={selectedChartItem.type}
+                            onClose={() => setSelectedChartItem(null)}
+                        />
+                    )}
+                </>
             );
         };
 
