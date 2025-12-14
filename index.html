@@ -441,7 +441,7 @@
         };
 
         // --- AI Advice Component ---
-        const AIAdviceBlock = ({ marketData, assetName, priceStats }) => {
+        const AIAdviceBlock = ({ marketData, assetName, priceStats, isLocked }) => {
             const [advice, setAdvice] = useState(null);
             const [loading, setLoading] = useState(false);
             const [started, setStarted] = useState(false);
@@ -484,13 +484,21 @@
             if (!started) return (
                 <div className="mt-4 text-center">
                     <button
-                        onClick={handleAnalyze}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold flex items-center gap-2 mx-auto transition-all shadow-lg shadow-indigo-500/20"
+                        onClick={isLocked ? () => { } : handleAnalyze}
+                        disabled={isLocked}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 mx-auto transition-all shadow-lg ${isLocked
+                            ? 'bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-600'
+                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/20'
+                            }`}
                     >
-                        <Sparkles size={16} />
-                        詢問 AI 投資顧問
+                        {isLocked ? <Lock size={16} /> : <Sparkles size={16} />}
+                        {isLocked ? '詢問 AI 投資顧問 (Pro)' : '詢問 AI 投資顧問'}
                     </button>
-                    <p className="text-xs text-slate-500 mt-2">點擊按鈕以獲取 Gemini 2.5 AI 的即時分析建議</p>
+                    {isLocked ? (
+                        <p className="text-xs text-amber-500 mt-2 font-bold">升級 Premium 會員即可解鎖 AI 深度分析</p>
+                    ) : (
+                        <p className="text-xs text-slate-500 mt-2">點擊按鈕以獲取 Gemini 2.5 AI 的即時分析建議</p>
+                    )}
                 </div>
             );
 
@@ -538,7 +546,7 @@
         };
 
         // --- AI News Analysis Component ---
-        const NewsAIAnalysis = ({ newsItems }) => {
+        const NewsAIAnalysis = ({ newsItems, isLocked }) => {
             const [summary, setSummary] = useState(null);
             const [loading, setLoading] = useState(false);
             const [started, setStarted] = useState(false);
@@ -575,6 +583,19 @@
                         <Newspaper size={16} />
                         AI 分析今日新聞重點
                     </button>
+                </div>
+            );
+
+            if (isLocked) return (
+                <div className="mb-6 text-center">
+                    <button
+                        disabled
+                        className="px-4 py-2 bg-slate-700 text-slate-400 rounded-lg text-sm font-bold flex items-center gap-2 mx-auto transition-all shadow-lg border border-slate-600 cursor-not-allowed"
+                    >
+                        <Lock size={16} />
+                        AI 分析今日新聞重點 (Pro)
+                    </button>
+                    <p className="text-xs text-amber-500 mt-2 font-bold">升級 Premium 解鎖 AI 新聞摘要</p>
                 </div>
             );
 
@@ -1396,6 +1417,7 @@
                                         high: Math.max(...stockData.map(d => d.price)),
                                         low: Math.min(...stockData.map(d => d.price))
                                     } : null}
+                                    isLocked={!userInfo.isPremium}
                                 />
                             )}
                         </div>
@@ -1431,7 +1453,7 @@
                         </div>
                         {!loading && !error && stockNews.length > 0 && (
                             <>
-                                <NewsAIAnalysis newsItems={stockNews} />
+                                <NewsAIAnalysis newsItems={stockNews} isLocked={!userInfo.isPremium} />
                                 <NewsSummary news={stockNews} />
                             </>
                         )}
@@ -1844,6 +1866,7 @@
                                         high: Math.max(...rsiData.history.map(d => d.y)),
                                         low: Math.min(...rsiData.history.map(d => d.y))
                                     }}
+                                    isLocked={!userInfo.isPremium}
                                 />
                             )}
                         </div>
@@ -1883,7 +1906,7 @@
 
                         {!loading && !error && news.length > 0 && (
                             <>
-                                <NewsAIAnalysis newsItems={news} />
+                                <NewsAIAnalysis newsItems={news} isLocked={!userInfo.isPremium} />
                                 <NewsSummary news={news} />
                             </>
                         )}
@@ -2219,6 +2242,7 @@
                                             assetName={`加密貨幣 (${selectedCoin.toUpperCase()})`}
                                             priceStats={{ current: prices[selectedCoin]?.usd, high: Math.max(...historicalData.map(d => d.price)), low: Math.min(...historicalData.map(d => d.price)) }}
                                             marketData={`資產: ${selectedCoin.toUpperCase()}\n價格: $${formatPrice(prices[selectedCoin]?.usd)}\n恐懼貪婪指數: ${currentFNG.value} (${currentFNG.value_classification})`}
+                                            isLocked={!userInfo.isPremium}
                                         />
                                     </div>
                                 )}
@@ -2245,7 +2269,7 @@
                             </div>
                             <div className="mt-8">
                                 <div className="flex items-center gap-2 mb-6"><Newspaper className="text-blue-500" /><h2 className="text-xl font-bold text-slate-200">今日幣圈頭條</h2></div>
-                                {!newsLoading && !newsError && newsData.length > 0 && <><NewsAIAnalysis newsItems={newsData} /><NewsSummary news={newsData} /></>}
+                                {!newsLoading && !newsError && newsData.length > 0 && <><NewsAIAnalysis newsItems={newsData} isLocked={!userInfo.isPremium} /><NewsSummary news={newsData} /></>}
                                 <NewsSection news={newsData} loading={newsLoading} error={newsError} />
                             </div>
                             <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 mt-6"><h3 className="font-bold text-slate-200 mb-3 flex items-center gap-2"><Info size={18} />關於數據來源</h3><div className="text-sm text-slate-400 space-y-2"><p><strong>價格數據:</strong> CoinMarketCap (即時), CoinGecko (歷史)</p><p><strong>情緒指標:</strong> Alternative.me Crypto Fear & Greed Index</p></div></div>
