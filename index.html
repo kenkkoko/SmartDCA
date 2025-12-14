@@ -274,6 +274,9 @@
                 try {
                     const { data, error } = await supabase.auth.signInWithOAuth({
                         provider: 'google',
+                        options: {
+                            redirectTo: window.location.href.split('#')[0] // Ensure we redirect to the clean URL
+                        }
                     });
                     if (error) throw error;
                 } catch (error) {
@@ -2257,17 +2260,33 @@
             const [watchlist, setWatchlist] = useState([]);
             const [appLoading, setAppLoading] = useState(true);
 
-            // 1. Check Auth Session
+            // 1. Check Auth Session & Subscribe to Changes
             useEffect(() => {
-                const checkSession = async () => {
-                    if (!supabase) return;
-                    const { data: { session } } = await supabase.auth.getSession();
+                if (!supabase) {
+                    setAppLoading(false);
+                    return;
+                }
+
+                // Initial Session Check
+                supabase.auth.getSession().then(({ data: { session } }) => {
                     if (session) {
                         setUser(session.user);
                     }
                     setAppLoading(false);
-                };
-                checkSession();
+                });
+
+                // Listen for Auth Changes (Login, Logout, OAuth Redirects)
+                const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+                    setUser(session?.user ?? null);
+                    setAppLoading(false);
+
+                    // Clean up the URL hash if it contains auth tokens
+                    if (session && window.location.hash && window.location.hash.includes('access_token')) {
+                        window.history.replaceState(null, '', window.location.pathname);
+                    }
+                });
+
+                return () => subscription.unsubscribe();
             }, []);
 
             // 2. Fetch User Profile
