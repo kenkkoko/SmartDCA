@@ -2292,7 +2292,7 @@
 
             // Helper: Classify Asset Type
             const classifyAsset = (symbol) => {
-                if (symbol.toUpperCase().includes('.TW')) return 'TW';
+                if (symbol.toUpperCase().includes('.TW') || /^\d+$/.test(symbol)) return 'TW';
                 const commonCryptos = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'TRX', 'LINK', 'MATIC', 'LTC', 'BITCOIN', 'ETHEREUM', 'SOLANA'];
                 if (commonCryptos.includes(symbol.toUpperCase())) return 'CRYPTO';
                 if (/^[A-Za-z]+$/.test(symbol) && symbol.length <= 5) return 'US';
