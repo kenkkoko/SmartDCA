@@ -2279,6 +2279,185 @@
             );
         };
 
+        // --- Watchlist Dashboard Feature ---
+        const WatchlistDashboard = ({ watchlist, onUpdateWatchlist }) => {
+            const [assetsData, setAssetsData] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            // Helper: Format Price
+            const formatPrice = (price) => {
+                if (price === null || price === undefined) return '0.00';
+                return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            };
+
+            // Helper: Classify Asset Type
+            const classifyAsset = (symbol) => {
+                if (symbol.toUpperCase().includes('.TW')) return 'TW';
+                const commonCryptos = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'TRX', 'LINK', 'MATIC', 'LTC', 'BITCOIN', 'ETHEREUM', 'SOLANA'];
+                if (commonCryptos.includes(symbol.toUpperCase())) return 'CRYPTO';
+                if (/^[A-Za-z]+$/.test(symbol) && symbol.length <= 5) return 'US';
+                return 'UNKNOWN';
+            };
+
+            // Helper: DCA Strategy
+            const calculateDCAStrategy = (current, low, high) => {
+                if (!current || !low || !high) return { action: "N/A", color: "text-slate-500", bg: "bg-slate-800" };
+                const position = (current - low) / (high - low);
+                if (position < 0.2) return { action: "強力買入區", color: "text-green-400", bg: "bg-green-900/30", icon: "🟢" };
+                if (position < 0.4) return { action: "分批買入區", color: "text-yellow-400", bg: "bg-yellow-900/30", icon: "🟡" };
+                if (position > 0.8) return { action: "高風險/止盈區", color: "text-red-400", bg: "bg-red-900/30", icon: "🔴" };
+                return { action: "觀望區", color: "text-slate-400", bg: "bg-slate-800", icon: "⚪" };
+            };
+
+            const fetchData = async () => {
+                if (!watchlist || watchlist.length === 0) {
+                    setAssetsData([]);
+                    setLoading(false);
+                    return;
+                }
+                setLoading(true);
+                const results = [];
+
+                // Group by type for efficiency (optional, but good for batching if APIs supported it)
+                // Here we just iterate and fetch parallel
+                const promises = watchlist.map(async (symbol) => {
+                    const type = classifyAsset(symbol);
+                    try {
+                        let data = { symbol, type, price: null, high: null, low: null, change: null };
+
+                        if (type === 'US' || type === 'TW') {
+                            // Yahoo Finance Logic
+                            const yfSymbol = type === 'TW' && !symbol.includes('.') ? `${symbol}.TW` : symbol;
+                            // Need range=1y to get high/low
+                            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1d&range=1y`;
+                            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent(url));
+                            const json = await res.json();
+                            const result = json.chart.result[0];
+                            const quote = result.indicators.quote[0];
+                            const closes = quote.close.filter(x => x !== null);
+
+                            if (closes.length > 0) {
+                                data.price = result.meta.regularMarketPrice;
+                                data.changePercent = ((data.price - result.meta.chartPreviousClose) / result.meta.chartPreviousClose) * 100;
+                                data.high = Math.max(...closes);
+                                data.low = Math.min(...closes);
+                            }
+                        } else if (type === 'CRYPTO') {
+                            // CoinGecko Logic for history (High/Low) + Simple Price
+                            // Need ID mapping logic or search. For "common" ones, we guess ID.
+                            // Simple mapping for common ones to avoid search overhead:
+                            const map = { 'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'DOGE': 'dogecoin', 'BITCOIN': 'bitcoin' };
+                            let id = map[symbol.toUpperCase()] || symbol.toLowerCase();
+
+                            // 1. Get Price & 24h Change
+                            const priceRes = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd&include_24hr_change=true`);
+                            const priceJson = await priceRes.json();
+
+                            if (priceJson[id]) {
+                                data.price = priceJson[id].usd;
+                                data.changePercent = priceJson[id].usd_24h_change;
+
+                                // 2. Get 1Y High/Low (Market Chart)
+                                const histRes = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=365`);
+                                const histJson = await histRes.json();
+                                if (histJson.prices) {
+                                    const prices = histJson.prices.map(p => p[1]);
+                                    data.high = Math.max(...prices);
+                                    data.low = Math.min(...prices);
+                                }
+                            }
+                        }
+                        return data;
+                    } catch (e) {
+                        console.error(`Error fetching ${symbol}:`, e);
+                        return { symbol, error: true };
+                    }
+                });
+
+                const fetchedData = await Promise.all(promises);
+                setAssetsData(fetchedData.filter(d => !d.error));
+                setLoading(false);
+            };
+
+            useEffect(() => {
+                fetchData();
+            }, [watchlist]);
+
+            const handleDelete = (symbol) => {
+                const newList = watchlist.filter(s => s !== symbol);
+                onUpdateWatchlist(newList);
+            };
+
+            if (loading) return <div className="flex justify-center py-20"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>;
+
+            if (!watchlist || watchlist.length === 0) return (
+                <div className="text-center py-20 text-slate-500">
+                    <Sparkles size={48} className="mx-auto mb-4 opacity-50" />
+                    <h3 className="text-xl font-bold text-slate-300">您的自選清單是空的</h3>
+                    <p className="mt-2 text-sm">請前往 Crypto / 美股 / 台股 分頁，點擊標題旁的星星圖示加入自選股。</p>
+                </div>
+            );
+
+            return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {assetsData.map((item) => {
+                        const strategy = calculateDCAStrategy(item.price, item.low, item.high);
+                        return (
+                            <div key={item.symbol} className="bg-slate-900 rounded-2xl border border-slate-700 p-5 relative group hover:border-blue-500 transition-colors">
+                                <button
+                                    onClick={() => handleDelete(item.symbol)}
+                                    className="absolute top-4 right-4 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                                >
+                                    ✕
+                                </button>
+
+                                <div className="flex items-center gap-2 mb-4">
+                                    <span className="text-xs font-bold px-2 py-1 bg-slate-800 rounded text-slate-400">{item.type}</span>
+                                    <h3 className="text-xl font-bold text-white tracking-widest">{item.symbol}</h3>
+                                </div>
+
+                                <div className="flex items-baseline gap-2 mb-4">
+                                    <span className="text-2xl font-mono text-white">${formatPrice(item.price)}</span>
+                                    {item.changePercent !== undefined && (
+                                        <span className={`text-sm font-bold ${item.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                            {item.changePercent > 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2 text-xs text-slate-400 mb-4 bg-slate-800/50 p-3 rounded-lg">
+                                    <div>
+                                        <div className="opacity-70">1Y High</div>
+                                        <div className="font-mono text-slate-200">${formatPrice(item.high)}</div>
+                                    </div>
+                                    <div>
+                                        <div className="opacity-70">1Y Low</div>
+                                        <div className="font-mono text-slate-200">${formatPrice(item.low)}</div>
+                                    </div>
+                                </div>
+
+                                <div className={`flex items-center justify-between px-3 py-2 rounded-lg ${strategy.bg} border border-white/5`}>
+                                    <div className="flex items-center gap-2">
+                                        <span>{strategy.icon}</span>
+                                        <span className={`font-bold ${strategy.color}`}>{strategy.action}</span>
+                                    </div>
+                                    {/* Position Bar */}
+                                    {item.high && item.low && (
+                                        <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                                            <div
+                                                className={`h-full ${strategy.color.replace('text-', 'bg-')}`}
+                                                style={{ width: `${Math.max(0, Math.min(100, ((item.price - item.low) / (item.high - item.low)) * 100))}%` }}
+                                            ></div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        };
+
         const App = () => {
             const [activeTab, setActiveTab] = useState('crypto');
             const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -2456,6 +2635,18 @@
                                 <Activity size={16} />
                                 臺股市場
                             </button>
+                            {user && (
+                                <button
+                                    onClick={() => setActiveTab('watchlist')}
+                                    className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 ${activeTab === 'watchlist'
+                                        ? 'bg-yellow-600 text-white shadow-lg shadow-yellow-900/20 scale-[1.02]'
+                                        : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                                        }`}
+                                >
+                                    <span className="text-yellow-400">⭐</span>
+                                    我的自選
+                                </button>
+                            )}
                         </nav>
 
                         {/* Content Area */}
@@ -2483,6 +2674,12 @@
                                     {activeTab === 'taiwan' && (
                                         <TaiwanDashboard
                                             userInfo={{ isPremium, watchlist }}
+                                            onUpdateWatchlist={handleUpdateWatchlist}
+                                        />
+                                    )}
+                                    {activeTab === 'watchlist' && (
+                                        <WatchlistDashboard
+                                            watchlist={watchlist}
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                         />
                                     )}
