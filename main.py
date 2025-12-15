@@ -15,6 +15,8 @@ import xml.etree.ElementTree as ET
 from supabase import create_client, Client
 from pywebpush import webpush, WebPushException
 import json
+import uuid
+import datetime
 
 # --- Configuration ---
 # ⚠️ Critical: Read tokens from environment variables for security
@@ -304,12 +306,22 @@ def broadcast_push_notifications(general_market_status):
                          user_alerts.append(f"🪙 {symbol}: FNG {fng} (Buy) ${format_price(p_curr)}")
                 
                 # TW Stock
-                elif is_tw and stats and stats.get('rsi'):
-                    rsi = stats['rsi']
-                    if rsi <= FEAR_THRESHOLD: # RSI <= 44
-                         p_curr = stats.get('price', {}).get('current', 0) if stats.get('price') else 0
-                         # Simplified: Symbol, RSI, Current Price
-                         user_alerts.append(f"🇹🇼 {symbol}: RSI {rsi} (Buy) ${format_price(p_curr)}")
+                elif is_tw:
+                    # Always try to fetch price/rsi
+                    rsi = stats.get('rsi') if stats else None
+                    p_curr = stats.get('price', {}).get('current', 0) if stats and stats.get('price') else 0
+                    
+                    if rsi is not None:
+                        status = "(Buy)" if rsi <= FEAR_THRESHOLD else "(Neutral)"
+                        # Show all or only buy? User said "missing info", so maybe they want to see it regardless or just know if it's broken.
+                        # For now, let's show it if it's a Buy OR if it's just for reporting purpose.
+                        # But to fix "missing info", we should probably show it if it's in the watchlist.
+                        # However, to avoid spam, maybe only show if Buy OR if requested?
+                        # Let's show "Neutral" for now to prove data exists.
+                        user_alerts.append(f"🇹🇼 {symbol}: RSI {rsi:.1f} {status} ${format_price(p_curr)}")
+                    else:
+                        # Data missing case
+                        user_alerts.append(f"🇹🇼 {symbol}: RSI N/A (Data Error) ${format_price(p_curr)}")
                 
                 # US Stock (General FNG applied to specific stock)
                 elif not is_tw and not is_crypto:
