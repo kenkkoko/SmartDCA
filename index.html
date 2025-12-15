@@ -3059,8 +3059,8 @@
                                         onClick={handleBellClick}
                                         disabled={!user}
                                         className={`relative p-2 rounded-full transition-colors border ${!user
-                                                ? "text-slate-600 border-slate-800 bg-slate-900/50 cursor-not-allowed opacity-50"
-                                                : "hover:bg-slate-800 border-slate-700/50"
+                                            ? "text-slate-600 border-slate-800 bg-slate-900/50 cursor-not-allowed opacity-50"
+                                            : "hover:bg-slate-800 border-slate-700/50"
                                             }`}
                                     >
                                         <BellRing size={20} className={!user ? "text-slate-600" : (notificationsEnabled ? "text-blue-400" : "text-slate-400")} />
@@ -3070,7 +3070,7 @@
                                     </button>
 
                                     {showNotificationDropdown && (
-                                        <div className="fixed top-20 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200 z-[100] md:absolute md:top-full md:left-auto md:right-0 md:translate-x-0 md:w-96 md:mt-2">
+                                        <div className="fixed top-28 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200 z-[100] md:absolute md:top-full md:left-auto md:right-0 md:translate-x-0 md:w-96 md:mt-2">
                                             {/* Dropdown Header */}
                                             <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
                                                 <h3 className="font-bold text-slate-200">通知中心</h3>
