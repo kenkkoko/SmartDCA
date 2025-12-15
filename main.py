@@ -293,44 +293,76 @@ def broadcast_push_notifications(general_market_status):
                 # Analyze Logic
                 # Crypto
                 if is_crypto:
-                    fng = fetch_crypto_sentiment() # Cached internally by function? No, assume fast enough or cache it global
+                    fng = fetch_crypto_sentiment()
                     if fng and fng <= FEAR_THRESHOLD:
                          p_curr = stats.get('price', {}).get('current', 0) if stats.get('price') else 0
-                         user_alerts.append(f"🪙 {symbol}: FNG {fng} (買入訊號!) ${format_price(p_curr)}")
+                         p_high = stats.get('price', {}).get('high', 0) if stats.get('price') else 0
+                         p_low = stats.get('price', {}).get('low', 0) if stats.get('price') else 0
+                         user_alerts.append(f"🪙 {symbol}: FNG {fng} (買入訊號!)\n   現價: ${format_price(p_curr)}\n   1Y高: ${format_price(p_high)} | 低: ${format_price(p_low)}")
                 
                 # TW Stock
                 elif is_tw and stats and stats.get('rsi'):
                     rsi = stats['rsi']
                     if rsi <= FEAR_THRESHOLD: # RSI <= 44
                          p_curr = stats.get('price', {}).get('current', 0) if stats.get('price') else 0
-                         user_alerts.append(f"🇹🇼 {symbol}: RSI {rsi} (超賣!) ${format_price(p_curr)}")
+                         p_high = stats.get('price', {}).get('high', 0) if stats.get('price') else 0
+                         p_low = stats.get('price', {}).get('low', 0) if stats.get('price') else 0
+                         user_alerts.append(f"🇹🇼 {symbol}: RSI {rsi} (超賣!)\n   現價: ${format_price(p_curr)}\n   1Y高: ${format_price(p_high)} | 低: ${format_price(p_low)}")
                 
                 # US Stock (General FNG applied to specific stock)
                 elif not is_tw and not is_crypto:
                     fng = fetch_us_stock_sentiment()
                     if fng and fng <= FEAR_THRESHOLD:
                          p_curr = stats.get('price', {}).get('current', 0) if stats.get('price') else 0
-                         user_alerts.append(f"🇺🇸 {symbol}: FNG {fng} (低檔!) ${format_price(p_curr)}")
+                         p_high = stats.get('price', {}).get('high', 0) if stats.get('price') else 0
+                         p_low = stats.get('price', {}).get('low', 0) if stats.get('price') else 0
+                         user_alerts.append(f"🇺🇸 {symbol}: FNG {fng} (低檔!)\n   現價: ${format_price(p_curr)}\n   1Y高: ${format_price(p_high)} | 低: ${format_price(p_low)}")
 
             # Send Push if alerts exist (or daily report?)
-            # User said "Receive customized notification". Daily report is good.
+            # Modified: Always send a report to ensure user gets feedback
+            title = ""
+            payload = ""
             if user_alerts:
-                payload = "🔥 自選股 DCA 訊號:\n" + "\n".join(user_alerts)
-                try:
-                    webpush(
-                        subscription_info=sub_info,
-                        data=payload,
-                        vapid_private_key=VAPID_PRIVATE_KEY,
-                        vapid_claims=VAPID_CLAIMS
-                    )
-                    print(f"Push sent to user {user['id']}")
-                except WebPushException as ex:
-                    print(f"Push failed for user {user['id']}: {ex}")
-                    # Remove invalid subscription?
+                title = "🔥 自選股 DCA 訊號 Triggered!"
+                payload = "\n".join(user_alerts)
             else:
-                # Optional: Send "No signals Today" or nothing. 
-                # Smart DCA usually silence is golden unless action needed.
-                pass
+                # Fallback report for user verification
+                title = "📊 每日市場報告"
+                payload = "您的自選股今日無 DCA 買入訊號 (市場情緒穩定)。"
+
+            try:
+                # 1. Send Web Push
+                full_message = f"{title}\n{payload}"
+                webpush(
+                    subscription_info=sub_info,
+                    data=full_message,
+                    vapid_private_key=VAPID_PRIVATE_KEY,
+                    vapid_claims=VAPID_CLAIMS
+                )
+                print(f"Push sent to user {user['id']}")
+
+                # 2. Log to Database (History)
+                supabase.table('user_notifications').insert({
+                    'user_id': user['id'],
+                    'title': title,
+                    'body': payload,
+                    'read': False
+                }).execute()
+                print(f"Notification logged to DB for user {user['id']}")
+
+            except WebPushException as ex:
+
+            try:
+                webpush(
+                    subscription_info=sub_info,
+                    data=payload,
+                    vapid_private_key=VAPID_PRIVATE_KEY,
+                    vapid_claims=VAPID_CLAIMS
+                )
+                print(f"Push sent to user {user['id']}")
+            except WebPushException as ex:
+                print(f"Push failed for user {user['id']}: {ex}")
+                # Remove invalid subscription?
 
     except Exception as e:
         print(f"Broadcasting Push Error: {e}")
