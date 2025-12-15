@@ -2987,39 +2987,47 @@
             const [notificationHistory, setNotificationHistory] = React.useState([]);
             const [unreadCount, setUnreadCount] = React.useState(0);
 
-            // Fetch Notifications
+            // Fetch Notifications from user_profiles JSONB
             React.useEffect(() => {
                 if (user && supabase) {
                     const fetchNotifications = async () => {
                         const { data, error } = await supabase
-                            .from('user_notifications')
-                            .select('*')
-                            .eq('user_id', user.id)
-                            .order('created_at', { ascending: false })
-                            .limit(10);
+                            .from('user_profiles')
+                            .select('notifications')
+                            .eq('id', user.id)
+                            .single();
 
-                        if (data) {
-                            setNotificationHistory(data);
-                            setUnreadCount(data.filter(n => !n.is_read).length);
+                        if (data && data.notifications) {
+                            // Ensure it's an array
+                            const notifs = Array.isArray(data.notifications) ? data.notifications : [];
+                            setNotificationHistory(notifs);
+                            setUnreadCount(notifs.filter(n => !n.is_read).length);
                         }
                     };
                     fetchNotifications();
-                    // Optional: Realtime subscription could be added here
                 }
             }, [user]);
 
             const markAsRead = async () => {
-                if (unreadCount > 0 && user) {
-                    await supabase
-                        .from('user_notifications')
-                        .update({ is_read: true })
-                        .eq('user_id', user.id)
-                        .eq('is_read', false);
+                if (unreadCount > 0 && user && notificationHistory.length > 0) {
+                    // Update local state first
+                    const updatedHistory = notificationHistory.map(n => ({ ...n, is_read: true }));
+                    setNotificationHistory(updatedHistory);
                     setUnreadCount(0);
+
+                    // Sync to DB (Optimistic Update)
+                    await supabase
+                        .from('user_profiles')
+                        .update({ notifications: updatedHistory })
+                        .eq('id', user.id);
                 }
             };
 
             const handleBellClick = () => {
+                if (!user) {
+                    alert("請先登入以查看通知");
+                    return;
+                }
                 setShowNotificationDropdown(!showNotificationDropdown);
                 if (!showNotificationDropdown) {
                     markAsRead();
@@ -3049,10 +3057,14 @@
                                 <div className="relative z-[100]">
                                     <button
                                         onClick={handleBellClick}
-                                        className="relative p-2 rounded-full hover:bg-slate-800 transition-colors border border-slate-700/50"
+                                        disabled={!user}
+                                        className={`relative p-2 rounded-full transition-colors border ${!user
+                                                ? "text-slate-600 border-slate-800 bg-slate-900/50 cursor-not-allowed opacity-50"
+                                                : "hover:bg-slate-800 border-slate-700/50"
+                                            }`}
                                     >
-                                        <BellRing size={20} className={notificationsEnabled ? "text-blue-400" : "text-slate-400"} />
-                                        {unreadCount > 0 && (
+                                        <BellRing size={20} className={!user ? "text-slate-600" : (notificationsEnabled ? "text-blue-400" : "text-slate-400")} />
+                                        {unreadCount > 0 && user && (
                                             <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse"></span>
                                         )}
                                     </button>
