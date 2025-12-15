@@ -2982,11 +2982,55 @@
                 }
             };
 
+            // Notification Center State
+            const [showNotificationDropdown, setShowNotificationDropdown] = React.useState(false);
+            const [notificationHistory, setNotificationHistory] = React.useState([]);
+            const [unreadCount, setUnreadCount] = React.useState(0);
+
+            // Fetch Notifications
+            React.useEffect(() => {
+                if (user && supabase) {
+                    const fetchNotifications = async () => {
+                        const { data, error } = await supabase
+                            .from('user_notifications')
+                            .select('*')
+                            .eq('user_id', user.id)
+                            .order('created_at', { ascending: false })
+                            .limit(10);
+
+                        if (data) {
+                            setNotificationHistory(data);
+                            setUnreadCount(data.filter(n => !n.read).length);
+                        }
+                    };
+                    fetchNotifications();
+                    // Optional: Realtime subscription could be added here
+                }
+            }, [user]);
+
+            const markAsRead = async () => {
+                if (unreadCount > 0 && user) {
+                    await supabase
+                        .from('user_notifications')
+                        .update({ read: true })
+                        .eq('user_id', user.id)
+                        .eq('read', false);
+                    setUnreadCount(0);
+                }
+            };
+
+            const handleBellClick = () => {
+                setShowNotificationDropdown(!showNotificationDropdown);
+                if (!showNotificationDropdown) {
+                    markAsRead();
+                }
+            };
+
             return (
                 <div className="min-h-screen text-slate-300 font-sans selection:bg-blue-500/30 pb-20">
                     <div className="max-w-4xl mx-auto p-4">
                         {/* Header */}
-                        <header className="flex justify-between items-center mb-6">
+                        <header className="flex justify-between items-center mb-6 relative">
                             <div className="flex items-center gap-3">
                                 <div className="relative">
                                     <div className="absolute inset-0 bg-blue-500 blur-lg opacity-20 rounded-full"></div>
@@ -3001,17 +3045,61 @@
                             </div>
 
                             <div className="flex items-center gap-3">
-                                <button
-                                    onClick={toggleNotifications}
-                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-300 ${notificationsEnabled
-                                        ? 'bg-blue-900/30 border-blue-500/50 text-blue-400'
-                                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600'
-                                        }`}
-                                >
-                                    <div className={`w-2 h-2 rounded-full ${notificationsEnabled ? 'bg-blue-400 animate-pulse' : 'bg-slate-600'}`}></div>
-                                    <span className="text-xs font-bold hidden md:block">{notificationsEnabled ? '通知 ON' : '通知 OFF'}</span>
-                                    {notificationsEnabled ? <BellRing size={16} /> : <BellOff size={16} />}
-                                </button>
+                                {/* Notification Center */}
+                                <div className="relative z-[100]">
+                                    <button
+                                        onClick={handleBellClick}
+                                        className="relative p-2 rounded-full hover:bg-slate-800 transition-colors border border-slate-700/50"
+                                    >
+                                        <BellRing size={20} className={notificationsEnabled ? "text-blue-400" : "text-slate-400"} />
+                                        {unreadCount > 0 && (
+                                            <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse"></span>
+                                        )}
+                                    </button>
+
+                                    {showNotificationDropdown && (
+                                        <div className="absolute right-0 mt-2 w-80 md:w-96 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200 origin-top-right z-[100]">
+                                            {/* Dropdown Header */}
+                                            <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
+                                                <h3 className="font-bold text-slate-200">通知中心</h3>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs text-slate-400">{notificationsEnabled ? "每日推播 ON" : "每日推播 OFF"}</span>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); toggleNotifications(); }}
+                                                        className={`w-10 h-6 rounded-full p-1 transition-colors ${notificationsEnabled ? 'bg-blue-500' : 'bg-slate-600'}`}
+                                                    >
+                                                        <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${notificationsEnabled ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Notification List */}
+                                            <div className="max-h-80 overflow-y-auto custom-scrollbar">
+                                                {notificationHistory.length > 0 ? (
+                                                    notificationHistory.map((item) => (
+                                                        <div key={item.id} className="p-4 border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                                                            <div className="flex justify-between items-start mb-1">
+                                                                <h4 className="text-sm font-bold text-slate-200">{item.title || "系統通知"}</h4>
+                                                                <span className="text-[10px] text-slate-500">{new Date(item.created_at).toLocaleDateString()}</span>
+                                                            </div>
+                                                            <p className="text-xs text-slate-400 whitespace-pre-line leading-relaxed">{item.body}</p>
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <div className="p-8 text-center text-slate-500">
+                                                        <BellOff size={32} className="mx-auto mb-2 opacity-50" />
+                                                        <p className="text-sm">尚無歷史通知</p>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Footer */}
+                                            <div className="p-3 bg-slate-800/30 text-center border-t border-slate-800">
+                                                <p className="text-[10px] text-slate-500">每日 08:00 發送自選股報告</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
 
                                 <AuthComponent user={user} setUser={setUser} isPremium={isPremium} />
                             </div>
