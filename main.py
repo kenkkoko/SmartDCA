@@ -351,16 +351,6 @@ def broadcast_push_notifications(general_market_status):
                 print(f"Notification logged to DB for user {user['id']}")
 
             except WebPushException as ex:
-
-            try:
-                webpush(
-                    subscription_info=sub_info,
-                    data=payload,
-                    vapid_private_key=VAPID_PRIVATE_KEY,
-                    vapid_claims=VAPID_CLAIMS
-                )
-                print(f"Push sent to user {user['id']}")
-            except WebPushException as ex:
                 print(f"Push failed for user {user['id']}: {ex}")
                 # Remove invalid subscription?
 
