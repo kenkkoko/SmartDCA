@@ -12,6 +12,9 @@ from linebot.v3.messaging import (
 import google.generativeai as genai
 
 import xml.etree.ElementTree as ET
+from supabase import create_client, Client
+from pywebpush import webpush, WebPushException
+import json
 
 # --- Configuration ---
 # ⚠️ Critical: Read tokens from environment variables for security
@@ -20,8 +23,17 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY_BACKEND') or os.environ.get('GEMINI_API_KEY')
 
 # NEW: Keys for Stock/Crypto Data
+# NEW: Keys for Stock/Crypto Data
 ALPHA_VANTAGE_KEY = os.environ.get('ALPHA_VANTAGE_KEY')
 FUGLE_KEY = os.environ.get('FUGLE_KEY')
+
+# Supabase Configuration
+SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
+
+# VAPID Keys for Web Push
+VAPID_PRIVATE_KEY = '0yUZd0zYl6aJz7NscDAnkKhvVQUaQEacKZHo3vLRI9o' # Hardcoded as requested
+VAPID_CLAIMS = {"sub": "mailto:admin@smartdca.com"}
 
 # Thresholds
 EXTREME_FEAR_THRESHOLD = 25
@@ -208,6 +220,121 @@ def generate_news_summary(headlines):
         print(f"Error generating news summary: {e}")
         return ""
 
+def broadcast_push_notifications(general_market_status):
+    """Sends personalized Web Push to Premium Users"""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        print("Skipping Web Push: Supabase credentials missing.")
+        return
+
+    try:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        
+        # Fetch Premium Users with Subscription
+        response = supabase.table('user_profiles') \
+            .select('id, watchlist, push_subscription') \
+            .eq('is_premium', True) \
+            .neq('push_subscription', 'null') \
+            .execute()
+        
+        users = response.data
+        if not users:
+            print("No premium users with push subscription found.")
+            return
+
+        print(f"Found {len(users)} premium users for push.")
+
+        # Cache for market data to avoid re-fetching
+        data_cache = {}
+
+        for user in users:
+            sub_info = user.get('push_subscription')
+            watchlist = user.get('watchlist', [])
+            if not sub_info or not watchlist:
+                continue
+
+            # Build Personalized Message
+            user_alerts = []
+            
+            for symbol in watchlist:
+                # Normalize Symbol for Fetcher
+                fetch_symbol = symbol
+                is_tw = False
+                is_crypto = False
+                
+                if symbol.upper() in ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP']:
+                    fetch_symbol = symbol.upper() + "-USD"
+                    is_crypto = True
+                elif symbol.isdigit() or '.TW' in symbol.upper():
+                    fetch_symbol = symbol.replace('.TW', '') + ".TW" if not symbol.endswith('.TW') else symbol
+                    is_tw = True
+                
+                # Check Cache
+                stats = data_cache.get(fetch_symbol)
+                if not stats:
+                    if is_tw:
+                        # For TW, logic is RSI based mainly
+                        rsi = fetch_tw_stock_rsi(fetch_symbol)
+                        price = fetch_price_stats(fetch_symbol) # May accept .TW
+                        if rsi:
+                            stats = {'rsi': rsi, 'price': price}
+                            data_cache[fetch_symbol] = stats
+                    else:
+                        # US/Crypto
+                        price = fetch_price_stats(fetch_symbol)
+                        # We use general FNG for individual stocks? 
+                        # Or just price alerts? User said "Customized Notification"
+                        # Smart DCA usually implies FNG based.
+                        # For Crypto, we have general Crypto FNG. For US, general US FNG.
+                        # For specific stocks, we don't have individual FNG easily without premium APIs.
+                        # Strategy: Use General Market FNG + Individual Price
+                        stats = {'price': price}
+                        data_cache[fetch_symbol] = stats
+
+                # Analyze Logic
+                # Crypto
+                if is_crypto:
+                    fng = fetch_crypto_sentiment() # Cached internally by function? No, assume fast enough or cache it global
+                    if fng and fng <= FEAR_THRESHOLD:
+                         p_curr = stats.get('price', {}).get('current', 0) if stats.get('price') else 0
+                         user_alerts.append(f"🪙 {symbol}: FNG {fng} (買入訊號!) ${format_price(p_curr)}")
+                
+                # TW Stock
+                elif is_tw and stats and stats.get('rsi'):
+                    rsi = stats['rsi']
+                    if rsi <= FEAR_THRESHOLD: # RSI <= 44
+                         p_curr = stats.get('price', {}).get('current', 0) if stats.get('price') else 0
+                         user_alerts.append(f"🇹🇼 {symbol}: RSI {rsi} (超賣!) ${format_price(p_curr)}")
+                
+                # US Stock (General FNG applied to specific stock)
+                elif not is_tw and not is_crypto:
+                    fng = fetch_us_stock_sentiment()
+                    if fng and fng <= FEAR_THRESHOLD:
+                         p_curr = stats.get('price', {}).get('current', 0) if stats.get('price') else 0
+                         user_alerts.append(f"🇺🇸 {symbol}: FNG {fng} (低檔!) ${format_price(p_curr)}")
+
+            # Send Push if alerts exist (or daily report?)
+            # User said "Receive customized notification". Daily report is good.
+            if user_alerts:
+                payload = "🔥 自選股 DCA 訊號:\n" + "\n".join(user_alerts)
+                try:
+                    webpush(
+                        subscription_info=sub_info,
+                        data=payload,
+                        vapid_private_key=VAPID_PRIVATE_KEY,
+                        vapid_claims=VAPID_CLAIMS
+                    )
+                    print(f"Push sent to user {user['id']}")
+                except WebPushException as ex:
+                    print(f"Push failed for user {user['id']}: {ex}")
+                    # Remove invalid subscription?
+            else:
+                # Optional: Send "No signals Today" or nothing. 
+                # Smart DCA usually silence is golden unless action needed.
+                pass
+
+    except Exception as e:
+        print(f"Broadcasting Push Error: {e}")
+
 def main():
     if not LINE_CHANNEL_ACCESS_TOKEN:
         print("Error: LINE_CHANNEL_ACCESS_TOKEN not set.")
@@ -309,6 +436,11 @@ def main():
     else:
         message_text += "\n\n💡 市場情緒穩定，請持續觀察"
 
+    # --- PWA Web Push Logic (Premium Users) ---
+    print("Broadcasting Web Push notifications...")
+    broadcast_push_notifications(market_status_list) # Pass general status, but we will customize inside
+
+    # --- LINE Notification ---
     print("Broadcasting LINE notification...")
     if LINE_CHANNEL_ACCESS_TOKEN:
         try:
