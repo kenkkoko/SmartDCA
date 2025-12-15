@@ -3000,7 +3000,7 @@
 
                         if (data) {
                             setNotificationHistory(data);
-                            setUnreadCount(data.filter(n => !n.read).length);
+                            setUnreadCount(data.filter(n => !n.is_read).length);
                         }
                     };
                     fetchNotifications();
@@ -3012,9 +3012,9 @@
                 if (unreadCount > 0 && user) {
                     await supabase
                         .from('user_notifications')
-                        .update({ read: true })
+                        .update({ is_read: true })
                         .eq('user_id', user.id)
-                        .eq('read', false);
+                        .eq('is_read', false);
                     setUnreadCount(0);
                 }
             };
