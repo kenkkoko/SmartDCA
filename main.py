@@ -296,27 +296,24 @@ def broadcast_push_notifications(general_market_status):
                     fng = fetch_crypto_sentiment()
                     if fng and fng <= FEAR_THRESHOLD:
                          p_curr = stats.get('price', {}).get('current', 0) if stats.get('price') else 0
-                         p_high = stats.get('price', {}).get('high', 0) if stats.get('price') else 0
-                         p_low = stats.get('price', {}).get('low', 0) if stats.get('price') else 0
-                         user_alerts.append(f"🪙 {symbol}: FNG {fng} (買入訊號!)\n   現價: ${format_price(p_curr)}\n   1Y高: ${format_price(p_high)} | 低: ${format_price(p_low)}")
+                         # Simplified: Symbol, FNG, Current Price
+                         user_alerts.append(f"🪙 {symbol}: FNG {fng} (Buy) ${format_price(p_curr)}")
                 
                 # TW Stock
                 elif is_tw and stats and stats.get('rsi'):
                     rsi = stats['rsi']
                     if rsi <= FEAR_THRESHOLD: # RSI <= 44
                          p_curr = stats.get('price', {}).get('current', 0) if stats.get('price') else 0
-                         p_high = stats.get('price', {}).get('high', 0) if stats.get('price') else 0
-                         p_low = stats.get('price', {}).get('low', 0) if stats.get('price') else 0
-                         user_alerts.append(f"🇹🇼 {symbol}: RSI {rsi} (超賣!)\n   現價: ${format_price(p_curr)}\n   1Y高: ${format_price(p_high)} | 低: ${format_price(p_low)}")
+                         # Simplified: Symbol, RSI, Current Price
+                         user_alerts.append(f"🇹🇼 {symbol}: RSI {rsi} (Buy) ${format_price(p_curr)}")
                 
                 # US Stock (General FNG applied to specific stock)
                 elif not is_tw and not is_crypto:
                     fng = fetch_us_stock_sentiment()
                     if fng and fng <= FEAR_THRESHOLD:
                          p_curr = stats.get('price', {}).get('current', 0) if stats.get('price') else 0
-                         p_high = stats.get('price', {}).get('high', 0) if stats.get('price') else 0
-                         p_low = stats.get('price', {}).get('low', 0) if stats.get('price') else 0
-                         user_alerts.append(f"🇺🇸 {symbol}: FNG {fng} (低檔!)\n   現價: ${format_price(p_curr)}\n   1Y高: ${format_price(p_high)} | 低: ${format_price(p_low)}")
+                         # Simplified: Symbol, FNG, Current Price
+                         user_alerts.append(f"🇺🇸 {symbol}: FNG {fng} (Buy) ${format_price(p_curr)}")
 
             # Send Push if alerts exist (or daily report?)
             # Modified: Always send a report to ensure user gets feedback
@@ -346,7 +343,7 @@ def broadcast_push_notifications(general_market_status):
                     'user_id': user['id'],
                     'title': title,
                     'body': payload,
-                    'read': False
+                    'is_read': False
                 }).execute()
                 print(f"Notification logged to DB for user {user['id']}")
 
