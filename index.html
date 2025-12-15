@@ -2966,7 +2966,15 @@
                     }
 
                     setNotificationsEnabled(true);
-                    new Notification("推播已啟用 ✅", { body: "Smart DCA Bot 將為您監控市場！", icon: "./app-icon.png" });
+
+                    // Show detailed feedback to user
+                    const successValues = {
+                        body: "將為您監控市場！\n我們會在每天早上 8:00 發送您的自選股分析通知。",
+                        icon: "./app-icon.png",
+                        requireInteraction: true // Keep notification visible longer on mobile
+                    };
+                    new Notification("推播已啟用 ✅", successValues);
+                    alert("✅ 推播通知已成功啟用！\n\n系統將在每天早上 8:00 為您發送自選股的市場分析報告。");
 
                 } catch (e) {
                     console.error("Push Error:", e);
