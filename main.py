@@ -261,9 +261,19 @@ def broadcast_push_notifications(general_market_status):
                 is_tw = False
                 is_crypto = False
                 
-                if symbol.upper() in ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP']:
-                    fetch_symbol = symbol.upper() + "-USD"
+                # Enhanced Crypto Detection: Check common coins or pattern
+                # If symbol contains 'USD' or matches crypto list
+                common_crypto = ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'bitcoin', 'ethereum', 'solana', 'dogecoin', 'ripple', 'binancecoin', 'BNB']
+                if symbol.upper() in [c.upper() for c in common_crypto] or 'USD' in symbol.upper():
+                    if 'USD' not in symbol.upper():
+                        # Simple mapping for yfinance if needed, but mainly for classification
+                        if symbol.lower() == 'bitcoin': fetch_symbol = 'BTC-USD'
+                        elif symbol.lower() == 'ethereum': fetch_symbol = 'ETH-USD'
+                        elif symbol.lower() == 'solana': fetch_symbol = 'SOL-USD'
+                        else: fetch_symbol = symbol.upper() + "-USD"
+                        
                     is_crypto = True
+                
                 elif symbol.isdigit() or '.TW' in symbol.upper():
                     fetch_symbol = symbol.replace('.TW', '') + ".TW" if not symbol.endswith('.TW') else symbol
                     is_tw = True
@@ -281,12 +291,6 @@ def broadcast_push_notifications(general_market_status):
                     else:
                         # US/Crypto
                         price = fetch_price_stats(fetch_symbol)
-                        # We use general FNG for individual stocks? 
-                        # Or just price alerts? User said "Customized Notification"
-                        # Smart DCA usually implies FNG based.
-                        # For Crypto, we have general Crypto FNG. For US, general US FNG.
-                        # For specific stocks, we don't have individual FNG easily without premium APIs.
-                        # Strategy: Use General Market FNG + Individual Price
                         stats = {'price': price}
                         data_cache[fetch_symbol] = stats
 
@@ -338,14 +342,30 @@ def broadcast_push_notifications(general_market_status):
                 )
                 print(f"Push sent to user {user['id']}")
 
-                # 2. Log to Database (History)
-                supabase.table('user_notifications').insert({
-                    'user_id': user['id'],
+                # 2. Log to Database (Update user_profiles)
+                # Fetch current notifications first (to append)
+                current_profile = supabase.table('user_profiles').select('notifications').eq('id', user['id']).execute()
+                current_notifications = []
+                if current_profile.data and current_profile.data[0].get('notifications'):
+                    current_notifications = current_profile.data[0]['notifications']
+                
+                new_notification = {
+                    'id': str(uuid.uuid4()), # Generate ID for frontend key
                     'title': title,
                     'body': payload,
+                    'created_at': datetime.datetime.now().isoformat(),
                     'is_read': False
-                }).execute()
-                print(f"Notification logged to DB for user {user['id']}")
+                }
+                
+                # Prepend and slice to keep last 20
+                updated_notifications = [new_notification] + current_notifications
+                updated_notifications = updated_notifications[:20]
+                
+                supabase.table('user_profiles').update({
+                    'notifications': updated_notifications
+                }).eq('id', user['id']).execute()
+                
+                print(f"Notification logged to user_profiles for user {user['id']}")
 
             except WebPushException as ex:
                 print(f"Push failed for user {user['id']}: {ex}")
