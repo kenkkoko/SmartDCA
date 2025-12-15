@@ -2907,6 +2907,21 @@
             };
 
             const toggleNotifications = async () => {
+                // 1. Strict Check for Premium / Login
+                if (!user || !isPremium) {
+                    alert("🚫 需升級 Pro 版才能啟用推播通知\n\nPlease upgrade to Premium to enable customized push notifications.");
+
+                    // Optional: Open Checkout if user is logged in but not premium
+                    if (user && !isPremium) {
+                        const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
+                        window.open(checkoutUrl, '_blank');
+                    } else {
+                        // Prompt login
+                        setShowLoginModal(true);
+                    }
+                    return;
+                }
+
                 if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
                     alert("您的瀏覽器不支援推播通知");
                     return;
