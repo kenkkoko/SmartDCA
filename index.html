@@ -338,7 +338,7 @@
                         onClick={() => setShowLoginModal(true)}
                         className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full text-sm font-bold transition-all shadow-lg shadow-indigo-900/20"
                     >
-                        <User size={16} /> 登入 
+                        <User size={16} /> 登入
                     </button>
 
                     {showLoginModal && (
@@ -2892,26 +2892,70 @@
             }, []);
 
             // 處理通知開關切換 (No changes to logic, just copied for context)
+            // VAPID Public Key
+            const VAPID_PUBLIC_KEY = 'BP0TmK3lqnO-j0x1H9OGzYJgOV5x2FRN4roE_AQGecl9nEbuCqHZjk0yNP0omI0xgqDubzxdSY50XauvlyhjzNc';
+
+            const urlBase64ToUint8Array = (base64String) => {
+                const padding = '='.repeat((4 - base64String.length % 4) % 4);
+                const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+                const rawData = window.atob(base64);
+                const outputArray = new Uint8Array(rawData.length);
+                for (let i = 0; i < rawData.length; ++i) {
+                    outputArray[i] = rawData.charCodeAt(i);
+                }
+                return outputArray;
+            };
+
             const toggleNotifications = async () => {
-                if (!("Notification" in window)) {
-                    // Alert logic
+                if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+                    alert("您的瀏覽器不支援推播通知");
                     return;
                 }
+
                 if (notificationsEnabled) {
+                    // Optional: Unsubscribe logic could go here, but for now just toggle state UI
                     setNotificationsEnabled(false);
                     return;
                 }
-                if (Notification.permission === 'granted') {
-                    setNotificationsEnabled(true);
-                    new Notification("通知已啟用 ✅", { body: "Smart DCA Bot 已準備好！", icon: "./app-icon.png" });
-                } else if (Notification.permission === 'denied') {
-                    alert("通知權限被封鎖");
-                } else {
+
+                try {
                     const permission = await Notification.requestPermission();
-                    if (permission === 'granted') {
-                        setNotificationsEnabled(true);
-                        new Notification("通知已啟用 ✅", { body: "Smart DCA Bot 已準備好！", icon: "./app-icon.png" });
+                    if (permission !== 'granted') {
+                        alert("請允許通知權限以接收快訊");
+                        return;
                     }
+
+                    // Register SW & Subscribe
+                    const registration = await navigator.serviceWorker.register('./sw.js');
+                    const subscription = await registration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                    });
+
+                    // Save to Supabase if logged in
+                    if (user && supabase) {
+                        // Check if subscription changed to avoid redundant writes? Or just overwrite.
+                        const { error } = await supabase
+                            .from('user_profiles')
+                            .update({ push_subscription: subscription })
+                            .eq('id', user.id);
+
+                        if (error) {
+                            console.error("Supabase Error:", error);
+                            // We don't block UI if DB write fails, but warn?
+                            // alert("無法儲存訂閱設定 (DB Error)");
+                        }
+                    } else if (!user) {
+                        // Still enable local state, but warn
+                        // alert("請登入以同步推播設定");
+                    }
+
+                    setNotificationsEnabled(true);
+                    new Notification("推播已啟用 ✅", { body: "Smart DCA Bot 將為您監控市場！", icon: "./app-icon.png" });
+
+                } catch (e) {
+                    console.error("Push Error:", e);
+                    alert("啟用失敗: " + e.message);
                 }
             };
 
