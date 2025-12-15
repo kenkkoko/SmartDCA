@@ -1,0 +1,7 @@
+line-bot-sdk
+requests
+pandas
+yfinance
+google-generativeai
+supabase
+pywebpush
