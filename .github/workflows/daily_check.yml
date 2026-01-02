@@ -18,7 +18,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          # 修改重點：將原本的 3.9 改成 3.11 以相容最新版的 yfinance
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
