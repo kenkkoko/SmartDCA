@@ -35,16 +35,13 @@
         const { useState, useEffect, useMemo, useRef } = React;
 
         // --- GitHub Actions 會自動替換這些 Placeholder ---
-        // 請勿更動這裡的字串，以免部署失敗
         const SUPABASE_URL = '__SUPABASE_URL_PLACEHOLDER__';
         const SUPABASE_ANON_KEY = '__SUPABASE_ANON_KEY_PLACEHOLDER__';
         const GEMINI_API_KEY = '__GEMINI_API_KEY_PLACEHOLDER__';
         
-        // Lemon Squeezy 設定
         const LEMON_CHECKOUT_URL = 'https://smartdca.lemonsqueezy.com/buy/931e6d89-3193-4216-8c9b-a2d88c6e4acc';
         const LEMON_PORTAL_URL = 'https://smartdca.lemonsqueezy.com/billing';
 
-        // 初始化 Supabase
         const supabase = (typeof window.supabase !== 'undefined' && !SUPABASE_URL.includes('PLACEHOLDER'))
             ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
             : null;
@@ -74,16 +71,51 @@
         };
         const { Bell, TrendingUp, AlertTriangle, Info, RefreshCw, Smartphone, ArrowUp, ArrowDown, Newspaper, Sparkles, ExternalLink, Globe, Activity, BellRing, BellOff, LogOut, User, Lock } = Icons;
 
-        // --- 通用 Proxy 請求工具 (取代 corsproxy.io) ---
-        // 使用 api.allorigins.win 作為替代方案，解決 Yahoo/Google News 封鎖問題
+        // --- 強力版通用 Proxy 請求工具 (Multi-Proxy Fallback) ---
+        // 核心修復：依序嘗試多個代理服務，直到成功為止
         const fetchWithProxy = async (targetUrl) => {
-            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-            const response = await fetch(proxyUrl);
-            if (!response.ok) throw new Error("Proxy Network Error");
-            const data = await response.json();
-            if (!data.contents) throw new Error("Proxy Empty Response");
-            // 嘗試解析 JSON，如果是 XML/HTML 則回傳字串
-            try { return JSON.parse(data.contents); } catch (e) { return data.contents; }
+            const proxies = [
+                // 1. CodeTabs (最穩定)
+                (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+                // 2. AllOrigins Raw (備用)
+                (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+                // 3. ThingProxy (備用 2)
+                (url) => `https://thingproxy.freeboard.io/fetch/${url}`
+            ];
+
+            let lastError = null;
+
+            for (const createProxyUrl of proxies) {
+                try {
+                    const proxyUrl = createProxyUrl(targetUrl);
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超時機制
+
+                    const response = await fetch(proxyUrl, { 
+                        signal: controller.signal,
+                        headers: { 'Origin': window.location.origin } // 模擬瀏覽器行為
+                    });
+                    clearTimeout(timeoutId);
+
+                    if (response.ok) {
+                        const text = await response.text();
+                        // 檢查是否是錯誤訊息 (有些 Proxy 失敗會回傳 200 但內容是 Error)
+                        if (text.includes('Error') && text.length < 50) throw new Error("Proxy Error Content");
+                        
+                        try {
+                            return JSON.parse(text);
+                        } catch (e) {
+                            return text; // 不是 JSON (如 XML)，回傳原始文字
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`Proxy failed, trying next... (${e.message})`);
+                    lastError = e;
+                    continue;
+                }
+            }
+            console.error("All proxies failed for URL:", targetUrl);
+            throw lastError || new Error("All proxies failed");
         };
 
         const formatPrice = (price) => {
@@ -92,10 +124,9 @@
             return price.toLocaleString(undefined, { maximumFractionDigits: 2 });
         };
 
-        // --- Gemini API (使用 Placeholder) ---
+        // --- Gemini API ---
         const fetchGeminiAdvice = async (prompt) => {
             let apiKey = GEMINI_API_KEY;
-            // 檢查是否從 window 注入 (本地開發用)
             if (typeof window !== 'undefined' && window.GEMINI_API_KEY && !window.GEMINI_API_KEY.includes('PLACEHOLDER')) {
                 apiKey = window.GEMINI_API_KEY;
             }
@@ -533,7 +564,7 @@
             );
         };
 
-        // --- Stock Dashboard (Fix: AllOrigins Proxy) ---
+        // --- Stock Dashboard (Fix: Multi-Proxy) ---
         const StockDashboard = ({ userInfo, onUpdateWatchlist }) => {
             const [selectedSymbol, setSelectedSymbol] = useState('SPY');
             const [timeRange, setTimeRange] = useState('1Y');
@@ -620,7 +651,7 @@
             );
         };
 
-        // --- Taiwan Dashboard (Fix: AllOrigins Proxy) ---
+        // --- Taiwan Dashboard (Fix: Multi-Proxy) ---
         const TaiwanDashboard = ({ userInfo, onUpdateWatchlist }) => {
             const [selectedSymbol, setSelectedSymbol] = useState('0050');
             const [timeRange, setTimeRange] = useState('1Y');
