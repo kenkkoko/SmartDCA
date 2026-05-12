@@ -369,12 +369,17 @@
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
             const [isSignUp, setIsSignUp] = useState(false);
+            const [confirmPassword, setConfirmPassword] = useState('');
             const [msg, setMsg] = useState(null);
 
             const handleLogin = async (e) => {
                 e.preventDefault();
                 if (!supabase) {
                     alert("請先設定 Supabase URL 和 Key!");
+                    return;
+                }
+                if (isSignUp && password !== confirmPassword) {
+                    setMsg('密碼不一致，請重新確認。');
                     return;
                 }
                 setLocalLoading(true);
@@ -507,6 +512,19 @@
                                             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white outline-none focus:border-indigo-500"
                                         />
                                     </div>
+                                    {isSignUp && (
+                                        <div>
+                                            <label className="block text-xs text-slate-400 mb-1">確認密碼</label>
+                                            <input
+                                                type="password"
+                                                required
+                                                minLength={6}
+                                                value={confirmPassword}
+                                                onChange={e => setConfirmPassword(e.target.value)}
+                                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white outline-none focus:border-indigo-500"
+                                            />
+                                        </div>
+                                    )}
 
                                     {msg && <div className="text-red-400 text-xs text-center">{msg}</div>}
 
@@ -536,7 +554,7 @@
 
                                 <div className="mt-6 text-center">
                                     <button
-                                        onClick={() => { setIsSignUp(!isSignUp); setMsg(null); }}
+                                        onClick={() => { setIsSignUp(!isSignUp); setMsg(null); setConfirmPassword(''); }}
                                         className="text-xs text-slate-400 hover:text-white underline"
                                     >
                                         {isSignUp ? '已有帳號？登入' : '沒有帳號？註冊'}
@@ -554,8 +572,6 @@
 
         // API Key Placeholder for GitHub Actions Injection
         // API Key Placeholder for GitHub Actions Injection
-        const GEMINI_API_KEY = '__GEMINI_API_KEY_PLACEHOLDER__';
-
         // Helper: Format Price (8 decimals for < 1, 2 for >= 1)
         const formatPrice = (price) => {
             if (price === null || price === undefined) return 'N/A';
@@ -563,34 +579,29 @@
             return price.toLocaleString(undefined, { maximumFractionDigits: 2 });
         };
 
-        // --- Gemini API Helper ---
+        // --- Gemini API Helper (via Supabase Edge Function) ---
         const fetchGeminiAdvice = async (prompt) => {
-            // Check for key in window object (for user injection) or environment variable placeholder
-            let apiKey = GEMINI_API_KEY;
-            if (typeof window !== 'undefined' && window.GEMINI_API_KEY && !window.GEMINI_API_KEY.includes('PLACEHOLDER')) {
-                apiKey = window.GEMINI_API_KEY;
-            }
-
-            if (!apiKey || apiKey.includes('PLACEHOLDER')) {
-                console.error("Gemini API Key is missing or invalid.");
-                return `⚠️ AI 暫時無法提供建議 (未設定 API Key)。請在 Actions Secrets 設定，或在 Console 輸入 window.GEMINI_API_KEY='你的KEY'`;
+            if (!supabase || SUPABASE_URL.includes('PLACEHOLDER')) {
+                return 'WARNING: AI not available (Supabase not configured)';
             }
             try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
-                const response = await fetch(url, {
+                const sessionRes = await supabase.auth.getSession();
+                const token = sessionRes.data && sessionRes.data.session && sessionRes.data.session.access_token;
+                const hdrs = { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY };
+                if (token) hdrs['Authorization'] = 'Bearer ' + token;
+                const res = await fetch(SUPABASE_URL + '/functions/v1/gemini-proxy', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }]
-                    })
+                    headers: hdrs,
+                    body: JSON.stringify({ prompt })
                 });
-                const data = await response.json();
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Proxy error');
                 return data.candidates[0].content.parts[0].text;
-            } catch (error) {
-                console.error("Gemini API Error:", error);
-                return "⚠️ AI 暫時無法提供建議，請稍後再試。";
+            } catch (err) {
+                console.error('Gemini Proxy Error:', err);
+                return 'WARNING: AI request failed, please try again.';
             }
-        };
+                };
 
         // --- AI Advice Component ---
         const AIAdviceBlock = ({ marketData, assetName, priceStats, isLocked }) => {
@@ -1243,8 +1254,6 @@
         };
 
 
-        // --- API Keys ---
-        const CMC_API_KEY = '__CMC_API_KEY__';
         // Lemon Squeezy Configuration
         const LEMON_CHECKOUT_URL = 'https://smartdca.lemonsqueezy.com/buy/931e6d89-3193-4216-8c9b-a2d88c6e4acc';
         const LEMON_PORTAL_URL = 'https://smartdca.lemonsqueezy.com/billing';
@@ -2107,14 +2116,10 @@
             // Fetch Current Price from CoinMarketCap (CMC)
             const fetchCurrentPrices = async (slugs = ['bitcoin', 'ethereum']) => {
                 try {
-                    // Use CORS Proxy to call CMC
-                    const proxy = 'https://corsproxy.io/?url=';
-                    const targetUrl = encodeURIComponent(`https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?slug=${slugs.join(',')}&CMC_PRO_API_KEY=${CMC_API_KEY}`);
-
-                    const response = await fetch(`${proxy}${targetUrl}`, {
-                        headers: {
-                            'X-CMC_PRO_API_KEY': CMC_API_KEY
-                        }
+                    // CMC proxy via Supabase Edge Function (key stays server-side)
+                    const proxyUrl = SUPABASE_URL + '/functions/v1/cmc-proxy?slugs=' + slugs.join(',');
+                    const response = await fetch(proxyUrl, {
+                        headers: { 'apikey': SUPABASE_ANON_KEY }
                     });
 
                     if (response.ok) {
@@ -3010,7 +3015,10 @@
                             setWatchlist(data.watchlist || []);
                         } else if (error && error.code === 'PGRST116') {
                             // Profile doesn't exist, create default
-                            await supabase.from('user_profiles').insert({ id: user.id });
+                            const { error: insertErr } = await supabase
+                                .from('user_profiles')
+                                .insert({ id: user.id, is_premium: false, is_admin: false });
+                            if (insertErr) console.error('Profile create failed:', insertErr.message);
                         }
                     } catch (error) {
                         console.error("Profile Error:", error);
