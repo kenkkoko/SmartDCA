@@ -586,9 +586,8 @@
             }
             try {
                 const sessionRes = await supabase.auth.getSession();
-                const token = sessionRes.data && sessionRes.data.session && sessionRes.data.session.access_token;
-                const hdrs = { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY };
-                if (token) hdrs['Authorization'] = 'Bearer ' + token;
+                const token = (sessionRes.data && sessionRes.data.session && sessionRes.data.session.access_token) || SUPABASE_ANON_KEY;
+                const hdrs = { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + token };
                 const res = await fetch(SUPABASE_URL + '/functions/v1/gemini-proxy', {
                     method: 'POST',
                     headers: hdrs,
@@ -2119,7 +2118,7 @@
                     // CMC proxy via Supabase Edge Function (key stays server-side)
                     const proxyUrl = SUPABASE_URL + '/functions/v1/cmc-proxy?slugs=' + slugs.join(',');
                     const response = await fetch(proxyUrl, {
-                        headers: { 'apikey': SUPABASE_ANON_KEY }
+                        headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY }
                     });
 
                     if (response.ok) {
