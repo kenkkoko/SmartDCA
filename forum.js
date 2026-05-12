@@ -569,7 +569,10 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
         easymdeRef.current = null;
       }
     };
-  }, [supabase]);
+    // Re-run when `loading` flips false — edit mode early-returns a
+    // loading screen first, so the textarea isn't in the DOM on the
+    // initial effect pass. This ensures EasyMDE mounts the second time.
+  }, [supabase, loading]);
 
   const handleSave = async (publishedFlag) => {
     if (!title.trim()) {
