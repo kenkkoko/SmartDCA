@@ -21,6 +21,10 @@
 
         <!-- 引入 Tailwind CSS -->
        
+        <!-- Fonts: Manrope (UI) + JetBrains Mono (numbers/timestamps) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
 
         <!-- 引入 React 和 ReactDOM -->
@@ -61,138 +65,328 @@
     <script type="text/babel" data-presets="react" src="forum.js"></script>
 
         <style>
-        body {
-            background-color: #0f172a;
-            /* slate-950 */
-        }
+    /* ─────────────────────────────────────────────
+       Smart DCA · Design tokens (NEW)
+       ───────────────────────────────────────────── */
+    :root {
+        --bg:        #07080c;
+        --bg-soft:   #0d0f15;
+        --surface:   #12141c;
+        --surface-2: #181b25;
+        --line:      rgba(255, 255, 255, 0.07);
+        --line-2:    rgba(255, 255, 255, 0.12);
+        --text:      #ffffff;
+        --text-2:    #b8bcc8;
+        --text-3:    #6b7080;
+        --brand-1:   #3b82f6;
+        --brand-2:   #8b5cf6;
+        --accent:    #4cc2ff;
+        --up:        #00d68f;
+        --down:      #ff5b6e;
+        --warn:      #f59e0b;
+    }
 
-        /* 自定義捲軸 */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
+    html, body {
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+    }
 
-        ::-webkit-scrollbar-track {
-            background: #1e293b;
-        }
+    body {
+        background-color: var(--bg); /* override original slate-950 */
+    }
 
-        ::-webkit-scrollbar-thumb {
-            background: #475569;
-            border-radius: 4px;
-        }
+    /* Numeric displays */
+    .num {
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.02em;
+    }
+    .mono {
+        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
 
-        ::-webkit-scrollbar-thumb:hover {
-            background: #64748b;
-        }
+    /* Section eyebrow labels (small caps) */
+    .label {
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--text-3);
+        font-weight: 600;
+    }
 
-        /* 移除舊的指針 CSS，使用 SVG 內建動畫 */
+    /* Surfaces */
+    .surface  { background: var(--surface); }
+    .surface-2{ background: var(--surface-2); }
+    .ring-soft{ box-shadow: inset 0 0 0 1px var(--line); }
 
-        /* ────────────────────────────────
-           Forum: rendered markdown styling
-           (Tailwind preflight resets headings/lists, so we restore them here)
-           ──────────────────────────────── */
-        .forum-md { color: #cbd5e1; line-height: 1.7; }
-        .forum-md h1 { font-size: 1.875rem; font-weight: 700; color: #fff; margin: 1.5rem 0 0.75rem; }
-        .forum-md h2 { font-size: 1.5rem;   font-weight: 700; color: #fff; margin: 1.25rem 0 0.5rem; border-bottom: 1px solid #334155; padding-bottom: 0.25rem; }
-        .forum-md h3 { font-size: 1.25rem;  font-weight: 700; color: #fff; margin: 1rem 0 0.5rem; }
-        .forum-md h4 { font-size: 1.05rem;  font-weight: 700; color: #fff; margin: 0.75rem 0 0.25rem; }
-        .forum-md p  { margin: 0.5rem 0; }
-        .forum-md ul { list-style: disc;    padding-left: 1.5rem; margin: 0.5rem 0; }
-        .forum-md ol { list-style: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
-        .forum-md li { margin: 0.25rem 0; }
-        .forum-md a  { color: #a78bfa; text-decoration: underline; }
-        .forum-md a:hover { color: #c4b5fd; }
-        .forum-md strong { color: #fff; font-weight: 700; }
-        .forum-md em { font-style: italic; }
-        .forum-md hr { border: none; border-top: 1px solid #334155; margin: 1.5rem 0; }
-        .forum-md blockquote {
-            border-left: 3px solid #64748b;
-            padding: 0.25rem 0 0.25rem 1rem;
-            color: #94a3b8;
-            margin: 0.75rem 0;
-            background: rgba(15,23,42,0.4);
-        }
-        /* Inline code */
-        .forum-md code:not(pre code) {
-            background: rgba(15,23,42,0.7);
-            color: #f472b6;
-            padding: 0.125rem 0.375rem;
-            border-radius: 0.25rem;
-            font-size: 0.875em;
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        }
-        /* Code block (highlight.js handles inner coloring) */
-        .forum-md pre {
-            background: #0d1117 !important;
-            border: 1px solid #1e293b;
-            border-radius: 0.5rem;
-            padding: 1rem;
-            overflow-x: auto;
-            margin: 0.75rem 0;
-        }
-        .forum-md pre code {
-            background: transparent !important;
-            padding: 0 !important;
-            font-size: 0.875rem;
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        }
-        .forum-md img {
-            max-width: 100%;
-            height: auto;
-            border-radius: 0.5rem;
-            margin: 0.75rem 0;
-            border: 1px solid #1e293b;
-        }
-        .forum-md table {
-            border-collapse: collapse;
-            margin: 0.75rem 0;
-            width: 100%;
-        }
-        .forum-md th, .forum-md td {
-            border: 1px solid #334155;
-            padding: 0.5rem 0.75rem;
-            text-align: left;
-        }
-        .forum-md th { background: #1e293b; color: #fff; }
-        /* KaTeX display math gets some breathing room */
-        .forum-md .katex-display { margin: 1rem 0; overflow-x: auto; }
+    /* Glass nav / glass buttons (you liked these) */
+    .glass {
+        background: rgba(18, 20, 28, 0.55);
+        backdrop-filter: blur(20px) saturate(160%);
+        -webkit-backdrop-filter: blur(20px) saturate(160%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glass-strong {
+        background: rgba(10, 11, 16, 0.72);
+        backdrop-filter: blur(24px) saturate(180%);
+        -webkit-backdrop-filter: blur(24px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
 
-        /* ────────────────────────────────
-           EasyMDE dark theme overrides
-           ──────────────────────────────── */
-        .EasyMDEContainer .CodeMirror {
-            background: #0f172a;
-            color: #e2e8f0;
-            border-color: #334155;
-            min-height: 320px;
-        }
-        .EasyMDEContainer .CodeMirror-cursor { border-left-color: #e2e8f0; }
-        .EasyMDEContainer .CodeMirror-selected { background: #1e40af66 !important; }
-        .EasyMDEContainer .editor-toolbar {
-            background: #1e293b;
-            border-color: #334155;
-        }
-        .EasyMDEContainer .editor-toolbar button {
-            color: #cbd5e1 !important;
-        }
-        .EasyMDEContainer .editor-toolbar button:hover,
-        .EasyMDEContainer .editor-toolbar button.active {
-            background: #334155 !important;
-            border-color: #475569 !important;
-        }
-        .EasyMDEContainer .editor-toolbar i.separator {
-            border-left-color: #334155;
-            border-right-color: #475569;
-        }
-        .EasyMDEContainer .editor-statusbar { color: #64748b; }
-        .EasyMDEContainer .editor-preview,
-        .EasyMDEContainer .editor-preview-side {
-            background: #0f172a;
-            color: #cbd5e1;
-            border-color: #334155;
-        }
-        /* Editor's drop-zone feedback while dragging an image */
-        .EasyMDEContainer.CodeMirror.dragging { background: #1e3a8a !important; }
-    </style>
+    /* Brand gradient (logo's blue → violet) */
+    .pill-grad {
+        background-image: linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 100%);
+    }
+    .text-grad {
+        background-image: linear-gradient(135deg, #5fa8ff 0%, #b78cff 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+    .glow-brand {
+        box-shadow:
+            0 0 0 1px rgba(139, 92, 246, 0.25),
+            0 20px 60px -20px rgba(59, 130, 246, 0.55),
+            0 8px 32px -8px rgba(139, 92, 246, 0.45);
+    }
+
+    /* Sparkline / chart glows */
+    .spark-glow { filter: drop-shadow(0 0 8px rgba(76, 194, 255, 0.55)); }
+    .up-glow    { filter: drop-shadow(0 0 8px rgba(0, 214, 143, 0.6)); }
+    .down-glow  { filter: drop-shadow(0 0 8px rgba(255, 91, 110, 0.55)); }
+    .gauge-glow { filter: drop-shadow(0 0 10px rgba(255, 191, 71, 0.5)); }
+
+    /* Dot grid texture (use on hero cards) */
+    .dotgrid {
+        background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+        background-size: 18px 18px;
+        background-position: -1px -1px;
+    }
+
+    /* Up/Down/Neutral pill chips */
+    .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1;
+    }
+    .chip-up      { background: rgba(0, 214, 143, 0.12);  color: #3ce0a8; }
+    .chip-down    { background: rgba(255, 91, 110, 0.12); color: #ff7d8c; }
+    .chip-neutral { background: rgba(255, 255, 255, 0.06); color: var(--text-2); }
+    .chip-warn    { background: rgba(245, 158, 11, 0.12); color: #fbbf24; }
+
+    /* Scrollbar — switched to new palette */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.10);
+        border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.18);
+    }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 4px; }
+
+    /* Hide scrollbar for nav horizontal scroll on mobile */
+    .scrollbar-none::-webkit-scrollbar { display: none; }
+    .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+
+    /* Fade / zoom animation for dropdowns (keeps original Tailwind animate-in working) */
+    @keyframes om-fade-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+    .animate-in.fade-in.zoom-in-95 { animation: om-fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+
+    /* Selection */
+    ::selection { background: rgba(139, 92, 246, 0.35); color: #fff; }
+
+
+    /* ────────────────────────────────
+       Forum: rendered markdown styling
+       (Tailwind preflight resets headings/lists, so we restore them here)
+       ──────────────────────────────── */
+    .forum-md { color: var(--text-2); line-height: 1.75; }
+    .forum-md h1 { font-size: 1.875rem; font-weight: 700; color: #fff; margin: 1.5rem 0 0.75rem; }
+    .forum-md h2 { font-size: 1.5rem;   font-weight: 700; color: #fff; margin: 1.25rem 0 0.5rem; border-bottom: 1px solid var(--line); padding-bottom: 0.35rem; }
+    .forum-md h3 { font-size: 1.25rem;  font-weight: 700; color: #fff; margin: 1rem 0 0.5rem; }
+    .forum-md h4 { font-size: 1.05rem;  font-weight: 700; color: #fff; margin: 0.75rem 0 0.25rem; }
+    .forum-md p  { margin: 0.5rem 0; }
+    .forum-md ul { list-style: disc;    padding-left: 1.5rem; margin: 0.5rem 0; }
+    .forum-md ol { list-style: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
+    .forum-md li { margin: 0.25rem 0; }
+    .forum-md a  { color: #c4b5fd; text-decoration: underline; text-decoration-color: rgba(196,181,253,0.3); text-underline-offset: 3px; }
+    .forum-md a:hover { color: #ddd6fe; text-decoration-color: rgba(196,181,253,0.8); }
+    .forum-md strong { color: #fff; font-weight: 700; }
+    .forum-md em { font-style: italic; }
+    .forum-md hr { border: none; border-top: 1px solid var(--line); margin: 1.5rem 0; }
+    .forum-md blockquote {
+        border-left: 3px solid var(--brand-2);
+        padding: 0.5rem 0 0.5rem 1rem;
+        color: var(--text-2);
+        margin: 0.75rem 0;
+        background: rgba(139,92,246,0.05);
+        border-radius: 0 8px 8px 0;
+    }
+    /* Inline code */
+    .forum-md code:not(pre code) {
+        background: rgba(139,92,246,0.12);
+        color: #c4b5fd;
+        padding: 0.125rem 0.4rem;
+        border-radius: 0.35rem;
+        font-size: 0.875em;
+        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    /* Code block (highlight.js handles inner coloring) */
+    .forum-md pre {
+        background: #07080c !important;
+        border: 1px solid var(--line);
+        border-radius: 0.75rem;
+        padding: 1rem;
+        overflow-x: auto;
+        margin: 0.75rem 0;
+    }
+    .forum-md pre code {
+        background: transparent !important;
+        padding: 0 !important;
+        font-size: 0.875rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .forum-md img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 0.75rem;
+        margin: 0.75rem 0;
+        border: 1px solid var(--line);
+    }
+    .forum-md table {
+        border-collapse: collapse;
+        margin: 0.75rem 0;
+        width: 100%;
+    }
+    .forum-md th, .forum-md td {
+        border: 1px solid var(--line);
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+    }
+    .forum-md th { background: var(--surface-2); color: #fff; }
+    /* KaTeX display math gets some breathing room */
+    .forum-md .katex-display { margin: 1rem 0; overflow-x: auto; }
+
+    /* ────────────────────────────────
+       EasyMDE dark theme overrides
+       ──────────────────────────────── */
+    .EasyMDEContainer .CodeMirror {
+        background: #0f172a;
+        color: #e2e8f0;
+        border-color: #334155;
+        min-height: 320px;
+    }
+    .EasyMDEContainer .CodeMirror-cursor { border-left-color: #e2e8f0; }
+    .EasyMDEContainer .CodeMirror-selected { background: #1e40af66 !important; }
+    .EasyMDEContainer .editor-toolbar {
+        background: #1e293b;
+        border-color: #334155;
+    }
+    .EasyMDEContainer .editor-toolbar button {
+        color: #cbd5e1 !important;
+    }
+    .EasyMDEContainer .editor-toolbar button:hover,
+    .EasyMDEContainer .editor-toolbar button.active {
+        background: #334155 !important;
+        border-color: #475569 !important;
+    }
+    .EasyMDEContainer .editor-toolbar i.separator {
+        border-left-color: #334155;
+        border-right-color: #475569;
+    }
+    .EasyMDEContainer .editor-statusbar { color: #64748b; }
+    .EasyMDEContainer .editor-preview,
+    .EasyMDEContainer .editor-preview-side {
+        background: #0f172a;
+        color: #cbd5e1;
+        border-color: #334155;
+    }
+    /* Editor's drop-zone feedback while dragging an image */
+    .EasyMDEContainer.CodeMirror.dragging { background: #1e3a8a !important; }
+
+    /* ─────────────────────────────────────────────
+       Compatibility shim · 把舊的 Tailwind slate-900
+       卡片視覺接管到新系統，不用改各個 dashboard 的 JSX
+       ───────────────────────────────────────────── */
+
+    .bg-slate-900 {
+        background-color: var(--surface) !important;
+        border-color: var(--line) !important;
+    }
+    .bg-slate-800 {
+        background-color: var(--surface-2) !important;
+    }
+    .bg-slate-800\/50, .bg-slate-800\/30 {
+        background-color: rgba(255,255,255,0.04) !important;
+    }
+    .bg-slate-900\/50 {
+        background-color: rgba(13,15,21,0.6) !important;
+    }
+
+    .border-slate-700, .border-slate-800 {
+        border-color: var(--line) !important;
+    }
+    .border-slate-700\/50, .border-slate-800\/50 {
+        border-color: var(--line) !important;
+    }
+
+    .bg-indigo-600, .bg-blue-600 {
+        background-image: linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 100%) !important;
+        background-color: transparent !important;
+    }
+    .bg-indigo-500, .bg-blue-500 {
+        background-image: linear-gradient(135deg, #5fa8ff 0%, #b78cff 100%) !important;
+        background-color: transparent !important;
+    }
+    .hover\:bg-indigo-500:hover, .hover\:bg-blue-500:hover {
+        background-image: linear-gradient(135deg, #5fa8ff 0%, #b78cff 100%) !important;
+        background-color: transparent !important;
+    }
+
+    .text-slate-200 { color: #e8eaef !important; }
+    .text-slate-300 { color: var(--text-2) !important; }
+    .text-slate-400 { color: var(--text-2) !important; }
+    .text-slate-500 { color: var(--text-3) !important; }
+    .text-slate-600 { color: rgba(255,255,255,0.18) !important; }
+
+    .rounded-xl  { border-radius: 14px !important; }
+    .rounded-2xl { border-radius: 18px !important; }
+
+    .shadow-indigo-500\/20, .shadow-blue-500\/20, .shadow-indigo-900\/20, .shadow-blue-900\/20 {
+        box-shadow: 0 8px 24px -8px rgba(139,92,246,0.5) !important;
+    }
+
+    /* DCA 建議卡片 (action card) - 強化視覺 */
+    .bg-red-900\/30      { background: linear-gradient(135deg, rgba(255,91,110,0.12), rgba(255,91,110,0.04)) !important; }
+    .border-red-500\/50  { border-color: rgba(255,91,110,0.4) !important; }
+    .text-red-400        { color: #ff7d8c !important; }
+
+    .bg-orange-900\/30   { background: linear-gradient(135deg, rgba(245,158,11,0.12), rgba(245,158,11,0.04)) !important; }
+    .border-orange-500\/50 { border-color: rgba(245,158,11,0.4) !important; }
+    .text-orange-400     { color: #fbbf24 !important; }
+
+    .bg-yellow-900\/30   { background: linear-gradient(135deg, rgba(250,204,21,0.10), rgba(250,204,21,0.04)) !important; }
+    .border-yellow-500\/50 { border-color: rgba(250,204,21,0.3) !important; }
+    .text-yellow-400     { color: #facc15 !important; }
+
+    .bg-green-900\/30    { background: linear-gradient(135deg, rgba(0,214,143,0.12), rgba(0,214,143,0.04)) !important; }
+    .border-green-500\/50 { border-color: rgba(0,214,143,0.4) !important; }
+    .text-green-400      { color: #3ce0a8 !important; }
+</style>
 </head>
 
 <body>
@@ -201,6 +395,61 @@
        
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
+
+        // ─────────────────────────────────────────────
+        // Chart.js palette + global defaults (NEW visual system)
+        // ─────────────────────────────────────────────
+        const CHART = {
+            line:       '#4cc2ff',
+            fillTop:    'rgba(76,194,255,0.35)',
+            fillBot:    'rgba(76,194,255,0)',
+            brand1:     '#3b82f6',
+            brand2:     '#8b5cf6',
+            up:         '#00d68f',
+            down:       '#ff5b6e',
+            fear:       '#ff5b6e',
+            fearLight:  '#f59e0b',
+            grid:       'rgba(255,255,255,0.04)',
+            tick:       '#6b7080',
+            text:       '#b8bcc8',
+            tooltipBg:  'rgba(7,8,12,0.92)',
+            border:     'rgba(255,255,255,0.06)',
+        };
+        const makePriceGradient = (context) => {
+            const ctx = context.chart.ctx;
+            const g = ctx.createLinearGradient(0, 0, 0, 400);
+            g.addColorStop(0, CHART.fillTop);
+            g.addColorStop(1, CHART.fillBot);
+            return g;
+        };
+        if (typeof window.Chart !== 'undefined') {
+            const C = window.Chart;
+            C.defaults.color = CHART.tick;
+            C.defaults.borderColor = CHART.grid;
+            C.defaults.font.family = "'Manrope', ui-sans-serif, system-ui, -apple-system, sans-serif";
+            C.defaults.font.size = 11;
+            C.defaults.font.weight = '500';
+            C.defaults.plugins.tooltip.backgroundColor = CHART.tooltipBg;
+            C.defaults.plugins.tooltip.titleColor = '#ffffff';
+            C.defaults.plugins.tooltip.bodyColor = CHART.text;
+            C.defaults.plugins.tooltip.borderColor = 'rgba(255,255,255,0.08)';
+            C.defaults.plugins.tooltip.borderWidth = 1;
+            C.defaults.plugins.tooltip.padding = 12;
+            C.defaults.plugins.tooltip.cornerRadius = 12;
+            C.defaults.plugins.tooltip.displayColors = false;
+            C.defaults.plugins.tooltip.titleFont = { family: "'Manrope', sans-serif", size: 12, weight: '700' };
+            C.defaults.plugins.tooltip.bodyFont = { family: "'JetBrains Mono', ui-monospace, monospace", size: 11 };
+            C.defaults.plugins.title.color = CHART.text;
+            C.defaults.plugins.title.font = { family: "'Manrope', sans-serif", size: 12, weight: '600' };
+            C.defaults.plugins.title.padding = { bottom: 12 };
+            C.defaults.plugins.legend.labels.color = CHART.text;
+            C.defaults.elements.line.tension = 0.4;
+            C.defaults.elements.line.borderWidth = 2;
+            C.defaults.elements.point.hoverRadius = 5;
+            C.defaults.elements.point.hoverBorderWidth = 2;
+            C.defaults.elements.point.hoverBackgroundColor = '#ffffff';
+        }
+
 
         // --- Supabase Configuration ---
         // Local dev: reads from local-config.js (gitignored).
@@ -431,25 +680,25 @@
 
             if (user) {
                 const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture;
+                const initial = (user.email || 'U').charAt(0).toUpperCase();
                 return (
-                    <div className="flex items-center gap-3 bg-slate-800 py-1.5 px-3 rounded-full border border-slate-700">
-                        <div className="flex items-center gap-2">
-                            {avatarUrl ? (
-                                <img src={avatarUrl} alt="User Avatar" className="w-6 h-6 rounded-full border border-slate-600" />
-                            ) : (
-                                <div className="bg-blue-600 rounded-full p-1"><User size={14} /></div>
-                            )}
-                            <span className="text-xs font-medium text-slate-300 hidden md:block">{user.email.split('@')[0]}</span>
-                        </div>
+                    <div className="glass rounded-full pl-1 pr-2 py-1 flex items-center gap-2">
+                        {avatarUrl ? (
+                            <img src={avatarUrl} alt="User Avatar" className="w-7 h-7 rounded-full ring-soft" />
+                        ) : (
+                            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white pill-grad">{initial}</div>
+                        )}
+                        <span className="text-xs font-semibold hidden md:block" style={{ color: 'var(--text-2)' }}>{user.email.split('@')[0]}</span>
 
                         {/* Subscription Management */}
                         {isPremium ? (
                             <button
                                 onClick={() => window.open(LEMON_PORTAL_URL, '_blank')}
-                                className="text-xs bg-slate-700 hover:bg-slate-600 text-amber-500 font-bold px-2 py-1 rounded transition-colors"
+                                className="text-[10px] font-bold px-2 py-1 rounded-md transition-colors"
+                                style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff' }}
+                                title="管理訂閱"
                             >
-                                <span className="hidden md:inline">管理訂閱</span>
-                                <span className="md:hidden">管理</span>
+                                PRO
                             </button>
                         ) : (
                             <button
@@ -457,14 +706,15 @@
                                     const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
                                     window.open(checkoutUrl, '_blank');
                                 }}
-                                className="text-xs bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-bold px-2 py-1 rounded transition-colors flex items-center gap-1"
+                                className="text-[10px] font-bold px-2 py-1 rounded-md text-white flex items-center gap-1 transition-colors"
+                                style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)' }}
                             >
-                                <Sparkles size={10} /> 升級 Pro
+                                <Sparkles size={10} /> 升級
                             </button>
                         )}
 
-                        <button onClick={handleLogout} className="text-slate-400 hover:text-red-400 transition-colors ml-1">
-                            <LogOut size={16} />
+                        <button onClick={handleLogout} className="ml-0.5 p-1 rounded-full transition-colors hover:bg-white/10" style={{ color: 'var(--text-3)' }} title="登出">
+                            <LogOut size={14} />
                         </button>
                     </div>
                 );
@@ -474,93 +724,117 @@
                 <>
                     <button
                         onClick={() => setShowLoginModal(true)}
-                        className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full text-sm font-bold transition-all shadow-lg shadow-indigo-900/20"
+                        className="flex items-center gap-2 px-4 py-2 pill-grad text-white rounded-full text-xs font-bold transition-all glow-brand"
                     >
-                        <User size={16} /> 登入
+                        <User size={14} /> 登入
                     </button>
 
                     {showLoginModal && (
-                        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
-                            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 shadow-2xl max-w-sm w-full relative">
+                        <div className="fixed inset-0 flex items-center justify-center z-[100] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
+                            <div className="glass-strong p-7 rounded-3xl shadow-2xl max-w-sm w-full relative">
                                 <button
                                     onClick={() => setShowLoginModal(false)}
-                                    className="absolute top-4 right-4 text-slate-500 hover:text-white"
+                                    className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                                    style={{ color: 'var(--text-3)' }}
                                 >
                                     ✕
                                 </button>
 
-                                <h3 className="text-xl font-bold text-white mb-6 text-center">
-                                    {isSignUp ? '註冊帳號' : '歡迎回來'}
-                                </h3>
-
-                                <form onSubmit={handleLogin} className="space-y-4">
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="relative w-10 h-10 rounded-xl overflow-hidden ring-soft" style={{ background: '#0a0c12' }}>
+                                        <div className="absolute -inset-2 rounded-full opacity-40 blur-lg pill-grad"></div>
+                                        <img src="./app-icon.png" alt="" className="relative w-full h-full object-cover" />
+                                    </div>
                                     <div>
-                                        <label className="block text-xs text-slate-400 mb-1">Email</label>
+                                        <h3 className="text-lg font-extrabold text-white tracking-tight">
+                                            {isSignUp ? '建立帳號' : '歡迎回來'}
+                                        </h3>
+                                        <p className="label mt-0.5">Smart DCA</p>
+                                    </div>
+                                </div>
+
+                                <form onSubmit={handleLogin} className="space-y-3">
+                                    <div>
+                                        <label className="label block mb-1.5">Email</label>
                                         <input
                                             type="email"
                                             required
                                             value={email}
                                             onChange={e => setEmail(e.target.value)}
-                                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white outline-none focus:border-indigo-500"
+                                            className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+                                            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}
+                                            onFocus={e => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+                                            onBlur={e => e.target.style.borderColor = 'var(--line)'}
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs text-slate-400 mb-1">Password</label>
+                                        <label className="label block mb-1.5">Password</label>
                                         <input
                                             type="password"
                                             required
                                             minLength={6}
                                             value={password}
                                             onChange={e => setPassword(e.target.value)}
-                                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white outline-none focus:border-indigo-500"
+                                            className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+                                            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}
+                                            onFocus={e => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+                                            onBlur={e => e.target.style.borderColor = 'var(--line)'}
                                         />
                                     </div>
                                     {isSignUp && (
                                         <div>
-                                            <label className="block text-xs text-slate-400 mb-1">確認密碼</label>
+                                            <label className="label block mb-1.5">Confirm Password</label>
                                             <input
                                                 type="password"
                                                 required
                                                 minLength={6}
                                                 value={confirmPassword}
                                                 onChange={e => setConfirmPassword(e.target.value)}
-                                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white outline-none focus:border-indigo-500"
+                                                className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+                                                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}
+                                                onFocus={e => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+                                                onBlur={e => e.target.style.borderColor = 'var(--line)'}
                                             />
                                         </div>
                                     )}
 
-                                    {msg && <div className="text-red-400 text-xs text-center">{msg}</div>}
+                                    {msg && (
+                                        <div className="text-xs text-center px-3 py-2 rounded-lg" style={{ background: 'rgba(255,91,110,0.08)', color: '#ff7d8c', border: '1px solid rgba(255,91,110,0.2)' }}>
+                                            {msg}
+                                        </div>
+                                    )}
 
                                     <button
                                         type="submit"
                                         disabled={localLoading}
-                                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold transition-colors disabled:opacity-50"
+                                        className="w-full py-2.5 pill-grad text-white rounded-xl text-sm font-bold transition-all glow-brand disabled:opacity-50"
                                     >
                                         {localLoading ? '處理中...' : (isSignUp ? '註冊' : '登入')}
                                     </button>
                                 </form>
 
-                                <div className="mt-4 flex items-center gap-2">
-                                    <div className="h-px bg-slate-800 flex-1"></div>
-                                    <span className="text-xs text-slate-500">or</span>
-                                    <div className="h-px bg-slate-800 flex-1"></div>
+                                <div className="my-4 flex items-center gap-3">
+                                    <div className="h-px flex-1" style={{ background: 'var(--line)' }}></div>
+                                    <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>OR</span>
+                                    <div className="h-px flex-1" style={{ background: 'var(--line)' }}></div>
                                 </div>
 
                                 <button
                                     type="button"
                                     onClick={handleGoogleLogin}
-                                    className="mt-4 w-full py-2 bg-white text-slate-900 rounded-lg font-bold hover:bg-slate-200 transition-colors flex items-center justify-center gap-2"
+                                    className="w-full py-2.5 bg-white text-slate-900 rounded-xl text-sm font-bold hover:bg-slate-100 transition-colors flex items-center justify-center gap-2"
                                 >
                                     <svg className="w-4 h-4" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" /><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" /><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" /><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" /></svg>
-                                    Google 登入
+                                    使用 Google 繼續
                                 </button>
 
-                                <div className="mt-6 text-center">
+                                <div className="mt-5 text-center">
                                     <button
                                         onClick={() => { setIsSignUp(!isSignUp); setMsg(null); setConfirmPassword(''); }}
-                                        className="text-xs text-slate-400 hover:text-white underline"
+                                        className="text-xs underline transition-colors"
+                                        style={{ color: 'var(--text-3)' }}
                                     >
-                                        {isSignUp ? '已有帳號？登入' : '沒有帳號？註冊'}
+                                        {isSignUp ? '已有帳號？登入' : '沒有帳號？立即註冊'}
                                     </button>
                                 </div>
                             </div>
@@ -633,7 +907,7 @@
                 - 恐懼 (26 - 44): 建議「小額分批買入」，鼓勵保持紀律。
                 - 中立 (45 - 55): 建議「維持觀望，不買也不賣」。
                 - 貪婪 (56 - 74) 極度貪婪 (>= 75):: 建議「停止買入，開始小額分批賣出 (止盈)」。
-                
+
                 市場數據:
                 ${marketData}
                 ${priceInfo}
@@ -647,65 +921,101 @@
             };
 
             if (!started) return (
-                <div className="mt-4 text-center">
+                <div className="mt-4">
                     <button
                         onClick={isLocked ? () => { } : handleAnalyze}
                         disabled={isLocked}
-                        className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 mx-auto transition-all shadow-lg ${isLocked
-                            ? 'bg-slate-700 text-slate-400 cursor-not-allowed border border-slate-600'
-                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-500/20'
-                            }`}
+                        className={`w-full relative overflow-hidden rounded-2xl p-4 flex items-center justify-between transition-all ${
+                            isLocked ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.01] glow-brand'
+                        }`}
+                        style={{
+                            background: isLocked
+                                ? 'rgba(255,255,255,0.03)'
+                                : 'linear-gradient(135deg, #1a1730 0%, #1a2540 50%, #2b1b3a 100%)',
+                            border: isLocked ? '1px solid var(--line)' : '1px solid rgba(139,92,246,0.4)'
+                        }}
                     >
-                        {isLocked ? <Lock size={16} /> : <Sparkles size={16} />}
-                        {isLocked ? '詢問 AI 投資顧問 (Pro)' : '詢問 AI 投資顧問'}
+                        <div className="absolute inset-0 dotgrid opacity-40 pointer-events-none"></div>
+                        <div className="relative flex items-center gap-3 min-w-0">
+                            <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: isLocked ? 'rgba(255,255,255,0.06)' : 'linear-gradient(135deg,#3b82f6,#8b5cf6)' }}>
+                                {isLocked ? <Lock size={20} className="text-slate-400" /> : <Bot size={22} className="text-white" />}
+                            </div>
+                            <div className="text-left min-w-0">
+                                <div className="text-sm font-bold text-white flex items-center gap-2">
+                                    AI 投資顧問
+                                    {isLocked
+                                        ? <span className="chip chip-warn">PRO</span>
+                                        : <span className="chip" style={{ background: 'rgba(139,92,246,0.18)', color: '#c4b5fd' }}>GEMINI</span>
+                                    }
+                                </div>
+                                <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-2)' }}>
+                                    {isLocked ? '升級 Pro 解鎖 Gemini 深度分析' : '根據情緒指數 + 價格走勢產出個人化建議'}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="relative shrink-0 ml-3">
+                            {isLocked
+                                ? <span className="text-xs font-bold px-3 py-1.5 rounded-full" style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff' }}>升級</span>
+                                : <span className="text-xs font-bold px-3 py-1.5 rounded-full pill-grad text-white">分析 →</span>
+                            }
+                        </div>
                     </button>
-                    {isLocked ? (
-                        <p className="text-xs text-amber-500 mt-2 font-bold">升級 Premium 會員即可解鎖 AI 深度分析</p>
-                    ) : (
-                        <p className="text-xs text-slate-500 mt-2">點擊按鈕以獲取 Gemini 2.5 AI 的即時分析建議</p>
-                    )}
                 </div>
             );
 
             if (loading) return (
-                <div className="mt-4 p-4 bg-slate-800/50 rounded-xl border border-slate-700 animate-pulse flex items-center gap-2 text-slate-400 text-sm">
-                    <RefreshCw className="animate-spin" size={16} />
-                    ✨ AI 投資顧問正在分析市場數據...
+                <div className="mt-4 p-4 rounded-2xl flex items-center gap-3 text-sm" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.2)', color: 'var(--text-2)' }}>
+                    <RefreshCw className="animate-spin" size={16} style={{ color: '#a78bfa' }} />
+                    <span>AI 正在分析市場數據...</span>
+                    <span className="flex gap-1 ml-auto">
+                        <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#a78bfa' }}></span>
+                        <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#a78bfa', animationDelay: '0.2s' }}></span>
+                        <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#a78bfa', animationDelay: '0.4s' }}></span>
+                    </span>
                 </div>
             );
 
             if (!advice) return null;
 
             return (
-                <div className="mt-4 p-4 bg-gradient-to-r from-slate-800 to-slate-900 rounded-xl border border-indigo-500/30 relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
-                    <div className="flex justify-between items-start mb-3">
-                        <h4 className="text-indigo-400 font-bold text-sm flex items-center gap-2">
-                            <span className="text-lg">🤖</span> AI 投資顧問建議
-                        </h4>
-                        <button onClick={() => { setAdvice(null); setStarted(false); }} className="text-slate-600 hover:text-slate-400"><RefreshCw size={14} /></button>
-                    </div>
-
-                    {priceStats && (
-                        <div className="grid grid-cols-3 gap-2 mb-3 pb-3 border-b border-slate-700/50">
-                            <div className="text-center">
-                                <div className="text-xs text-slate-500 mb-1">當前價格</div>
-                                <div className="text-sm font-bold text-slate-200">${formatPrice(priceStats.current)}</div>
+                <div className="mt-4 rounded-2xl relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #14141c 0%, #1a1730 100%)', border: '1px solid rgba(139,92,246,0.3)' }}>
+                    <div className="absolute inset-0 dotgrid opacity-30 pointer-events-none"></div>
+                    <div className="absolute top-0 left-0 w-1 h-full pill-grad"></div>
+                    <div className="relative p-5">
+                        <div className="flex justify-between items-start mb-3">
+                            <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-lg flex items-center justify-center pill-grad">
+                                    <Bot size={14} className="text-white" />
+                                </div>
+                                <h4 className="font-bold text-white text-sm">AI 投資顧問建議</h4>
+                                <span className="chip" style={{ background: 'rgba(139,92,246,0.18)', color: '#c4b5fd' }}>GEMINI</span>
                             </div>
-                            <div className="text-center">
-                                <div className="text-xs text-slate-500 mb-1">近一年最高</div>
-                                <div className="text-sm font-bold text-slate-200">${formatPrice(priceStats.high)}</div>
-                            </div>
-                            <div className="text-center">
-                                <div className="text-xs text-slate-500 mb-1">近一年最低</div>
-                                <div className="text-sm font-bold text-slate-200">${formatPrice(priceStats.low)}</div>
-                            </div>
+                            <button onClick={() => { setAdvice(null); setStarted(false); }} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors" style={{ color: 'var(--text-3)' }}>
+                                <RefreshCw size={14} />
+                            </button>
                         </div>
-                    )}
 
-                    <p className="text-slate-300 text-sm leading-relaxed">
-                        {advice}
-                    </p>
+                        {priceStats && (
+                            <div className="grid grid-cols-3 gap-2 mb-4 pb-4 border-b" style={{ borderColor: 'var(--line)' }}>
+                                <div>
+                                    <div className="label mb-1">當前</div>
+                                    <div className="text-sm font-bold text-white num">${formatPrice(priceStats.current)}</div>
+                                </div>
+                                <div>
+                                    <div className="label mb-1">1Y 高</div>
+                                    <div className="text-sm font-bold num" style={{ color: '#3ce0a8' }}>${formatPrice(priceStats.high)}</div>
+                                </div>
+                                <div>
+                                    <div className="label mb-1">1Y 低</div>
+                                    <div className="text-sm font-bold num" style={{ color: '#ff7d8c' }}>${formatPrice(priceStats.low)}</div>
+                                </div>
+                            </div>
+                        )}
+
+                        <p className="text-sm leading-relaxed" style={{ color: 'var(--text-2)' }}>
+                            {advice}
+                        </p>
+                    </div>
                 </div>
             );
         };
@@ -790,137 +1100,84 @@
         };
 
         const FearGreedGauge = ({ fngValue, classification }) => {
-            // FNG 範圍對應到 180 度的半圓
-            // 0 -> 180deg (左側), 100 -> 0deg (右側)
-            const angleFromRight = Math.min(180, Math.max(0, (fngValue / 100) * 180));
+            // FNG 0..100 → 角度 180..0 (左→右)
+            const v = Math.min(100, Math.max(0, fngValue ?? 50));
+            const angleFromRight = (v / 100) * 180;
             const indicatorAngleDeg = 180 - angleFromRight;
 
-            // 顏色區塊的精確角度劃分 (0-25, 26-44, 45-55, 56-74, 75-100)
-            const segments = [
-                // FNG 0-25 (45度): 紅色 (Extreme Fear)
-                { startAngle: 180, endAngle: 135, color: '#EA3943' },
-                // FNG 26-44 (34.2度): 橘色 (Fear)
-                { startAngle: 135, endAngle: 100.8, color: '#EA8C00' },
-                // FNG 45-55 (19.8度): 黃色 (Neutral)
-                { startAngle: 100.8, endAngle: 81, color: '#F3D42F' },
-                // FNG 56-74 (34.2度): 亮綠色 (Greed)
-                { startAngle: 81, endAngle: 46.8, color: '#93D900' },
-                // FNG 75-100 (46.8度): 青綠色 (Extreme Greed)
-                { startAngle: 46.8, endAngle: 0, color: '#16C784' },
-            ];
+            const size = 220;
+            const cx = 110;
+            const cy = 130;
+            const r = 88;
+            const strokeWidth = 16;
 
-            // 根據參考網站的 SVG 參數進行調整
-            const size = 144; // 參考網站的 SVG 寬度
-            const radius = 59; // 參考網站的半徑
-            const strokeWidth = 10;
-            const indicatorRadius = 7; // 指標半徑 (外圈)
-            const indicatorInnerRadius = 5; // 指標半徑 (內圈)
-
-            // 圓心座標 (X 軸中央)
-            const centerX = size / 2; // 72
-            // 圓心 Y 座標：配合新的 strokeWidth 進行調整
-            const centerY = radius + strokeWidth / 2 + 15; // 79
-
-            // 1. 座標轉換工具
-            const getCoords = (angleDeg) => {
-                const angleRad = (angleDeg) * (Math.PI / 180);
-                return {
-                    x: centerX + radius * Math.cos(angleRad),
-                    // 確保向上開啟
-                    y: centerY - radius * Math.sin(angleRad)
-                };
+            const polar = (deg) => {
+                const rad = deg * Math.PI / 180;
+                return { x: cx + r * Math.cos(rad), y: cy - r * Math.sin(rad) };
             };
+            const pStart = polar(180);
+            const pEnd = polar(0);
 
-            // 2. 繪製圓弧路徑工具 (使用 A 弧線指令)
-            const getArcPath = (startAngle, endAngle) => {
-                const start = getCoords(startAngle);
-                const end = getCoords(endAngle);
-                const largeArcFlag = 0;
-                // sweepFlag = 1，確保圓弧是向外凸出
-                const sweepFlag = 1;
+            const trackPath = `M ${pStart.x} ${pStart.y} A ${r} ${r} 0 0 1 ${pEnd.x} ${pEnd.y}`;
+            const arcLength = Math.PI * r;
+            const dashOffset = arcLength * (1 - v / 100);
 
-                return [
-                    "M", start.x, start.y,
-                    "A", radius, radius, 0, largeArcFlag, sweepFlag, end.x, end.y
-                ].join(" ");
-            };
+            const indicator = polar(indicatorAngleDeg);
 
-            // 指標位置
-            const indicatorPosition = getCoords(indicatorAngleDeg);
-
-            // 計算 viewBox 高度，確保能容納圓弧和指標以及中央文字。
-            const viewBoxHeight = centerY + 10;
+            const zoneColor =
+                v <= 25 ? '#ff5b6e' :
+                v <= 44 ? '#f59e0b' :
+                v <= 55 ? '#facc15' :
+                v <= 74 ? '#84d76a' :
+                          '#00d68f';
 
             return (
-                // 容器設為響應式寬度，最大不超過 200px (以適應小尺寸的儀表板)。
-                <div className="relative w-full max-w-[200px] mx-auto flex flex-col items-center">
-                    <svg
-                        className="w-full h-auto" // 讓 SVG 佔滿容器寬度並保持長寬比
-                        viewBox={`0 0 ${size} ${viewBoxHeight}`}
-                    >
+                <div className="relative w-full max-w-[260px] mx-auto flex flex-col items-center">
+                    <svg viewBox={`0 0 ${size} 160`} className="w-full h-auto">
+                        <defs>
+                            <linearGradient id="fng-grad" x1="0" x2="1" y1="0" y2="0">
+                                <stop offset="0%" stopColor="#ff5b6e" />
+                                <stop offset="30%" stopColor="#f59e0b" />
+                                <stop offset="50%" stopColor="#facc15" />
+                                <stop offset="75%" stopColor="#84d76a" />
+                                <stop offset="100%" stopColor="#00d68f" />
+                            </linearGradient>
+                            <filter id="fng-glow" x="-20%" y="-20%" width="140%" height="140%">
+                                <feGaussianBlur stdDeviation="3" result="b" />
+                                <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                            </filter>
+                        </defs>
 
-                        {/* 繪製分段圓弧 */}
-                        <g>
-                            {segments.map((segment, index) => (
-                                <path
-                                    key={index}
-                                    d={getArcPath(segment.startAngle, segment.endAngle)}
-                                    fill="none"
-                                    stroke={segment.color}
-                                    strokeWidth={strokeWidth}
-                                    // 修正：移除 strokeLinecap="round" 以避免色塊重疊/入侵
-                                    strokeLinecap="butt"
-                                    className="drop-shadow-sm transition-all duration-500"
-                                />
-                            ))}
+                        <path d={trackPath} stroke="rgba(255,255,255,0.06)" strokeWidth={strokeWidth} fill="none" strokeLinecap="round" />
 
-                            {/* 指標外圈 (白色邊框) */}
-                            <circle
-                                cx={indicatorPosition.x}
-                                cy={indicatorPosition.y}
-                                r={indicatorRadius}
-                                fill="none"
-                                stroke="#d1d5db" // 灰色邊框 (近似參考圖)
-                                strokeWidth="4"
-                                className="transition-all duration-1000 ease-out"
-                            />
-                            {/* 指標內圈 (白色填充) */}
-                            <circle
-                                cx={indicatorPosition.x}
-                                cy={indicatorPosition.y}
-                                r={indicatorInnerRadius}
-                                fill="white"
-                                className="transition-all duration-1000 ease-out"
-                            />
-                        </g>
+                        <path
+                            d={trackPath}
+                            stroke="url(#fng-grad)"
+                            strokeWidth={strokeWidth}
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeDasharray={arcLength}
+                            strokeDashoffset={dashOffset}
+                            filter="url(#fng-glow)"
+                            style={{ transition: 'stroke-dashoffset 1s cubic-bezier(0.16,1,0.3,1)' }}
+                        />
 
-                        {/* 中央數值和分類文字 (置於 SVG 圓弧中間) */}
-                        <text
-                            x={centerX}
-                            // Y 軸調整：數值位置 
-                            y={centerY - 28}
-                            textAnchor="middle"
-                            dominantBaseline="middle"
-                            className="fill-white font-black"
-                            // 修正：縮小字體到 28px
-                            style={{ fontSize: '28px', lineHeight: 1 }}
-                        >
-                            {fngValue}
-                        </text>
-                        <text
-                            x={centerX}
-                            // Y 軸調整：分類位置
-                            y={centerY + 3}
-                            textAnchor="middle"
-                            dominantBaseline="middle"
-                            className="fill-slate-400 font-medium"
-                            style={{ fontSize: '16px' }}
-                        >
-                            {classification}
-                        </text>
+                        <circle cx={indicator.x} cy={indicator.y} r="9" fill="#fff" style={{ transition: 'all 1s cubic-bezier(0.16,1,0.3,1)' }} />
+                        <circle cx={indicator.x} cy={indicator.y} r="4" fill={zoneColor} style={{ transition: 'all 1s cubic-bezier(0.16,1,0.3,1)' }} />
                     </svg>
 
-                    {/* 儀表板刻度文字 (0, 25, 50, 75, 100) - 已移除 */}
+                    <div className="absolute" style={{ top: '52%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
+                        <div className="num font-extrabold leading-none" style={{ fontSize: '44px', color: '#fff' }}>{fngValue ?? '--'}</div>
+                        <div className="text-xs font-bold mt-1" style={{ color: zoneColor }}>{classification ?? ''}</div>
+                    </div>
+
+                    <div className="w-full grid grid-cols-5 gap-1 mt-2 text-[10px] mono" style={{ color: 'var(--text-3)' }}>
+                        <div className="text-center">極度恐懼</div>
+                        <div className="text-center">恐懼</div>
+                        <div className="text-center">中立</div>
+                        <div className="text-center">貪婪</div>
+                        <div className="text-center">極度貪婪</div>
+                    </div>
                 </div>
             );
         };
@@ -928,27 +1185,27 @@
         // --- 新聞摘要元件 ---
         const NewsSummary = ({ news }) => {
             const topNews = news.slice(0, 3);
-
             return (
-                <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl border border-slate-700 shadow-xl mb-6 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-
-                    <div className="flex justify-between items-start mb-4 relative z-10">
-                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                            <Sparkles className="text-yellow-400" size={20} />
-                            今日市場快訊
-                        </h3>
-                    </div>
-
-                    <div className="relative z-10">
-                        <div className="space-y-3">
+                <div className="rounded-2xl p-5 mb-4 relative overflow-hidden ring-soft" style={{ background: 'linear-gradient(135deg, #14141c 0%, #181b25 100%)' }}>
+                    <div className="absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none opacity-30" style={{ background: 'radial-gradient(circle, #3b82f6, transparent)' }}></div>
+                    <div className="relative">
+                        <div className="flex items-center gap-2 mb-4">
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center pill-grad">
+                                <Sparkles size={16} className="text-white" />
+                            </div>
+                            <div>
+                                <div className="label">今日重點</div>
+                                <h3 className="text-base font-bold text-white">市場頭條</h3>
+                            </div>
+                        </div>
+                        <div className="space-y-2.5">
                             {topNews.map((item, index) => (
-                                <div key={index} className="flex gap-3 items-start">
-                                    <span className="text-blue-500 font-bold text-sm mt-0.5">{index + 1}.</span>
-                                    <a href={item.link} target="_blank" rel="noopener noreferrer" className="text-slate-300 text-sm hover:text-blue-400 transition-colors line-clamp-2">
+                                <a key={index} href={item.link} target="_blank" rel="noopener noreferrer" className="flex gap-3 items-start group p-2 rounded-xl hover:bg-white/[0.03] transition-colors">
+                                    <span className="mono text-xs font-bold w-6 shrink-0" style={{ color: 'var(--text-3)' }}>0{index + 1}</span>
+                                    <span className="text-sm leading-snug line-clamp-2 group-hover:text-white transition-colors" style={{ color: 'var(--text-2)' }}>
                                         {item.title}
-                                    </a>
-                                </div>
+                                    </span>
+                                </a>
                             ))}
                         </div>
                     </div>
@@ -961,56 +1218,50 @@
             if (loading) {
                 return (
                     <div className="flex justify-center items-center py-12">
-                        <RefreshCw className="animate-spin text-slate-500" size={24} />
+                        <RefreshCw className="animate-spin" size={24} style={{ color: 'var(--text-3)' }} />
                     </div>
                 );
             }
-
             if (error) {
                 return (
-                    <div className="text-center py-8 text-red-400 text-sm">
+                    <div className="text-center py-8 text-sm" style={{ color: '#ff7d8c' }}>
                         無法載入新聞: {error}
                     </div>
                 );
             }
 
-            // 只顯示前 6 則 (模擬每日觀看量最多/最重要)
             const displayNews = news.slice(0, 6);
 
             return (
-                <div className="grid grid-cols-1 gap-3">
+                <div className="rounded-2xl overflow-hidden ring-soft divide-y" style={{ background: 'var(--surface)', borderColor: 'var(--line)' }}>
                     {displayNews.map((item, index) => (
                         <a
                             key={index}
                             href={item.link}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="group bg-slate-900 border border-slate-800 rounded-xl overflow-hidden hover:border-slate-600 transition-all duration-300 flex flex-row h-24 sm:h-28"
+                            className="group flex items-stretch hover:bg-white/[0.03] transition-colors"
+                            style={{ borderColor: 'var(--line)' }}
                         >
-                            {/* 內容區塊 - 左側 */}
-                            <div className="p-3 sm:p-4 flex flex-col justify-between flex-1 min-w-0">
-                                <h4 className="font-bold text-slate-200 text-sm sm:text-base line-clamp-2 group-hover:text-blue-400 transition-colors leading-snug">
+                            <div className="w-1 shrink-0" style={{ background: index === 0 ? 'linear-gradient(180deg,#3b82f6,#8b5cf6)' : 'rgba(255,255,255,0.06)' }}></div>
+                            <div className="p-4 flex flex-col justify-between flex-1 min-w-0">
+                                <h4 className="font-semibold text-sm sm:text-base line-clamp-2 leading-snug text-white group-hover:text-grad transition-colors">
                                     {item.title}
                                 </h4>
-                                <div className="flex items-center justify-between text-xs text-slate-500 mt-1">
-                                    <span>{new Date(item.pubDate).toLocaleDateString()}</span>
-                                    <span className="flex items-center gap-1 group-hover:text-blue-400">
-                                        閱讀全文 <ExternalLink size={12} />
+                                <div className="flex items-center justify-between text-xs mt-2" style={{ color: 'var(--text-3)' }}>
+                                    <span className="mono">{new Date(item.pubDate).toLocaleDateString()}</span>
+                                    <span className="flex items-center gap-1 group-hover:text-white transition-colors">
+                                        閱讀 <ExternalLink size={11} />
                                     </span>
                                 </div>
                             </div>
-
-                            {/* 圖片區塊 - 右側 (如果載入失敗或無圖片則不顯示) */}
                             {item.thumbnail && (
-                                <div className="w-24 sm:w-32 h-full shrink-0 bg-slate-800 relative">
+                                <div className="w-24 sm:w-32 shrink-0 relative overflow-hidden" style={{ background: 'var(--surface-2)' }}>
                                     <img
                                         src={item.thumbnail}
                                         alt={item.title}
                                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                        onError={(e) => {
-                                            // 如果圖片載入失敗，隱藏整個圖片容器
-                                            e.currentTarget.parentElement.style.display = 'none';
-                                        }}
+                                        onError={(e) => { e.currentTarget.parentElement.style.display = 'none'; }}
                                     />
                                 </div>
                             )}
@@ -1040,7 +1291,7 @@
                     ctx.beginPath();
                     ctx.setLineDash([5, 5]);
                     ctx.lineWidth = 1;
-                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                    ctx.strokeStyle = 'rgba(76, 194, 255, 0.45)';
 
                     // Vertical Line
                     ctx.moveTo(x, topY);
@@ -1472,26 +1723,20 @@
                         {
                             label: `${symbol} 價格`,
                             data: data.map(d => d.price),
-                            borderColor: '#3b82f6',
-                            backgroundColor: (context) => {
-                                const ctx = context.chart.ctx;
-                                const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-                                gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
-                                gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
-                                return gradient;
-                            },
+                            borderColor: CHART.line,
+                            backgroundColor: makePriceGradient,
                             yAxisID: 'y',
                             borderWidth: 2,
                             fill: true,
                             tension: 0.4,
                             pointBackgroundColor: data.map(d => {
-                                if (d.fng <= 25) return '#ef4444';
-                                if (d.fng <= 44) return '#f97316';
+                                if (d.fng <= 25) return CHART.fear;
+                                if (d.fng <= 44) return CHART.fearLight;
                                 return 'rgba(0,0,0,0)';
                             }),
                             pointBorderColor: data.map(d => {
-                                if (d.fng <= 25) return '#ef4444';
-                                if (d.fng <= 44) return '#f97316';
+                                if (d.fng <= 25) return CHART.fear;
+                                if (d.fng <= 44) return CHART.fearLight;
                                 return 'rgba(0,0,0,0)';
                             }),
                             pointRadius: data.map(d => {
@@ -1526,8 +1771,8 @@
                         title: { display: true, text: `${symbol} 價格走勢與市場恐懼指數 (紅/橘點代表市場恐懼)`, color: '#94a3b8' }
                     },
                     scales: {
-                        y: { type: 'linear', display: true, position: 'left', grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
-                        x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { display: false } }
+                        y: { type: 'linear', display: true, position: 'left', grid: { color: CHART.grid }, ticks: { color: CHART.tick } },
+                        x: { ticks: { color: CHART.tick, maxTicksLimit: 8 }, grid: { display: false } }
                     }
                 };
                 return <ChartComponent data={chartData} options={options} />;
@@ -1916,12 +2161,12 @@
                 datasets: [{
                     label: `${selectedSymbol} 股價`,
                     data: rsiData.history.map(d => d.y),
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderColor: CHART.line,
+                    backgroundColor: makePriceGradient,
                     borderWidth: 2,
                     pointRadius: rsiData.history.map(d => d.rsi <= 44 ? 3 : 0), // 點半徑
-                    pointBackgroundColor: rsiData.history.map(d => d.rsi <= 25 ? '#ef4444' : (d.rsi <= 44 ? '#f97316' : 'rgba(0,0,0,0)')), // 點填充色
-                    pointBorderColor: rsiData.history.map(d => d.rsi <= 25 ? '#ef4444' : (d.rsi <= 44 ? '#f97316' : 'rgba(0,0,0,0)')),
+                    pointBackgroundColor: rsiData.history.map(d => d.rsi <= 25 ? CHART.fear : (d.rsi <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')), // 點填充色
+                    pointBorderColor: rsiData.history.map(d => d.rsi <= 25 ? CHART.fear : (d.rsi <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')),
                     pointHoverRadius: 4,
                     fill: true,
                     tension: 0.4
@@ -1936,7 +2181,6 @@
                     tooltip: {
                         mode: 'index',
                         intersect: false,
-                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
                         callbacks: {
                             label: (context) => {
                                 const idx = context.dataIndex; // Simple index
@@ -1950,7 +2194,7 @@
                 },
                 scales: {
                     x: { ticks: { maxTicksLimit: 6, color: '#94a3b8' }, grid: { display: false } },
-                    y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+                    y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick } }
                 }
             };
 
@@ -2294,17 +2538,11 @@
                     datasets: [{
                         label: `${selectedCoin.toUpperCase()} 價格 (USD)`,
                         data: prices,
-                        borderColor: '#3b82f6',
-                        backgroundColor: (context) => {
-                            const ctx = context.chart.ctx;
-                            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-                            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
-                            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
-                            return gradient;
-                        },
+                        borderColor: CHART.line,
+                        backgroundColor: makePriceGradient,
                         borderWidth: 2,
-                        pointBackgroundColor: historicalData.map(d => d.fng <= 25 ? '#ef4444' : (d.fng <= 44 ? '#f97316' : 'rgba(0,0,0,0)')),
-                        pointBorderColor: historicalData.map(d => d.fng <= 25 ? '#ef4444' : (d.fng <= 44 ? '#f97316' : 'rgba(0,0,0,0)')),
+                        pointBackgroundColor: historicalData.map(d => d.fng <= 25 ? CHART.fear : (d.fng <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')),
+                        pointBorderColor: historicalData.map(d => d.fng <= 25 ? CHART.fear : (d.fng <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')),
                         pointRadius: historicalData.map(d => d.fng <= 44 ? (d.fng <= 25 ? 3 : 2) : 0),
                         pointHoverRadius: 4,
                         fill: true,
@@ -2332,8 +2570,8 @@
                     title: { display: true, text: `${selectedCoin.toUpperCase()} 歷史走勢 (紅點為恐懼買入訊號)`, color: '#94a3b8' }
                 },
                 scales: {
-                    x: { grid: { color: 'rgba(75, 85, 99, 0.2)' }, ticks: { color: '#9ca3af', maxTicksLimit: 8 } },
-                    y: { grid: { color: 'rgba(75, 85, 99, 0.2)' }, ticks: { color: '#9ca3af', callback: (value) => `$${formatPrice(value)}` } }
+                    x: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, maxTicksLimit: 8 } },
+                    y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, callback: (value) => `$${formatPrice(value)}` } }
                 }
             };
 
@@ -2464,14 +2702,8 @@
                     {
                         label: `${symbol} 價格`,
                         data: data.map(d => d.price),
-                        borderColor: '#3b82f6',
-                        backgroundColor: (context) => {
-                            const ctx = context.chart.ctx;
-                            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-                            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
-                            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
-                            return gradient;
-                        },
+                        borderColor: CHART.line,
+                        backgroundColor: makePriceGradient,
                         yAxisID: 'y',
                         borderWidth: 2,
                         fill: true,
@@ -2481,13 +2713,13 @@
                             // For FNG: Low is Fear (Buy) -> Red/Orange
                             // For RSI: Low is Oversold (Buy) -> Red/Orange
                             // So logic is consistent: Low Value = Buy Signal (Red/Orange)
-                            if (d.fng <= 25) return '#ef4444'; // Red
-                            if (d.fng <= 45) return '#f97316'; // Orange
+                            if (d.fng <= 25) return CHART.fear; // Red
+                            if (d.fng <= 45) return CHART.fearLight; // Orange
                             return 'rgba(0,0,0,0)';
                         }),
                         pointBorderColor: data.map(d => {
-                            if (d.fng <= 25) return '#ef4444';
-                            if (d.fng <= 45) return '#f97316';
+                            if (d.fng <= 25) return CHART.fear;
+                            if (d.fng <= 45) return CHART.fearLight;
                             return 'rgba(0,0,0,0)';
                         }),
                         pointRadius: data.map(d => {
@@ -2522,8 +2754,8 @@
                     title: { display: true, text: title || `${symbol} 趨勢圖 (紅/橘點為買入訊號)`, color: '#94a3b8' }
                 },
                 scales: {
-                    y: { type: 'linear', display: true, position: 'left', grid: { color: '#334155' }, ticks: { color: '#94a3b8' } },
-                    x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { display: false } }
+                    y: { type: 'linear', display: true, position: 'left', grid: { color: CHART.grid }, ticks: { color: CHART.tick } },
+                    x: { ticks: { color: CHART.tick, maxTicksLimit: 8 }, grid: { display: false } }
                 }
             };
             return <ChartComponent data={chartData} options={options} />;
@@ -3195,46 +3427,48 @@
                     <div className="max-w-4xl mx-auto p-4">
                         {/* Header */}
                         <header className="flex justify-between items-center mb-6 relative">
+                            {/* Logo */}
                             <div className="flex items-center gap-3">
-                                <div className="relative">
-                                    <div className="absolute inset-0 bg-blue-500 blur-lg opacity-20 rounded-full"></div>
-                                    <img src="./app-icon.png" alt="Smart DCA Logo" className="w-10 h-10 rounded-xl shadow-lg shadow-blue-500/20 relative z-10" />
+                                <div className="relative w-11 h-11 rounded-2xl overflow-hidden ring-soft" style={{ background: '#0a0c12' }}>
+                                    <div className="absolute -inset-2 rounded-full opacity-40 blur-lg" style={{ background: 'linear-gradient(135deg,#3b82f6,#8b5cf6)' }}></div>
+                                    <img src="./app-icon.png" alt="Smart DCA Logo" className="relative w-full h-full object-cover" />
                                 </div>
                                 <div>
-                                    <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 tracking-tight">
-                                        Smart DCA
+                                    <h1 className="text-[20px] font-extrabold tracking-tight leading-tight">
+                                        Smart <span className="text-grad">DCA</span>
                                     </h1>
-                                    <p className="text-xs text-slate-500 font-medium tracking-wide">INTELLIGENT INVESTING</p>
+                                    <p className="label mt-0.5">Intelligent investing</p>
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-3">
+                            {/* Right controls */}
+                            <div className="flex items-center gap-2">
                                 {/* Notification Center */}
                                 <div className="relative z-[100]">
                                     <button
                                         onClick={handleBellClick}
                                         disabled={!user}
-                                        className={`relative p-2 rounded-full transition-colors border ${!user
-                                            ? "text-slate-600 border-slate-800 bg-slate-900/50 cursor-not-allowed opacity-50"
-                                            : "hover:bg-slate-800 border-slate-700/50"
+                                        className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-colors ${!user
+                                            ? "text-slate-600 bg-white/[0.02] border border-white/5 cursor-not-allowed opacity-50"
+                                            : "glass hover:bg-white/[0.08]"
                                             }`}
                                     >
-                                        <BellRing size={20} className={!user ? "text-slate-600" : (notificationsEnabled ? "text-blue-400" : "text-slate-400")} />
+                                        <BellRing size={18} className={!user ? "text-slate-600" : (notificationsEnabled ? "text-blue-400" : "text-slate-300")} />
                                         {unreadCount > 0 && user && (
-                                            <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse"></span>
+                                            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse" style={{ background: '#ff5b6e', boxShadow: '0 0 0 2px #07080c' }}></span>
                                         )}
                                     </button>
 
                                     {showNotificationDropdown && (
-                                        <div className="fixed top-28 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200 z-[100] md:absolute md:top-full md:left-auto md:right-0 md:translate-x-0 md:w-96 md:mt-2">
+                                        <div className="fixed top-28 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm glass-strong rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 z-[100] md:absolute md:top-full md:left-auto md:right-0 md:translate-x-0 md:w-96 md:mt-2">
                                             {/* Dropdown Header */}
-                                            <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
-                                                <h3 className="font-bold text-slate-200">通知中心</h3>
+                                            <div className="p-4 border-b flex justify-between items-center" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,0.02)' }}>
+                                                <h3 className="font-bold text-white">通知中心</h3>
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-xs text-slate-400">{notificationsEnabled ? "每日推播 ON" : "每日推播 OFF"}</span>
+                                                    <span className="text-[11px] mono" style={{ color: 'var(--text-3)' }}>{notificationsEnabled ? "DAILY · ON" : "DAILY · OFF"}</span>
                                                     <button
                                                         onClick={(e) => { e.stopPropagation(); toggleNotifications(); }}
-                                                        className={`w-10 h-6 rounded-full p-1 transition-colors ${notificationsEnabled ? 'bg-blue-500' : 'bg-slate-600'}`}
+                                                        className={`w-10 h-6 rounded-full p-1 transition-colors ${notificationsEnabled ? 'pill-grad' : 'bg-white/10'}`}
                                                     >
                                                         <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${notificationsEnabled ? 'translate-x-4' : 'translate-x-0'}`}></div>
                                                     </button>
@@ -3245,16 +3479,16 @@
                                             <div className="max-h-80 overflow-y-auto custom-scrollbar">
                                                 {notificationHistory.length > 0 ? (
                                                     notificationHistory.map((item) => (
-                                                        <div key={item.id} className="p-4 border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                                                        <div key={item.id} className="p-4 border-b hover:bg-white/[0.03] transition-colors" style={{ borderColor: 'var(--line)' }}>
                                                             <div className="flex justify-between items-start mb-1">
-                                                                <h4 className="text-sm font-bold text-slate-200">{item.title || "系統通知"}</h4>
-                                                                <span className="text-[10px] text-slate-500">{new Date(item.created_at).toLocaleDateString()}</span>
+                                                                <h4 className="text-sm font-bold text-white">{item.title || "系統通知"}</h4>
+                                                                <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>{new Date(item.created_at).toLocaleDateString()}</span>
                                                             </div>
-                                                            <p className="text-xs text-slate-400 whitespace-pre-line leading-relaxed">{item.body}</p>
+                                                            <p className="text-xs whitespace-pre-line leading-relaxed" style={{ color: 'var(--text-2)' }}>{item.body}</p>
                                                         </div>
                                                     ))
                                                 ) : (
-                                                    <div className="p-8 text-center text-slate-500">
+                                                    <div className="p-8 text-center" style={{ color: 'var(--text-3)' }}>
                                                         <BellOff size={32} className="mx-auto mb-2 opacity-50" />
                                                         <p className="text-sm">尚無歷史通知</p>
                                                     </div>
@@ -3262,8 +3496,8 @@
                                             </div>
 
                                             {/* Footer */}
-                                            <div className="p-3 bg-slate-800/30 text-center border-t border-slate-800">
-                                                <p className="text-[10px] text-slate-500">每日 08:00 發送自選股報告</p>
+                                            <div className="p-3 text-center border-t" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,0.02)' }}>
+                                                <p className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>DAILY REPORT · 08:00 AM</p>
                                             </div>
                                         </div>
                                     )}
@@ -3274,62 +3508,80 @@
                         </header>
 
                         {/* Navigation Tabs */}
-                        <nav className="flex p-1 bg-slate-800/50 backdrop-blur-md rounded-xl mb-6 border border-slate-700/50 sticky top-4 z-50 shadow-xl">
+                        <nav className="glass flex p-1 rounded-full mb-6 sticky top-4 z-50 shadow-2xl gap-1 overflow-x-auto scrollbar-none">
                             <button
                                 onClick={() => setActiveTab('crypto')}
-                                className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 ${activeTab === 'crypto'
-                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 scale-[1.02]'
-                                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                                    }`}
+                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
+                                    activeTab === 'crypto'
+                                        ? 'pill-grad text-white shadow-lg'
+                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                                }`}
+                                style={activeTab === 'crypto' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
                             >
-                                <img src="https://assets.coingecko.com/coins/images/1/small/bitcoin.png" className="w-4 h-4 opacity-80" alt="Crypto" />
+                                <img src="https://assets.coingecko.com/coins/images/1/small/bitcoin.png" className={`w-4 h-4 ${activeTab === 'crypto' ? '' : 'opacity-70'}`} alt="Crypto" />
                                 <span className="hidden md:inline">加密貨幣</span>
                                 <span className="md:hidden">加密</span>
                             </button>
+
                             <button
                                 onClick={() => setActiveTab('stock')}
-                                className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 ${activeTab === 'stock'
-                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 scale-[1.02]'
-                                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                                    }`}
+                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
+                                    activeTab === 'stock'
+                                        ? 'pill-grad text-white shadow-lg'
+                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                                }`}
+                                style={activeTab === 'stock' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
                             >
-                                <Globe size={16} />
+                                <Globe size={15} />
                                 <span className="hidden md:inline">美股市場</span>
                                 <span className="md:hidden">美股</span>
                             </button>
+
                             <button
                                 onClick={() => setActiveTab('taiwan')}
-                                className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 ${activeTab === 'taiwan'
-                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 scale-[1.02]'
-                                    : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                                    }`}
+                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
+                                    activeTab === 'taiwan'
+                                        ? 'pill-grad text-white shadow-lg'
+                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                                }`}
+                                style={activeTab === 'taiwan' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
                             >
-                                <Activity size={16} />
+                                <Activity size={15} />
                                 <span className="hidden md:inline">台股市場</span>
                                 <span className="md:hidden">台股</span>
                             </button>
+
                             {user && (
                                 <button
                                     onClick={() => setActiveTab('watchlist')}
-                                    className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 ${activeTab === 'watchlist'
-                                        ? 'bg-yellow-600 text-white shadow-lg shadow-yellow-900/20 scale-[1.02]'
-                                        : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                                        }`}
+                                    className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
+                                        activeTab === 'watchlist'
+                                            ? 'text-white shadow-lg'
+                                            : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                                    }`}
+                                    style={activeTab === 'watchlist' ? { background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', boxShadow: '0 8px 24px -8px rgba(245,158,11,0.5)' } : {}}
                                 >
-                                    <span className="text-yellow-400">⭐</span>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className={activeTab === 'watchlist' ? 'text-white' : 'text-amber-400'}>
+                                        <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+                                    </svg>
                                     <span className="hidden md:inline">我的自選</span>
                                     <span className="md:hidden">自選</span>
                                 </button>
                             )}
+
                             {FORUM_ENABLED && (
                                 <button
                                     onClick={() => { setActiveTab('forum'); window.location.hash = '#/forum'; }}
-                                    className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-bold transition-all duration-300 flex items-center justify-center gap-2 ${activeTab === 'forum'
-                                        ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/20 scale-[1.02]'
-                                        : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                                        }`}
+                                    className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
+                                        activeTab === 'forum'
+                                            ? 'text-white shadow-lg'
+                                            : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                                    }`}
+                                    style={activeTab === 'forum' ? { background: 'linear-gradient(135deg,#8b5cf6,#ec4899)', boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
                                 >
-                                    <span>📊</span>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                                    </svg>
                                     <span className="hidden md:inline">論壇</span>
                                     <span className="md:hidden">論壇</span>
                                 </button>

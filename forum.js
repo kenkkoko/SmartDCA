@@ -1,16 +1,9 @@
 // =========================================================
-// SmartDCA Forum — 技術分析論壇
+// SmartDCA Forum — 技術分析論壇 (Visual Refresh)
 // 透過 <script type="text/babel" src="forum.js"> 載入
 // 元件透過 window.* 暴露給 index.html 的主 script 使用
 // =========================================================
 
-// ───────────────────────────────────
-// Hash route
-//   #/forum               → list
-//   #/forum/new           → editor (new)
-//   #/forum/{id}          → detail
-//   #/forum/{id}/edit     → editor (edit)
-// ───────────────────────────────────
 const useHashRoute = () => {
   const [hash, setHash] = React.useState(
     typeof window !== 'undefined' ? window.location.hash : ''
@@ -37,9 +30,6 @@ const navigate = (path) => {
   window.location.hash = path;
 };
 
-// ───────────────────────────────────
-// Image upload helper (Supabase Storage)
-// ───────────────────────────────────
 const getExtFromFile = (file) => {
   const fromName = file.name && file.name.match(/\.([^.]+)$/);
   if (fromName) return fromName[1].toLowerCase();
@@ -67,9 +57,6 @@ const uploadImageToStorage = async (supabase, file) => {
   return data.publicUrl;
 };
 
-// ───────────────────────────────────
-// Markdown → safe HTML
-// ───────────────────────────────────
 const renderMarkdownToHtml = (md) => {
   if (!md) return '';
   if (!window.marked || !window.DOMPurify) {
@@ -79,49 +66,50 @@ const renderMarkdownToHtml = (md) => {
   return window.DOMPurify.sanitize(rawHtml);
 };
 
-// ───────────────────────────────────
-// PostCard
-// ───────────────────────────────────
-const PostCard = ({ post, onOpen }) => (
-  <button
-    onClick={() => onOpen(post.id)}
-    className="w-full text-left bg-slate-900/50 hover:bg-slate-800/60 border border-slate-700/50 hover:border-purple-500/50 rounded-xl p-4 transition-all"
-  >
-    <div className="flex items-start justify-between gap-3 mb-2">
-      <h3 className="text-lg font-bold text-white flex-1">{post.title}</h3>
-      {!post.published && (
-        <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 whitespace-nowrap">
-          草稿
-        </span>
-      )}
-    </div>
-    {post.tags && post.tags.length > 0 && (
-      <div className="flex flex-wrap gap-1 mb-2">
-        {post.tags.map((t) => (
-          <span key={t} className="text-xs px-2 py-0.5 rounded bg-slate-700/50 text-slate-300">
-            #{t}
-          </span>
-        ))}
+const PostCard = ({ post, onOpen }) => {
+  const preview = (post.content || '').replace(/[#*`_>\-!\[\]()]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
+  const dateStr = new Date(post.created_at).toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  const timeStr = new Date(post.created_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+  return (
+    <button
+      onClick={() => onOpen(post.id)}
+      className="group w-full text-left rounded-2xl p-5 transition-all ring-soft hover:scale-[1.005]"
+      style={{ background: 'var(--surface)' }}
+    >
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <h3 className="text-lg font-bold text-white flex-1 leading-snug group-hover:text-grad transition-colors">{post.title}</h3>
+        {!post.published && (
+          <span className="chip chip-warn whitespace-nowrap shrink-0">DRAFT · 草稿</span>
+        )}
       </div>
-    )}
-    <p className="text-xs text-slate-500">
-      {new Date(post.created_at).toLocaleString('zh-TW', {
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit'
-      })}
-    </p>
-  </button>
-);
+      {preview && (
+        <p className="text-sm leading-relaxed line-clamp-2 mb-3" style={{ color: 'var(--text-2)' }}>
+          {preview}{preview.length >= 100 ? '...' : ''}
+        </p>
+      )}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex flex-wrap gap-1.5">
+          {(post.tags || []).slice(0, 5).map((t) => (
+            <span key={t} className="text-[11px] px-2 py-0.5 rounded-md mono" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-2)' }}>
+              #{t}
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px] mono" style={{ color: 'var(--text-3)' }}>
+          <span>{dateStr}</span>
+          <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
+          <span>{timeStr}</span>
+        </div>
+      </div>
+    </button>
+  );
+};
 
-// ───────────────────────────────────
-// PostList (with filtering / search / sort)
-// ───────────────────────────────────
 const PostList = ({ supabase, isAdmin, onOpen }) => {
   const [posts, setPosts] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
 
-  // Filter state
   const [searchQuery, setSearchQuery] = React.useState('');
   const [selectedTags, setSelectedTags] = React.useState([]);
   const [sortDesc, setSortDesc] = React.useState(true);
@@ -131,7 +119,6 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      // 拉 content 進來給搜尋用 — 你的文章量不大,網路成本可忽略
       const { data, error: err } = await supabase
         .from('forum_posts')
         .select('id, title, tags, published, content, created_at')
@@ -144,7 +131,6 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
     return () => { cancelled = true; };
   }, [supabase]);
 
-  // Derive all tags + counts (from full result, before filtering)
   const tagCounts = React.useMemo(() => {
     const m = new Map();
     for (const p of posts) {
@@ -153,7 +139,6 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
   }, [posts]);
 
-  // Apply filters + sort
   const visiblePosts = React.useMemo(() => {
     let r = posts;
     if (draftsOnly)            r = r.filter((p) => !p.published);
@@ -187,47 +172,55 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
   };
   const filtersActive = searchQuery || selectedTags.length > 0 || draftsOnly;
 
+  const inputStyle = { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', color: 'var(--text)' };
+
   return (
-    <div className="space-y-3">
-      {/* Action bar */}
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex flex-wrap items-center gap-2 flex-1">
-          {/* Search */}
           <div className="relative flex-1 min-w-[200px]">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-3)' }}>
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="🔍 搜尋標題 / 內容 / 標籤..."
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
+              placeholder="搜尋標題 / 內容 / 標籤..."
+              className="w-full rounded-xl pl-9 pr-8 py-2.5 text-sm outline-none transition-colors"
+              style={inputStyle}
+              onFocus={(e) => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+              onBlur={(e) => e.target.style.borderColor = 'var(--line)'}
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full flex items-center justify-center hover:bg-white/10"
+                style={{ color: 'var(--text-3)' }}
                 aria-label="清除搜尋"
               >
-                ×
+                ✕
               </button>
             )}
           </div>
-          {/* Sort */}
           <select
             value={sortDesc ? 'desc' : 'asc'}
             onChange={(e) => setSortDesc(e.target.value === 'desc')}
-            className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none"
+            className="rounded-xl px-3 py-2.5 text-sm outline-none cursor-pointer"
+            style={inputStyle}
           >
-            <option value="desc">📅 最新優先</option>
-            <option value="asc">📅 最舊優先</option>
+            <option value="desc">最新優先</option>
+            <option value="asc">最舊優先</option>
           </select>
-          {/* Drafts only (admin) */}
           {isAdmin && (
-            <label className="flex items-center gap-1.5 text-xs text-slate-400 px-2 py-2 rounded-lg bg-slate-900 border border-slate-700 cursor-pointer hover:text-white">
+            <label className="flex items-center gap-2 text-xs px-3 py-2.5 rounded-xl cursor-pointer hover:text-white transition-colors"
+              style={{ ...inputStyle, color: 'var(--text-2)' }}>
               <input
                 type="checkbox"
                 checked={draftsOnly}
                 onChange={(e) => setDraftsOnly(e.target.checked)}
-                className="accent-orange-500"
+                className="accent-purple-500"
               />
               只看草稿
             </label>
@@ -237,28 +230,32 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
         {isAdmin && (
           <button
             onClick={() => navigate('#/forum/new')}
-            className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-sm font-bold transition-colors flex items-center gap-1.5 whitespace-nowrap"
+            className="px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap glow-brand"
+            style={{ background: 'linear-gradient(135deg,#8b5cf6,#ec4899)' }}
           >
-            <span>✏️</span> 新增文章
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            新增文章
           </button>
         )}
       </div>
 
-      {/* Tag chips */}
       {tagCounts.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="text-slate-500 mr-1">標籤:</span>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="label">TAGS</span>
           {tagCounts.map(([tag, count]) => {
             const active = selectedTags.includes(tag);
             return (
               <button
                 key={tag}
                 onClick={() => toggleTag(tag)}
-                className={`px-2 py-0.5 rounded transition-colors ${
-                  active
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
-                }`}
+                className="px-2.5 py-1 rounded-md transition-colors mono"
+                style={active
+                  ? { background: 'linear-gradient(135deg,#8b5cf6,#ec4899)', color: '#fff' }
+                  : { background: 'rgba(255,255,255,0.04)', color: 'var(--text-2)', border: '1px solid var(--line)' }
+                }
               >
                 #{tag} <span className="opacity-60">×{count}</span>
               </button>
@@ -267,7 +264,8 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
           {filtersActive && (
             <button
               onClick={clearFilters}
-              className="ml-1 text-slate-400 hover:text-white underline"
+              className="ml-1 underline transition-colors"
+              style={{ color: 'var(--text-3)' }}
             >
               清除全部
             </button>
@@ -275,48 +273,56 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
         </div>
       )}
 
-      {/* Result count */}
       {!loading && !error && posts.length > 0 && (
-        <p className="text-xs text-slate-500">
-          顯示 {visiblePosts.length} / {posts.length} 篇
-          {filtersActive && <span className="text-purple-400 ml-1">(已套用篩選)</span>}
+        <p className="text-xs mono" style={{ color: 'var(--text-3)' }}>
+          顯示 <span className="text-white font-bold">{visiblePosts.length}</span> / {posts.length} 篇
+          {filtersActive && <span className="ml-2" style={{ color: '#c4b5fd' }}>· 已套用篩選</span>}
         </p>
       )}
 
-      {/* Results */}
-      {loading && <p className="text-slate-500 text-center py-12">讀取中...</p>}
+      {loading && (
+        <div className="text-center py-16">
+          <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: '#8b5cf6' }}></div>
+          <p className="mt-3 text-sm mono" style={{ color: 'var(--text-3)' }}>LOADING POSTS...</p>
+        </div>
+      )}
       {error && (
-        <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-          ❌ 讀取失敗:{error}
+        <div className="text-sm rounded-xl p-4" style={{ background: 'rgba(255,91,110,0.08)', border: '1px solid rgba(255,91,110,0.2)', color: '#ff7d8c' }}>
+          讀取失敗：{error}
         </div>
       )}
       {!loading && !error && posts.length === 0 && (
-        <div className="text-center py-20 text-slate-500">
-          <p className="text-4xl mb-3">📭</p>
-          <p>目前沒有任何文章</p>
-          {isAdmin && <p className="text-xs mt-2 text-slate-600">點右上「✏️ 新增文章」開始</p>}
+        <div className="text-center py-20 rounded-2xl ring-soft" style={{ background: 'var(--surface)' }}>
+          <svg className="mx-auto mb-4 opacity-30" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'var(--text-3)' }}>
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          <p style={{ color: 'var(--text-2)' }}>目前沒有任何文章</p>
+          {isAdmin && <p className="text-xs mt-2 mono" style={{ color: 'var(--text-3)' }}>點右上「新增文章」開始</p>}
         </div>
       )}
       {!loading && posts.length > 0 && visiblePosts.length === 0 && (
-        <div className="text-center py-20 text-slate-500">
-          <p className="text-4xl mb-3">🔍</p>
-          <p>找不到符合條件的文章</p>
+        <div className="text-center py-20 rounded-2xl ring-soft" style={{ background: 'var(--surface)' }}>
+          <svg className="mx-auto mb-4 opacity-30" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'var(--text-3)' }}>
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <p style={{ color: 'var(--text-2)' }}>找不到符合條件的文章</p>
           <button
             onClick={clearFilters}
-            className="text-xs mt-2 text-purple-400 hover:text-purple-300 underline"
+            className="text-xs mt-2 underline"
+            style={{ color: '#c4b5fd' }}
           >
             清除篩選
           </button>
         </div>
       )}
-      {!loading && visiblePosts.map((p) => <PostCard key={p.id} post={p} onOpen={onOpen} />)}
+      <div className="space-y-3">
+        {!loading && visiblePosts.map((p) => <PostCard key={p.id} post={p} onOpen={onOpen} />)}
+      </div>
     </div>
   );
 };
 
-// ───────────────────────────────────
-// PostDetail
-// ───────────────────────────────────
 const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
   const [post, setPost] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
@@ -340,7 +346,6 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
     return () => { cancelled = true; };
   }, [supabase, postId]);
 
-  // Post-render: syntax highlight + LaTeX
   React.useEffect(() => {
     if (!post || !contentRef.current) return;
     if (window.hljs) {
@@ -365,24 +370,28 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
   }, [post]);
 
   const handleDelete = async () => {
-    if (!window.confirm(`確定要刪除「${post.title}」嗎?無法復原。`)) return;
+    if (!window.confirm(`確定要刪除「${post.title}」嗎？無法復原。`)) return;
     const { error: err } = await supabase
       .from('forum_posts')
       .delete()
       .eq('id', postId);
-    if (err) { window.alert(`刪除失敗:${err.message}`); return; }
+    if (err) { window.alert(`刪除失敗：${err.message}`); return; }
     navigate('#/forum');
   };
 
-  if (loading) return <p className="text-slate-500 text-center py-12">讀取中...</p>;
+  if (loading) return (
+    <div className="text-center py-16">
+      <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: '#8b5cf6' }}></div>
+    </div>
+  );
   if (error || !post) {
     return (
       <div className="space-y-4">
-        <button onClick={onBack} className="text-purple-400 hover:text-purple-300 text-sm">
-          ← 返回列表
+        <button onClick={onBack} className="text-sm flex items-center gap-1.5 transition-colors" style={{ color: '#c4b5fd' }}>
+          <span>←</span> 返回列表
         </button>
-        <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-          ❌ {error || '文章不存在'}
+        <div className="text-sm rounded-xl p-4" style={{ background: 'rgba(255,91,110,0.08)', border: '1px solid rgba(255,91,110,0.2)', color: '#ff7d8c' }}>
+          {error || '文章不存在'}
         </div>
       </div>
     );
@@ -393,52 +402,52 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
-        <button onClick={onBack} className="text-purple-400 hover:text-purple-300 text-sm">
-          ← 返回列表
+        <button onClick={onBack} className="text-sm flex items-center gap-1.5 transition-colors hover:text-white" style={{ color: 'var(--text-2)' }}>
+          <span>←</span> 返回列表
         </button>
         {isAdmin && (
           <div className="flex gap-2">
             <button
               onClick={() => navigate(`#/forum/${postId}/edit`)}
-              className="px-3 py-1.5 rounded-lg bg-blue-600/80 hover:bg-blue-500 text-white text-xs font-bold"
+              className="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+              style={{ background: 'rgba(59,130,246,0.18)', border: '1px solid rgba(59,130,246,0.4)', color: '#7eb6ff' }}
             >
-              ✏️ 編輯
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
+              編輯
             </button>
             <button
               onClick={handleDelete}
-              className="px-3 py-1.5 rounded-lg bg-red-600/80 hover:bg-red-500 text-white text-xs font-bold"
+              className="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+              style={{ background: 'rgba(255,91,110,0.12)', border: '1px solid rgba(255,91,110,0.3)', color: '#ff7d8c' }}
             >
-              🗑 刪除
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+              刪除
             </button>
           </div>
         )}
       </div>
 
-      <article className="bg-slate-900/50 rounded-xl border border-slate-700/50 p-6">
-        <header className="mb-4 pb-4 border-b border-slate-700/50">
-          <div className="flex items-start justify-between gap-3 mb-2">
-            <h1 className="text-2xl font-bold text-white">{post.title}</h1>
+      <article className="rounded-2xl ring-soft p-6 md:p-8" style={{ background: 'var(--surface)' }}>
+        <header className="mb-6 pb-5 border-b" style={{ borderColor: 'var(--line)' }}>
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <h1 className="text-3xl font-extrabold text-white leading-tight tracking-tight">{post.title}</h1>
             {!post.published && (
-              <span className="text-xs px-2 py-1 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30">
-                草稿
-              </span>
+              <span className="chip chip-warn whitespace-nowrap shrink-0">DRAFT</span>
             )}
           </div>
           {post.tags && post.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-2">
+            <div className="flex flex-wrap gap-1.5 mb-3">
               {post.tags.map((t) => (
-                <span key={t} className="text-xs px-2 py-0.5 rounded bg-slate-700/50 text-slate-300">
+                <span key={t} className="text-[11px] px-2 py-0.5 rounded-md mono" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-2)' }}>
                   #{t}
                 </span>
               ))}
             </div>
           )}
-          <p className="text-xs text-slate-500">
+          <p className="text-xs mono" style={{ color: 'var(--text-3)' }}>
             {new Date(post.created_at).toLocaleString('zh-TW')}
             {post.updated_at && post.updated_at !== post.created_at && (
-              <span className="ml-2 text-slate-600">
-                (編輯於 {new Date(post.updated_at).toLocaleString('zh-TW')})
-              </span>
+              <span className="ml-2">· 編輯於 {new Date(post.updated_at).toLocaleString('zh-TW')}</span>
             )}
           </p>
         </header>
@@ -453,9 +462,6 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
   );
 };
 
-// ───────────────────────────────────
-// PostEditor — admin only
-// ───────────────────────────────────
 const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
   const [title, setTitle] = React.useState('');
   const [tagsInput, setTagsInput] = React.useState('');
@@ -468,7 +474,6 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
   const textareaRef = React.useRef(null);
   const easymdeRef  = React.useRef(null);
 
-  // Load existing post when editing
   React.useEffect(() => {
     if (mode !== 'edit' || !postId) return;
     let cancelled = false;
@@ -483,7 +488,6 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
       setTitle(data.title || '');
       setTagsInput((data.tags || []).join(', '));
       setOrigPublished(!!data.published);
-      // Set editor content once it's mounted
       if (easymdeRef.current) easymdeRef.current.value(data.content || '');
       else window.__pendingEditorContent = data.content || '';
       setLoading(false);
@@ -491,7 +495,6 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
     return () => { cancelled = true; };
   }, [mode, postId, supabase]);
 
-  // Mount EasyMDE once
   React.useEffect(() => {
     if (!textareaRef.current || easymdeRef.current || !window.EasyMDE) return;
 
@@ -509,7 +512,7 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
         const url = await uploadImageToStorage(supabase, file);
         insertAtCursor(`\n![](${url})\n`);
       } catch (e) {
-        setError(`圖片上傳失敗:${e.message}`);
+        setError(`圖片上傳失敗：${e.message}`);
       } finally {
         setUploadingImage(false);
       }
@@ -520,7 +523,7 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
       autoDownloadFontAwesome: true,
       spellChecker: false,
       status: ['lines', 'words'],
-      placeholder: '在這裡寫文章... 可以 Ctrl+V 直接貼截圖,或把圖片拖進來。\n\n支援:\n  # 標題、**粗體**、*斜體*、- 清單\n  ```python ... ``` 程式碼區塊\n  $E=mc^2$ LaTeX 公式\n',
+      placeholder: '在這裡寫文章... 可以 Ctrl+V 直接貼截圖，或把圖片拖進來。\n\n支援：\n  # 標題、**粗體**、*斜體*、- 清單\n  ```python ... ``` 程式碼區塊\n  $E=mc^2$ LaTeX 公式\n',
       toolbar: [
         'bold', 'italic', 'heading', '|',
         'quote', 'unordered-list', 'ordered-list', '|',
@@ -543,13 +546,11 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
       },
     });
 
-    // Apply any pending content (when loading data finished before EasyMDE mounted)
     if (window.__pendingEditorContent != null) {
       easymdeRef.current.value(window.__pendingEditorContent);
       delete window.__pendingEditorContent;
     }
 
-    // Paste handler — clipboard image (e.g. Ctrl+V after screenshot)
     easymdeRef.current.codemirror.on('paste', (cm, e) => {
       const items = e.clipboardData && e.clipboardData.items;
       if (!items) return;
@@ -569,9 +570,6 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
         easymdeRef.current = null;
       }
     };
-    // Re-run when `loading` flips false — edit mode early-returns a
-    // loading screen first, so the textarea isn't in the DOM on the
-    // initial effect pass. This ensures EasyMDE mounts the second time.
   }, [supabase, loading]);
 
   const handleSave = async (publishedFlag) => {
@@ -619,17 +617,27 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
     navigate(`#/forum/${result.data.id}`);
   };
 
-  if (loading) return <p className="text-slate-500 text-center py-12">讀取中...</p>;
+  const inputStyle = { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', color: 'var(--text)' };
+
+  if (loading) return (
+    <div className="text-center py-16">
+      <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: '#8b5cf6' }}></div>
+    </div>
+  );
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-white">
-          {mode === 'edit' ? '✏️ 編輯文章' : '✏️ 新增文章'}
-        </h2>
+        <div>
+          <div className="label">{mode === 'edit' ? 'EDIT POST' : 'NEW POST'}</div>
+          <h2 className="text-2xl font-extrabold text-white mt-1">
+            {mode === 'edit' ? '編輯文章' : '撰寫新文章'}
+          </h2>
+        </div>
         <button
           onClick={onCancel}
-          className="text-slate-400 hover:text-white text-sm"
+          className="text-sm transition-colors hover:text-white"
+          style={{ color: 'var(--text-2)' }}
           disabled={saving}
         >
           取消
@@ -637,39 +645,44 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
       </div>
 
       {error && (
-        <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-lg p-3">
-          ❌ {error}
+        <div className="text-sm rounded-xl p-3" style={{ background: 'rgba(255,91,110,0.08)', border: '1px solid rgba(255,91,110,0.2)', color: '#ff7d8c' }}>
+          {error}
         </div>
       )}
       {uploadingImage && (
-        <div className="text-blue-400 text-sm bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
-          📤 上傳圖片中...
+        <div className="text-sm rounded-xl p-3 flex items-center gap-2" style={{ background: 'rgba(76,194,255,0.08)', border: '1px solid rgba(76,194,255,0.2)', color: '#7eb6ff' }}>
+          <div className="w-3 h-3 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(76,194,255,0.3)', borderTopColor: '#7eb6ff' }}></div>
+          上傳圖片中...
         </div>
       )}
 
-      <div className="bg-slate-900/50 rounded-xl border border-slate-700/50 p-4 space-y-3">
+      <div className="rounded-2xl ring-soft p-5 space-y-4" style={{ background: 'var(--surface)' }}>
         <div>
-          <label className="block text-xs text-slate-400 mb-1">標題 *</label>
+          <label className="label block mb-1.5">標題 *</label>
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
-            placeholder="例如:BTC 短期觀察"
+            className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+            style={inputStyle}
+            placeholder="例如：BTC 短期觀察"
             disabled={saving}
+            onFocus={(e) => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+            onBlur={(e) => e.target.style.borderColor = 'var(--line)'}
           />
         </div>
         <div>
-          <label className="block text-xs text-slate-400 mb-1">
-            標籤(用逗號分隔)
-          </label>
+          <label className="label block mb-1.5">標籤 (用逗號分隔)</label>
           <input
             type="text"
             value={tagsInput}
             onChange={(e) => setTagsInput(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+            className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+            style={inputStyle}
             placeholder="BTC, 技術分析, RSI"
             disabled={saving}
+            onFocus={(e) => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+            onBlur={(e) => e.target.style.borderColor = 'var(--line)'}
           />
         </div>
       </div>
@@ -682,111 +695,125 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
         <button
           onClick={onCancel}
           disabled={saving}
-          className="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm disabled:opacity-50"
+          className="px-4 py-2.5 rounded-xl text-white text-sm font-semibold transition-colors disabled:opacity-50"
+          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)' }}
         >
           取消
         </button>
         <button
           onClick={() => handleSave(false)}
           disabled={saving}
-          className="px-4 py-2 rounded-lg bg-orange-600/80 hover:bg-orange-500 text-white text-sm font-bold disabled:opacity-50"
+          className="px-4 py-2.5 rounded-xl text-sm font-bold transition-all disabled:opacity-50"
+          style={{ background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(245,158,11,0.4)', color: '#fbbf24' }}
         >
-          {saving ? '儲存中...' : '💾 儲存為草稿'}
+          {saving ? '儲存中...' : '儲存為草稿'}
         </button>
         <button
           onClick={() => handleSave(true)}
           disabled={saving}
-          className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-bold disabled:opacity-50"
+          className="px-5 py-2.5 rounded-xl text-white text-sm font-bold transition-all disabled:opacity-50 glow-brand"
+          style={{ background: 'linear-gradient(135deg,#8b5cf6,#ec4899)' }}
         >
-          {saving ? '發佈中...' : (origPublished && mode === 'edit' ? '✅ 更新並保持發佈' : '🚀 發佈')}
+          {saving ? '發佈中...' : (origPublished && mode === 'edit' ? '更新並發佈' : '發佈文章')}
         </button>
       </div>
     </div>
   );
 };
 
-// ───────────────────────────────────
-// LoginRequiredView — 訪客看到
-// ───────────────────────────────────
 const LoginRequiredView = () => (
-  <div className="bg-slate-900/50 rounded-xl border border-slate-700/50 p-8 text-center">
-    <p className="text-5xl mb-4">🔒</p>
-    <h3 className="text-xl font-bold text-white mb-2">請先登入</h3>
-    <p className="text-sm text-slate-400 mb-4">
-      技術分析論壇需要登入會員才能查看。
-    </p>
-    <p className="text-xs text-slate-500">
-      請點右上角的登入按鈕,登入後可向作者申請會員開通。
-    </p>
-  </div>
-);
-
-// ───────────────────────────────────
-// PremiumRequiredView — 登入但非會員看到
-// ───────────────────────────────────
-const PremiumRequiredView = ({ user }) => (
-  <div className="bg-gradient-to-br from-slate-900/60 to-purple-900/20 rounded-xl border border-purple-500/30 p-8 text-center">
-    <p className="text-5xl mb-4">⭐</p>
-    <h3 className="text-xl font-bold text-white mb-2">會員專屬內容</h3>
-    <p className="text-sm text-slate-300 mb-1">
-      技術分析論壇是付費會員專屬功能。
-    </p>
-    <p className="text-sm text-slate-400 mb-4">
-      升級會員後可解鎖所有技術分析文章與圖表觀察。
-    </p>
-    <div className="bg-slate-950/50 rounded-lg border border-slate-700/50 p-3 inline-block">
-      <p className="text-xs text-slate-500 mb-1">目前帳號</p>
-      <p className="text-sm text-slate-300">{user?.email}</p>
-      <p className="text-[10px] text-slate-600 mt-1">請聯絡作者開通會員</p>
+  <div className="rounded-2xl ring-soft p-10 text-center relative overflow-hidden" style={{ background: 'var(--surface)' }}>
+    <div className="absolute inset-0 dotgrid opacity-40 pointer-events-none"></div>
+    <div className="relative">
+      <div className="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-2)' }}>
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+      </div>
+      <h3 className="text-xl font-bold text-white mb-2">請先登入</h3>
+      <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+        技術分析論壇需要登入會員才能查看
+      </p>
+      <p className="text-xs mono" style={{ color: 'var(--text-3)' }}>
+        登入後請聯絡作者開通會員權限
+      </p>
     </div>
   </div>
 );
 
-// ───────────────────────────────────
-// ForumApp
-// ───────────────────────────────────
+const PremiumRequiredView = ({ user }) => (
+  <div className="rounded-2xl p-10 text-center relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #14141c 0%, #1a1730 100%)', border: '1px solid rgba(139,92,246,0.3)' }}>
+    <div className="absolute inset-0 dotgrid opacity-30 pointer-events-none"></div>
+    <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full blur-3xl opacity-30" style={{ background: 'radial-gradient(circle, #8b5cf6, transparent)' }}></div>
+    <div className="relative">
+      <div className="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)' }}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+          <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+        </svg>
+      </div>
+      <h3 className="text-xl font-extrabold text-white mb-2">會員專屬內容</h3>
+      <p className="text-sm mb-1" style={{ color: 'var(--text)' }}>
+        技術分析論壇是付費會員專屬功能
+      </p>
+      <p className="text-sm mb-5" style={{ color: 'var(--text-2)' }}>
+        升級後解鎖所有技術分析文章與圖表觀察
+      </p>
+      <div className="inline-block rounded-xl px-4 py-3 ring-soft" style={{ background: 'rgba(7,8,12,0.5)' }}>
+        <p className="label mb-1">當前帳號</p>
+        <p className="text-sm font-semibold text-white mono">{user?.email}</p>
+        <p className="text-[10px] mt-2 mono" style={{ color: 'var(--text-3)' }}>請聯絡作者開通會員</p>
+      </div>
+    </div>
+  </div>
+);
+
 const ForumApp = ({ supabase, user, isAdmin, isPremium }) => {
   const hash = useHashRoute();
   const route = parseForumRoute(hash);
 
-  if (!supabase) return <p className="text-red-400">Supabase 未初始化</p>;
+  if (!supabase) return <p style={{ color: '#ff7d8c' }}>Supabase 未初始化</p>;
 
-  // Editor routes always require admin (premium not enough to write)
   const isEditorRoute = route.view === 'editor';
   if (isEditorRoute && !isAdmin) {
     navigate('#/forum');
     return null;
   }
 
-  // Access tier check
   const canRead = isAdmin || isPremium;
 
   const headerBadge = (() => {
-    if (isAdmin)   return { txt: '✅ Admin',  cls: 'bg-green-500/20 text-green-400 border border-green-500/30' };
-    if (isPremium) return { txt: '⭐ 會員',   cls: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' };
-    if (user)      return { txt: '🔒 未開通', cls: 'bg-slate-700/50 text-slate-400 border border-slate-600/30' };
-    return            { txt: '🔒 訪客',     cls: 'bg-slate-700/50 text-slate-400 border border-slate-600/30' };
+    if (isAdmin)   return { txt: 'ADMIN',   style: { background: 'rgba(0,214,143,0.15)',  color: '#3ce0a8', border: '1px solid rgba(0,214,143,0.3)' } };
+    if (isPremium) return { txt: 'MEMBER',  style: { background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff', border: 'none' } };
+    if (user)      return { txt: 'LOCKED',  style: { background: 'rgba(255,255,255,0.04)', color: 'var(--text-3)', border: '1px solid var(--line)' } };
+    return            { txt: 'GUEST',    style: { background: 'rgba(255,255,255,0.04)', color: 'var(--text-3)', border: '1px solid var(--line)' } };
   })();
 
   return (
     <div className="space-y-4">
-      <div className="bg-slate-900/50 rounded-xl border border-slate-700/50 p-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white">📊 技術分析論壇</h2>
-          <p className="text-xs text-slate-500 mt-1">
-            {user ? user.email : '未登入'}
-          </p>
+      <div className="rounded-2xl ring-soft p-5 flex items-center justify-between relative overflow-hidden" style={{ background: 'linear-gradient(135deg, var(--surface) 0%, #181b25 100%)' }}>
+        <div className="absolute top-0 right-0 w-48 h-48 rounded-full blur-3xl opacity-20 pointer-events-none" style={{ background: 'radial-gradient(circle, #8b5cf6, transparent)' }}></div>
+        <div className="relative flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#8b5cf6,#ec4899)' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-xl font-extrabold text-white tracking-tight">技術分析論壇</h2>
+            <p className="text-xs mt-0.5 mono" style={{ color: 'var(--text-3)' }}>
+              {user ? user.email : '未登入'}
+            </p>
+          </div>
         </div>
-        <span className={`text-xs px-2 py-1 rounded-full ${headerBadge.cls}`}>
+        <span className="text-[10px] font-bold tracking-widest px-3 py-1.5 rounded-full mono" style={headerBadge.style}>
           {headerBadge.txt}
         </span>
       </div>
 
-      {/* Access gate */}
       {!user && <LoginRequiredView />}
       {user && !canRead && <PremiumRequiredView user={user} />}
 
-      {/* Full forum (only for admin or premium) */}
       {canRead && route.view === 'list' && (
         <PostList
           supabase={supabase}
