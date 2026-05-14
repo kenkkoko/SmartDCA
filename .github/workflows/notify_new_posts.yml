@@ -1,0 +1,36 @@
+name: Notify New Forum Posts
+
+on:
+  schedule:
+    # Every 30 minutes — UTC time, but cron is interval-based so timezone doesn't matter
+    - cron: '*/30 * * * *'
+  # Manual trigger from Actions UI
+  workflow_dispatch:
+
+# Don't run multiple instances concurrently
+concurrency:
+  group: notify-new-posts
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install supabase pywebpush line-bot-sdk
+
+      - name: Run notifier
+        env:
+          SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:               ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LINE_CHANNEL_ACCESS_TOKEN:  ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          SITE_URL:                   https://dca.hellokai07.com
+        run: python notify_new_posts.py
