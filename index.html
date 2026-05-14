@@ -1529,7 +1529,7 @@
                 setError(null);
                 try {
                     // 1. 獲取真實 CNN Fear & Greed Index (透過 CORS Proxy)
-                    const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://production.dataviz.cnn.io/index/fearandgreed/graphdata');
+                    const proxyUrl = 'https://cors.hellokai07.com/?' + encodeURIComponent('https://production.dataviz.cnn.io/index/fearandgreed/graphdata');
                     let fngMap = new Map();
                     try {
                         const fngResponse = await fetch(proxyUrl);
@@ -1561,7 +1561,7 @@
                     // 2. 獲取美股歷史數據 (Yahoo Finance)
                     // 強制獲取 1 年 (1y) 數據，因為圖表需要至少一年來顯示交互
                     const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${selectedSymbol}?interval=1d&range=1y`;
-                    const historyRes = await fetch('https://corsproxy.io/?' + encodeURIComponent(yahooUrl));
+                    const historyRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yahooUrl));
 
                     if (!historyRes.ok) throw new Error("Yahoo Finance API Error");
                     const historyJson = await historyRes.json();
@@ -1601,7 +1601,7 @@
                     const fetchYahooPrice = async (symbol) => {
                         try {
                             const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
-                            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent(yfUrl));
+                            const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
                             const data = await res.json();
                             const meta = data.chart.result[0].meta;
                             const price = meta.regularMarketPrice;
@@ -1988,7 +1988,7 @@
                     // Helper: Yahoo Price Fetcher
                     const fetchYahooPrice = async (ticker) => {
                         const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
-                        const res = await fetch('https://corsproxy.io/?' + encodeURIComponent(yfUrl));
+                        const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
                         const data = await res.json();
                         const meta = data.chart.result[0].meta;
                         const price = meta.regularMarketPrice;
@@ -2015,7 +2015,7 @@
                     else if (timeRange === 'ALL') range = 'max';
 
                     const historyUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=${range}`;
-                    const historyRes = await fetch('https://corsproxy.io/?' + encodeURIComponent(historyUrl));
+                    const historyRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(historyUrl));
                     const historyJson = await historyRes.json();
 
                     if (!historyJson.chart || !historyJson.chart.result) throw new Error("無效的股票代號 (Yahoo)");
@@ -2076,7 +2076,7 @@
 
                     // 3. 獲取臺股新聞 (Google News RSS)
                     const rssUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(`${selectedSymbol} 股票新聞`) + '&hl=zh-TW&gl=TW&ceid=TW:zh-Hant';
-                    const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(rssUrl);
+                    const proxyUrl = 'https://cors.hellokai07.com/?' + encodeURIComponent(rssUrl);
 
                     const newsResponse = await fetch(proxyUrl);
                     const textData = await newsResponse.text();
@@ -2778,7 +2778,7 @@
 
                         if (type === 'US') {
                             // Fetch CNN FNG + Yahoo
-                            const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://production.dataviz.cnn.io/index/fearandgreed/graphdata');
+                            const proxyUrl = 'https://cors.hellokai07.com/?' + encodeURIComponent('https://production.dataviz.cnn.io/index/fearandgreed/graphdata');
                             const fngRes = await fetch(proxyUrl);
                             const fngJson = await fngRes.json();
                             const fngMap = new Map();
@@ -2790,7 +2790,7 @@
 
                             // Yahoo
                             const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y`;
-                            const yfRes = await fetch('https://corsproxy.io/?' + encodeURIComponent(yfUrl));
+                            const yfRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
                             const yfJson = await yfRes.json();
                             const result = yfJson.chart.result[0];
                             const quotes = result.indicators.quote[0].close;
@@ -2836,7 +2836,7 @@
                             // Yahoo + RSI
                             const yfSymbol = symbol.includes('.') ? symbol : `${symbol}.TW`;
                             const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1d&range=1y`;
-                            const yfRes = await fetch('https://corsproxy.io/?' + encodeURIComponent(yfUrl));
+                            const yfRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
                             const yfJson = await yfRes.json();
                             const result = yfJson.chart.result[0];
                             const quotes = result.indicators.quote[0].close;
@@ -3029,7 +3029,7 @@
                             const yfSymbol = type === 'TW' && !symbol.includes('.') ? `${symbol}.TW` : symbol;
                             // Need range=1y to get high/low
                             const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1d&range=1y`;
-                            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent(url));
+                            const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(url));
                             const json = await res.json();
                             const result = json.chart.result[0];
                             const quote = result.indicators.quote[0];
