@@ -323,16 +323,128 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
   );
 };
 
+// ───────────────────────────────────
+// ImageLightbox — click any forum image to view full-screen.
+//   • ESC / click backdrop / click ✕ → close
+//   • ← / → keys or buttons → prev / next (multi-image posts)
+//   • Body scroll is locked while open
+//   • Adjacent images are preloaded for instant switching
+// ───────────────────────────────────
+const ImageLightbox = ({ images, index, onClose, onPrev, onNext }) => {
+  const total = images.length;
+  const hasMultiple = total > 1;
+
+  // Keyboard shortcuts + body scroll lock
+  React.useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowLeft' && hasMultiple) onPrev();
+      else if (e.key === 'ArrowRight' && hasMultiple) onNext();
+    };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [hasMultiple, onClose, onPrev, onNext]);
+
+  // Preload neighbors so left/right feels instant
+  React.useEffect(() => {
+    if (!hasMultiple) return;
+    [(index + 1) % total, (index - 1 + total) % total].forEach((i) => {
+      const img = new Image();
+      img.src = images[i];
+    });
+  }, [index, images, hasMultiple, total]);
+
+  const btnStyle = {
+    background: 'rgba(255,255,255,0.08)',
+    border: '1px solid rgba(255,255,255,0.18)',
+    backdropFilter: 'blur(8px)',
+    WebkitBackdropFilter: 'blur(8px)',
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 md:p-8 cursor-zoom-out"
+      style={{
+        background: 'rgba(0,0,0,0.92)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        animation: 'forum-lightbox-fade 0.18s ease-out',
+      }}
+      role="dialog"
+      aria-modal="true"
+    >
+      {/* Close button */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
+        className="absolute top-4 right-4 w-11 h-11 rounded-full flex items-center justify-center text-white text-lg transition-transform hover:scale-110 z-10"
+        style={btnStyle}
+        aria-label="關閉"
+      >
+        ✕
+      </button>
+
+      {/* The image itself — stopPropagation so clicking it doesn't close */}
+      <img
+        key={images[index]}
+        src={images[index]}
+        alt=""
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-full max-w-full object-contain rounded-lg cursor-default select-none"
+        style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.55)' }}
+        draggable={false}
+      />
+
+      {/* Prev / Next */}
+      {hasMultiple && (
+        <>
+          <button
+            onClick={(e) => { e.stopPropagation(); onPrev(); }}
+            className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full flex items-center justify-center text-white text-2xl transition-transform hover:scale-110 z-10"
+            style={btnStyle}
+            aria-label="上一張"
+          >
+            ←
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onNext(); }}
+            className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full flex items-center justify-center text-white text-2xl transition-transform hover:scale-110 z-10"
+            style={btnStyle}
+            aria-label="下一張"
+          >
+            →
+          </button>
+          {/* Counter */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-white text-sm mono z-10"
+            style={btnStyle}
+          >
+            {index + 1} / {total}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
   const [post, setPost] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
+  const [lightbox, setLightbox] = React.useState(null); // { images: [src,...], index }
   const contentRef = React.useRef(null);
 
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLightbox(null);  // Clear lightbox when navigating to a different post
       const { data, error: err } = await supabase
         .from('forum_posts')
         .select('*')
@@ -367,6 +479,22 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
         });
       } catch (_) {}
     }
+
+    // Wire up image clicks → open lightbox
+    // (Runs after hljs/KaTeX so DOM is stable.)
+    const imgs = Array.from(contentRef.current.querySelectorAll('img'));
+    const srcs = imgs.map((img) => img.src);
+    imgs.forEach((img, i) => {
+      img.style.cursor = 'zoom-in';
+      img.style.transition = 'opacity 0.15s ease';
+      img.addEventListener('mouseenter', () => { img.style.opacity = '0.92'; });
+      img.addEventListener('mouseleave', () => { img.style.opacity = '1'; });
+      img.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setLightbox({ images: srcs, index: i });
+      };
+    });
   }, [post]);
 
   const handleDelete = async () => {
@@ -458,6 +586,22 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
           dangerouslySetInnerHTML={{ __html: html }}
         />
       </article>
+
+      {lightbox && (
+        <ImageLightbox
+          images={lightbox.images}
+          index={lightbox.index}
+          onClose={() => setLightbox(null)}
+          onPrev={() => setLightbox((lb) => ({
+            ...lb,
+            index: (lb.index - 1 + lb.images.length) % lb.images.length
+          }))}
+          onNext={() => setLightbox((lb) => ({
+            ...lb,
+            index: (lb.index + 1) % lb.images.length
+          }))}
+        />
+      )}
     </div>
   );
 };
