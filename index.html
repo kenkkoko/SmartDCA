@@ -1440,7 +1440,7 @@
                 if (dataset.type && dataset.type !== 'line') return;
                 ctx.save();
                 ctx.shadowColor = 'rgba(59, 130, 246, 0.55)';
-                ctx.shadowBlur = 12;
+                ctx.shadowBlur = 6;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 0;
             },
@@ -1881,7 +1881,8 @@
                                 return 'rgba(0,0,0,0)';
                             }),
                             pointRadius: data.map(d => {
-                                if (d.fng <= 44) return 3;
+                                if (d.fng <= 25) return 3;
+                                if (d.fng <= 44) return 2;
                                 return 0;
                             }),
                             pointHoverRadius: 4,
@@ -2305,7 +2306,7 @@
                     borderColor: CHART.line,
                     backgroundColor: makePriceGradient,
                     borderWidth: 2,
-                    pointRadius: rsiData.history.map(d => d.rsi <= 44 ? 3 : 0), // 點半徑
+                    pointRadius: rsiData.history.map(d => d.rsi <= 25 ? 3 : (d.rsi <= 44 ? 2 : 0)),
                     pointBackgroundColor: rsiData.history.map(d => d.rsi <= 25 ? CHART.fear : (d.rsi <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')), // 點填充色
                     pointBorderColor: rsiData.history.map(d => d.rsi <= 25 ? CHART.fear : (d.rsi <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')),
                     pointHoverRadius: 4,
@@ -2317,24 +2318,27 @@
             const chartOptions = {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
                 plugins: {
                     legend: { display: false },
                     tooltip: {
-                        mode: 'index',
-                        intersect: false,
                         callbacks: {
                             label: (context) => {
-                                const idx = context.dataIndex; // Simple index
-                                const d = rsiData.history[idx]; // Direct map if lengths match
+                                const idx = context.dataIndex;
+                                const d = rsiData.history[idx];
                                 const rsi = d?.rsi?.toFixed(1) || 'N/A';
-                                return `股價: ${formatPrice(context.parsed.y)} (RSI: ${rsi})`;
+                                return [
+                                    `價格: ${formatPrice(context.parsed.y)}`,
+                                    `市場 RSI: ${rsi}`,
+                                    (d && d.rsi <= 44) ? '🔴 建議 DCA 買入點' : '⚪ 觀望'
+                                ];
                             }
                         }
                     },
-                    title: { display: true, text: `${selectedSymbol} 歷史走勢 (紅/橘點為 RSI 買入訊號)`, color: '#94a3b8' }
+                    title: { display: true, text: `${selectedSymbol} 歷史走勢 (紅/橘點為 RSI 買入訊號)`, color: CHART.text }
                 },
                 scales: {
-                    x: { ticks: { maxTicksLimit: 6, color: '#94a3b8' }, grid: { display: false } },
+                    x: { ticks: { maxTicksLimit: 6, color: CHART.tick }, grid: { display: false } },
                     y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick } }
                 }
             };
