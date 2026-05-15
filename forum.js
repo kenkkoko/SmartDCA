@@ -333,13 +333,22 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
 const ImageLightbox = ({ images, index, onClose, onPrev, onNext }) => {
   const total = images.length;
   const hasMultiple = total > 1;
+  // Controls (✕, ←/→, counter) hidden by default — tap anywhere to toggle.
+  // ESC always closes regardless of controls state.
+  const [controlsVisible, setControlsVisible] = React.useState(false);
 
   // Keyboard shortcuts + body scroll lock
   React.useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') onClose();
-      else if (e.key === 'ArrowLeft' && hasMultiple) onPrev();
-      else if (e.key === 'ArrowRight' && hasMultiple) onNext();
+      else if (e.key === 'ArrowLeft' && hasMultiple) {
+        onPrev();
+        setControlsVisible(true);  // Surface controls when navigating via keyboard
+      }
+      else if (e.key === 'ArrowRight' && hasMultiple) {
+        onNext();
+        setControlsVisible(true);
+      }
     };
     document.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
@@ -359,71 +368,78 @@ const ImageLightbox = ({ images, index, onClose, onPrev, onNext }) => {
     });
   }, [index, images, hasMultiple, total]);
 
+  const toggleControls = () => setControlsVisible((v) => !v);
+
   const btnStyle = {
     background: 'rgba(255,255,255,0.08)',
     border: '1px solid rgba(255,255,255,0.18)',
     backdropFilter: 'blur(8px)',
     WebkitBackdropFilter: 'blur(8px)',
   };
+  const fadeStyle = {
+    opacity: controlsVisible ? 1 : 0,
+    pointerEvents: controlsVisible ? 'auto' : 'none',
+    transition: 'opacity 0.2s ease',
+  };
 
   return (
     <div
-      onClick={onClose}
-      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 md:p-8 cursor-zoom-out"
+      onClick={toggleControls}
+      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 md:p-8"
       style={{
         background: 'rgba(0,0,0,0.92)',
         backdropFilter: 'blur(12px)',
         WebkitBackdropFilter: 'blur(12px)',
         animation: 'forum-lightbox-fade 0.18s ease-out',
+        cursor: 'pointer',
       }}
       role="dialog"
       aria-modal="true"
     >
-      {/* Close button */}
+      {/* Image itself — clicking it also toggles controls */}
+      <img
+        key={images[index]}
+        src={images[index]}
+        alt=""
+        onClick={(e) => { e.stopPropagation(); toggleControls(); }}
+        className="max-h-full max-w-full object-contain rounded-lg select-none"
+        style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.55)', cursor: 'pointer' }}
+        draggable={false}
+      />
+
+      {/* Close button — toggle visibility */}
       <button
         onClick={(e) => { e.stopPropagation(); onClose(); }}
-        className="absolute top-4 right-4 w-11 h-11 rounded-full flex items-center justify-center text-white text-lg transition-transform hover:scale-110 z-10"
-        style={btnStyle}
+        className="absolute top-4 right-4 w-11 h-11 rounded-full flex items-center justify-center text-white text-lg hover:scale-110 z-10"
+        style={{ ...btnStyle, ...fadeStyle, transition: 'opacity 0.2s ease, transform 0.15s ease' }}
         aria-label="關閉"
       >
         ✕
       </button>
 
-      {/* The image itself — stopPropagation so clicking it doesn't close */}
-      <img
-        key={images[index]}
-        src={images[index]}
-        alt=""
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-full max-w-full object-contain rounded-lg cursor-default select-none"
-        style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.55)' }}
-        draggable={false}
-      />
-
-      {/* Prev / Next */}
+      {/* Prev / Next + counter — toggle visibility */}
       {hasMultiple && (
         <>
           <button
             onClick={(e) => { e.stopPropagation(); onPrev(); }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full flex items-center justify-center text-white text-2xl transition-transform hover:scale-110 z-10"
-            style={btnStyle}
+            className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full flex items-center justify-center text-white text-2xl hover:scale-110 z-10"
+            style={{ ...btnStyle, ...fadeStyle, transition: 'opacity 0.2s ease, transform 0.15s ease' }}
             aria-label="上一張"
           >
             ←
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onNext(); }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full flex items-center justify-center text-white text-2xl transition-transform hover:scale-110 z-10"
-            style={btnStyle}
+            className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full flex items-center justify-center text-white text-2xl hover:scale-110 z-10"
+            style={{ ...btnStyle, ...fadeStyle, transition: 'opacity 0.2s ease, transform 0.15s ease' }}
             aria-label="下一張"
           >
             →
           </button>
-          {/* Counter */}
           <div
             onClick={(e) => e.stopPropagation()}
             className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-white text-sm mono z-10"
-            style={btnStyle}
+            style={{ ...btnStyle, ...fadeStyle }}
           >
             {index + 1} / {total}
           </div>
