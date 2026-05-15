@@ -324,6 +324,15 @@
     /* Editor's drop-zone feedback while dragging an image */
     .EasyMDEContainer.CodeMirror.dragging { background: #1e3a8a !important; }
 
+    /* Force dark dropdown option background on all selects (browsers don't inherit) */
+    select option, select optgroup {
+        background-color: #0e1014 !important;
+        color: #ffffff !important;
+    }
+    select option:checked, select option:hover {
+        background-color: #181b25 !important;
+    }
+
     /* ─────────────────────────────────────────────
        Compatibility shim · 把舊的 Tailwind slate-900
        卡片視覺接管到新系統，不用改各個 dashboard 的 JSX
@@ -624,6 +633,7 @@
         const AuthComponent = ({ user, setUser, isPremium, onOpenSettings }) => {
             const [localLoading, setLocalLoading] = useState(false);
             const [showLoginModal, setShowLoginModal] = useState(false);
+            const [showMenu, setShowMenu] = useState(false);
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
             const [isSignUp, setIsSignUp] = useState(false);
@@ -687,49 +697,105 @@
             if (user) {
                 const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture;
                 const initial = (user.email || 'U').charAt(0).toUpperCase();
+                const displayName = user.email.split('@')[0];
                 return (
-                    <div className="glass rounded-full pl-1 pr-2 py-1 flex items-center gap-2">
-                        {avatarUrl ? (
-                            <img src={avatarUrl} alt="User Avatar" className="w-7 h-7 rounded-full ring-soft" />
-                        ) : (
-                            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white pill-grad">{initial}</div>
-                        )}
-                        <span className="text-xs font-semibold hidden md:block" style={{ color: 'var(--text-2)' }}>{user.email.split('@')[0]}</span>
-
-                        {/* Subscription Management */}
-                        {isPremium ? (
-                            <button
-                                onClick={() => window.open(LEMON_PORTAL_URL, '_blank')}
-                                className="text-[10px] font-bold px-2 py-1 rounded-md transition-colors"
-                                style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff' }}
-                                title="管理訂閱"
-                            >
-                                PRO
-                            </button>
-                        ) : (
-                            <button
-                                onClick={() => {
-                                    const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
-                                    window.open(checkoutUrl, '_blank');
-                                }}
-                                className="text-[10px] font-bold px-2 py-1 rounded-md text-white flex items-center gap-1 transition-colors"
-                                style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)' }}
-                            >
-                                <Sparkles size={10} /> 升級
-                            </button>
-                        )}
-
-                        {onOpenSettings && (
-                            <button onClick={onOpenSettings} className="p-1 rounded-full transition-colors hover:bg-white/10" style={{ color: 'var(--text-3)' }} title="設定">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <circle cx="12" cy="12" r="3"></circle>
-                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                                </svg>
-                            </button>
-                        )}
-                        <button onClick={handleLogout} className="ml-0.5 p-1 rounded-full transition-colors hover:bg-white/10" style={{ color: 'var(--text-3)' }} title="登出">
-                            <LogOut size={14} />
+                    <div className="relative">
+                        <button
+                            onClick={() => setShowMenu(v => !v)}
+                            className="glass rounded-full pl-1 pr-2 py-1 flex items-center gap-2 hover:bg-white/[0.08] transition-colors cursor-pointer"
+                            title="開啟選單"
+                        >
+                            {avatarUrl ? (
+                                <img src={avatarUrl} alt="User Avatar" className="w-7 h-7 rounded-full ring-soft" />
+                            ) : (
+                                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold pill-grad" style={{ color: 'var(--brand-ink)' }}>{initial}</div>
+                            )}
+                            <span className="text-xs font-semibold hidden md:block" style={{ color: 'var(--text-2)' }}>{displayName}</span>
+                            {/* PRO badge inside pill */}
+                            {isPremium && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md ml-1" style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff' }}>
+                                    PRO
+                                </span>
+                            )}
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-3)' }}>
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
                         </button>
+
+                        {/* Backdrop to catch outside clicks */}
+                        {showMenu && (
+                            <div onClick={() => setShowMenu(false)} className="fixed inset-0 z-[90]"></div>
+                        )}
+
+                        {/* Dropdown menu */}
+                        {showMenu && (
+                            <div className="absolute right-0 mt-2 w-56 glass-strong rounded-2xl shadow-2xl overflow-hidden z-[95] animate-in fade-in zoom-in-95">
+                                {/* User info header */}
+                                <div className="p-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--line)', background: 'rgba(255,255,255,0.02)' }}>
+                                    {avatarUrl ? (
+                                        <img src={avatarUrl} alt="" className="w-9 h-9 rounded-full ring-soft" />
+                                    ) : (
+                                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold pill-grad" style={{ color: 'var(--brand-ink)' }}>{initial}</div>
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-bold text-white truncate">{displayName}</p>
+                                        <p className="text-[10px] mono truncate" style={{ color: 'var(--text-3)' }}>{user.email}</p>
+                                    </div>
+                                </div>
+
+                                {/* Subscription action */}
+                                {!isPremium && (
+                                    <button
+                                        onClick={() => {
+                                            setShowMenu(false);
+                                            const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
+                                            window.open(checkoutUrl, '_blank');
+                                        }}
+                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-white/[0.05]"
+                                        style={{ color: 'var(--text)' }}
+                                    >
+                                        <Sparkles size={14} style={{ color: '#fbbf24' }} />
+                                        <span className="flex-1">升級 Pro</span>
+                                        <span className="text-[10px] mono px-1.5 py-0.5 rounded" style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff' }}>VIP</span>
+                                    </button>
+                                )}
+                                {isPremium && (
+                                    <button
+                                        onClick={() => { setShowMenu(false); window.open(LEMON_PORTAL_URL, '_blank'); }}
+                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-white/[0.05]"
+                                        style={{ color: 'var(--text)' }}
+                                    >
+                                        <Sparkles size={14} style={{ color: '#fbbf24' }} />
+                                        <span className="flex-1">管理訂閱</span>
+                                    </button>
+                                )}
+
+                                {/* Settings */}
+                                {onOpenSettings && (
+                                    <button
+                                        onClick={() => { setShowMenu(false); onOpenSettings(); }}
+                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-white/[0.05]"
+                                        style={{ color: 'var(--text)' }}
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <circle cx="12" cy="12" r="3"></circle>
+                                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                                        </svg>
+                                        <span className="flex-1">設定</span>
+                                    </button>
+                                )}
+
+                                {/* Logout */}
+                                <button
+                                    onClick={() => { setShowMenu(false); handleLogout(); }}
+                                    className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-red-500/10"
+                                    style={{ color: '#ff7d8c', borderTop: '1px solid var(--line)' }}
+                                >
+                                    <LogOut size={14} />
+                                    <span className="flex-1">登出</span>
+                                </button>
+                            </div>
+                        )}
                     </div>
                 );
             }
@@ -3563,17 +3629,24 @@
                     <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
                         <button
                             onClick={() => setSubTab('holdings')}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${subTab === 'holdings' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${subTab === 'holdings' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
                             style={subTab === 'holdings' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
                         >
-                            📊 持股
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                            </svg>
+                            持股
                         </button>
                         <button
                             onClick={() => setSubTab('watchlist')}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${subTab === 'watchlist' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${subTab === 'watchlist' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
                             style={subTab === 'watchlist' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
                         >
-                            ⭐ 觀察清單
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                            </svg>
+                            觀察清單
                         </button>
                     </div>
 
@@ -3970,15 +4043,20 @@
                 setTimeout(() => setSuccess(false), 1800);
             };
 
-            const sectionBtn = (key, label) => (
+            const sectionBtn = (key, label, icon) => (
                 <button
                     onClick={() => setSection(key)}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${section === key ? 'pill-grad' : 'hover:bg-white/[0.05]'}`}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 ${section === key ? 'pill-grad' : 'hover:bg-white/[0.05]'}`}
                     style={section === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
                 >
-                    {label}
+                    {icon}
+                    <span>{label}</span>
                 </button>
             );
+
+            const iconUser = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+            const iconSliders = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>;
+            const iconKey = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>;
 
             return (
                 <div className="fixed inset-0 flex items-center justify-center z-[110] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
@@ -3998,9 +4076,9 @@
                                 <h3 className="text-base font-extrabold text-white mt-1">設定</h3>
                             </div>
                             <div className="space-y-1 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
-                                {sectionBtn('profile', '👤 個人資料')}
-                                {sectionBtn('preferences', '🎛 偏好設定')}
-                                {sectionBtn('api', '🔑 API Keys')}
+                                {sectionBtn('profile', '個人資料', iconUser)}
+                                {sectionBtn('preferences', '偏好設定', iconSliders)}
+                                {sectionBtn('api', 'API Keys', iconKey)}
                             </div>
                         </div>
 
@@ -4050,11 +4128,11 @@
                                             className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none"
                                             style={inputStyle}
                                         >
-                                            <option value="crypto">🪙 加密貨幣</option>
-                                            <option value="stock">🌎 美股</option>
-                                            <option value="taiwan">🇹🇼 台股</option>
-                                            <option value="portfolio">📊 我的投資</option>
-                                            <option value="forum">💬 論壇</option>
+                                            <option value="crypto">加密貨幣</option>
+                                            <option value="stock">美股</option>
+                                            <option value="taiwan">台股</option>
+                                            <option value="portfolio">我的投資</option>
+                                            <option value="forum">論壇</option>
                                         </select>
                                         <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>登入時自動開啟這個頁面</p>
                                     </div>
