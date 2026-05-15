@@ -2176,26 +2176,24 @@
                     const currentRSI = rsiValues[rsiValues.length - 1];
                     const currentPriceFromYahoo = cleanCloses[cleanCloses.length - 1];
 
-                    // B. Try Fugle Realtime Quote
-                    // Key: __FUGLE_KEY__
+                    // B. Try Fugle Realtime Quote (skip if key is still placeholder)
                     let fuglePrice = null;
                     let fugleSource = false;
-                    try {
-                        const fugleToken = "__FUGLE_KEY__";
-                        // Using Legacy v0.3 as it worked in testing for restricted symbol 1476
-                        // Note: For other symbols, this will likely fail with 400 Bad Request, catch it.
-                        const fugleUrl = `https://api.fugle.tw/realtime/v0.3/intraday/quote?symbolId=${selectedSymbol}&apiToken=${fugleToken}`;
-
-                        const fRes = await fetch(fugleUrl);
-                        if (fRes.ok) {
-                            const fData = await fRes.json();
-                            if (fData.data && fData.data.quote && fData.data.quote.trade) {
-                                fuglePrice = fData.data.quote.trade.price;
-                                fugleSource = true;
+                    const fugleToken = "__FUGLE_KEY__";
+                    if (!fugleToken.includes("FUGLE_KEY")) {
+                        try {
+                            const fugleUrl = `https://api.fugle.tw/realtime/v0.3/intraday/quote?symbolId=${selectedSymbol}&apiToken=${fugleToken}`;
+                            const fRes = await fetch(fugleUrl);
+                            if (fRes.ok) {
+                                const fData = await fRes.json();
+                                if (fData.data && fData.data.quote && fData.data.quote.trade) {
+                                    fuglePrice = fData.data.quote.trade.price;
+                                    fugleSource = true;
+                                }
                             }
+                        } catch (e) {
+                            console.warn("Fugle Fetch Failed:", e);
                         }
-                    } catch (e) {
-                        console.warn("Fugle Fetch Failed (Expected if symbol != 1476):", e);
                     }
 
                     setDataSource(fugleSource ? 'Fugle API' : 'Yahoo Finance');

@@ -1,10 +1,14 @@
 {
     "name": "Smart DCA",
     "short_name": "Smart DCA",
-    "start_url": ".",
+    "description": "Smart DCA - 智能定期定額投資工具，提供恐慌貪婪指數、台股美股加密貨幣分析",
+    "id": "/SmartDCA/",
+    "start_url": "./",
+    "scope": "./",
     "display": "standalone",
-    "background_color": "#0f172a",
-    "theme_color": "#0f172a",
+    "orientation": "portrait-primary",
+    "background_color": "#07080c",
+    "theme_color": "#07080c",
     "icons": [
         {
             "src": "icon-192.png",
@@ -28,6 +32,19 @@
             "src": "apple-touch-icon.png",
             "sizes": "180x180",
             "type": "image/png"
+        }
+    ],
+    "categories": ["finance", "productivity"],
+    "shortcuts": [
+        {
+            "name": "我的投資",
+            "url": "/?tab=portfolio",
+            "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+        },
+        {
+            "name": "加密貨幣",
+            "url": "/?tab=crypto",
+            "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
         }
     ]
 }
