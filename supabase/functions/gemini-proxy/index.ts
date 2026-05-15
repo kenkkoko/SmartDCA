@@ -10,16 +10,19 @@ serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
   try {
-    const { prompt } = await req.json();
+    const { prompt, apiKey: userApiKey } = await req.json();
     if (!prompt || typeof prompt !== "string") {
       return new Response(JSON.stringify({ error: "prompt is required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    // Prefer user-provided key (BYOK); fallback to server-side env var
+    const GEMINI_API_KEY = (typeof userApiKey === "string" && userApiKey.trim().length > 10)
+      ? userApiKey.trim()
+      : Deno.env.get("GEMINI_API_KEY");
     if (!GEMINI_API_KEY) {
-      console.error("GEMINI_API_KEY env var not set");
-      return new Response(JSON.stringify({ error: "Server misconfiguration: GEMINI_API_KEY missing" }), {
+      console.error("No Gemini key (user did not supply, env var empty)");
+      return new Response(JSON.stringify({ error: "No Gemini API key available" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

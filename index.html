@@ -621,7 +621,7 @@
         const { Bell, TrendingUp, AlertTriangle, Info, RefreshCw, Smartphone, ArrowUp, ArrowDown, Newspaper, Sparkles, ExternalLink, Bot, Globe, Activity, BellRing, BellOff, LogOut, User, Lock } = Icons;
 
         // --- Auth Component ---
-        const AuthComponent = ({ user, setUser, isPremium }) => {
+        const AuthComponent = ({ user, setUser, isPremium, onOpenSettings }) => {
             const [localLoading, setLocalLoading] = useState(false);
             const [showLoginModal, setShowLoginModal] = useState(false);
             const [email, setEmail] = useState('');
@@ -719,6 +719,14 @@
                             </button>
                         )}
 
+                        {onOpenSettings && (
+                            <button onClick={onOpenSettings} className="p-1 rounded-full transition-colors hover:bg-white/10" style={{ color: 'var(--text-3)' }} title="設定">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                                </svg>
+                            </button>
+                        )}
                         <button onClick={handleLogout} className="ml-0.5 p-1 rounded-full transition-colors hover:bg-white/10" style={{ color: 'var(--text-3)' }} title="登出">
                             <LogOut size={14} />
                         </button>
@@ -871,10 +879,11 @@
                 const sessionRes = await supabase.auth.getSession();
                 const token = (sessionRes.data && sessionRes.data.session && sessionRes.data.session.access_token) || SUPABASE_ANON_KEY;
                 const hdrs = { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + token };
+                const userKey = (typeof window !== 'undefined' && window.__USER_GEMINI_KEY) || undefined;
                 const res = await fetch(SUPABASE_URL + '/functions/v1/gemini-proxy', {
                     method: 'POST',
                     headers: hdrs,
-                    body: JSON.stringify({ prompt })
+                    body: JSON.stringify({ prompt, apiKey: userKey })
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Proxy error');
@@ -3180,11 +3189,1011 @@
             );
         };
 
+        // ═════════════════════════════════════════════
+        // PortfolioDashboard — track real holdings & P/L
+        // ═════════════════════════════════════════════
+        const ASSET_TYPES = {
+            tw_stock: { label: '台股', currency: 'TWD', symbol: 'NT$' },
+            us_stock: { label: '美股', currency: 'USD', symbol: '$' },
+            crypto:   { label: '加密貨幣', currency: 'USD', symbol: '$' },
+        };
+
+        // Compute current holdings from a flat list of transactions
+        const computeHoldings = (transactions) => {
+            const map = new Map();
+            // Sort by date ascending so weighted-average cost is computed correctly
+            const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+            for (const tx of sorted) {
+                const key = `${tx.symbol}::${tx.asset_type}`;
+                if (!map.has(key)) {
+                    map.set(key, {
+                        symbol: tx.symbol,
+                        asset_type: tx.asset_type,
+                        totalShares: 0,
+                        totalCost: 0,
+                        sharesBought: 0,
+                        sharesSold: 0,
+                        dividends: 0,
+                        totalFees: 0,
+                        firstBuyDate: null,
+                        lastTxDate: tx.date,
+                    });
+                }
+                const h = map.get(key);
+                h.lastTxDate = tx.date;
+                const shares = Number(tx.shares) || 0;
+                const price = Number(tx.price) || 0;
+                const fee = Number(tx.fee) || 0;
+                if (tx.type === 'buy') {
+                    h.totalShares += shares;
+                    h.totalCost += shares * price + fee;
+                    h.sharesBought += shares;
+                    h.totalFees += fee;
+                    if (!h.firstBuyDate || tx.date < h.firstBuyDate) h.firstBuyDate = tx.date;
+                } else if (tx.type === 'sell') {
+                    const avgCost = h.sharesBought > 0 ? h.totalCost / h.totalShares : 0;
+                    h.totalShares -= shares;
+                    h.totalCost -= avgCost * shares;
+                    h.sharesSold += shares;
+                    h.totalFees += fee;
+                } else if (tx.type === 'dividend') {
+                    // For dividends, "price" field stores the total dividend amount in local currency
+                    h.dividends += price;
+                }
+            }
+            return Array.from(map.values()).filter(h => h.totalShares > 0.0001);
+        };
+
+        // ─────────────────────────────────────────────
+        // AddTransactionModal
+        // ─────────────────────────────────────────────
+        const AddTransactionModal = ({ supabase, user, existing, onClose, onSaved }) => {
+            const [symbol, setSymbol] = useState(existing?.symbol || '');
+            const [assetType, setAssetType] = useState(existing?.asset_type || 'tw_stock');
+            const [txType, setTxType] = useState(existing?.type || 'buy');
+            const [date, setDate] = useState(existing?.date || new Date().toISOString().slice(0, 10));
+            const [shares, setShares] = useState(existing?.shares || '');
+            const [price, setPrice] = useState(existing?.price || '');
+            const [fee, setFee] = useState(existing?.fee || '');
+            const [note, setNote] = useState(existing?.note || '');
+            const [saving, setSaving] = useState(false);
+            const [error, setError] = useState(null);
+
+            const inputStyle = { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', color: 'var(--text)' };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!symbol.trim()) return setError('請輸入代號');
+                if (txType !== 'dividend' && !shares) return setError('請輸入股數');
+                if (!price) return setError(txType === 'dividend' ? '請輸入配息金額' : '請輸入價格');
+                setSaving(true);
+                setError(null);
+                const payload = {
+                    user_id: user.id,
+                    symbol: symbol.trim().toUpperCase(),
+                    asset_type: assetType,
+                    type: txType,
+                    date,
+                    shares: txType === 'dividend' ? 0 : Number(shares),
+                    price: Number(price),
+                    fee: Number(fee) || 0,
+                    note: note.trim() || null,
+                };
+                let result;
+                if (existing?.id) {
+                    result = await supabase.from('transactions').update(payload).eq('id', existing.id).select().single();
+                } else {
+                    result = await supabase.from('transactions').insert(payload).select().single();
+                }
+                setSaving(false);
+                if (result.error) {
+                    setError(result.error.message);
+                    return;
+                }
+                onSaved(result.data);
+                onClose();
+            };
+
+            return (
+                <div className="fixed inset-0 flex items-center justify-center z-[100] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
+                    <div className="glass-strong p-6 rounded-3xl shadow-2xl max-w-md w-full relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                        <button
+                            onClick={onClose}
+                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                            style={{ color: 'var(--text-3)' }}
+                        >
+                            ✕
+                        </button>
+
+                        <div className="mb-5">
+                            <p className="label">{existing ? 'EDIT TRANSACTION' : 'NEW TRANSACTION'}</p>
+                            <h3 className="text-xl font-extrabold text-white mt-1">
+                                {existing ? '編輯交易' : '新增交易'}
+                            </h3>
+                        </div>
+
+                        <form onSubmit={handleSubmit} className="space-y-3">
+                            {/* Asset type + Transaction type */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="label block mb-1.5">市場</label>
+                                    <select value={assetType} onChange={e => setAssetType(e.target.value)} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={inputStyle}>
+                                        <option value="tw_stock">台股</option>
+                                        <option value="us_stock">美股 / ETF</option>
+                                        <option value="crypto">加密貨幣</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="label block mb-1.5">類型</label>
+                                    <select value={txType} onChange={e => setTxType(e.target.value)} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={inputStyle}>
+                                        <option value="buy">買入</option>
+                                        <option value="sell">賣出</option>
+                                        <option value="dividend">配息</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Symbol */}
+                            <div>
+                                <label className="label block mb-1.5">代號</label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={symbol}
+                                    onChange={e => setSymbol(e.target.value)}
+                                    placeholder={assetType === 'tw_stock' ? '例如 0050.TW' : assetType === 'us_stock' ? '例如 AAPL' : '例如 bitcoin'}
+                                    className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+                                    style={inputStyle}
+                                />
+                                <p className="text-[10px] mono mt-1" style={{ color: 'var(--text-3)' }}>
+                                    {assetType === 'tw_stock' && '台股要加 .TW 後綴'}
+                                    {assetType === 'us_stock' && '輸入 ticker 大寫'}
+                                    {assetType === 'crypto' && '使用 CoinMarketCap slug (例如 bitcoin、ethereum)'}
+                                </p>
+                            </div>
+
+                            {/* Date */}
+                            <div>
+                                <label className="label block mb-1.5">日期</label>
+                                <input type="date" required value={date} onChange={e => setDate(e.target.value)}
+                                    className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
+                            </div>
+
+                            {/* Shares (hide for dividend) + Price */}
+                            {txType !== 'dividend' && (
+                                <div>
+                                    <label className="label block mb-1.5">股數 / 數量</label>
+                                    <input type="number" step="any" required value={shares} onChange={e => setShares(e.target.value)} placeholder="0"
+                                        className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="label block mb-1.5">
+                                    {txType === 'dividend' ? `配息總額 (${ASSET_TYPES[assetType].symbol})` : `成交價 (${ASSET_TYPES[assetType].symbol})`}
+                                </label>
+                                <input type="number" step="any" required value={price} onChange={e => setPrice(e.target.value)} placeholder="0"
+                                    className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
+                            </div>
+
+                            {/* Fee */}
+                            {txType !== 'dividend' && (
+                                <div>
+                                    <label className="label block mb-1.5">手續費 (選填)</label>
+                                    <input type="number" step="any" value={fee} onChange={e => setFee(e.target.value)} placeholder="0"
+                                        className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
+                                </div>
+                            )}
+
+                            {/* Note */}
+                            <div>
+                                <label className="label block mb-1.5">備註 (選填)</label>
+                                <input type="text" value={note} onChange={e => setNote(e.target.value)}
+                                    className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
+                            </div>
+
+                            {error && (
+                                <div className="text-xs text-center px-3 py-2 rounded-lg" style={{ background: 'rgba(255,91,110,0.08)', color: '#ff7d8c', border: '1px solid rgba(255,91,110,0.2)' }}>
+                                    {error}
+                                </div>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={saving}
+                                className="w-full py-3 pill-grad text-white rounded-xl text-sm font-bold transition-all glow-brand disabled:opacity-50"
+                            >
+                                {saving ? '儲存中...' : (existing ? '更新交易' : '新增交易')}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        // ─────────────────────────────────────────────
+        // PortfolioDashboard — main component
+        // ─────────────────────────────────────────────
+        const PortfolioDashboard = ({ supabase, user, watchlist, onUpdateWatchlist, isPremium }) => {
+            const [subTab, setSubTab] = useState('holdings'); // 'holdings' | 'watchlist'
+            const [transactions, setTransactions] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [prices, setPrices] = useState({}); // {symbol::asset_type: {price, changePercent, currency}}
+            const [pricesLoading, setPricesLoading] = useState(false);
+            const [showModal, setShowModal] = useState(false);
+            const [editingTx, setEditingTx] = useState(null);
+
+            // 1. Fetch transactions
+            const reload = async () => {
+                if (!user || !supabase) return;
+                setLoading(true);
+                const { data, error: err } = await supabase
+                    .from('transactions')
+                    .select('*')
+                    .order('date', { ascending: false });
+                if (err) setError(err.message);
+                else setTransactions(data || []);
+                setLoading(false);
+            };
+
+            useEffect(() => { reload(); }, [user, supabase]);
+
+            // 2. Compute holdings
+            const holdings = useMemo(() => computeHoldings(transactions), [transactions]);
+
+            // 3. Fetch current prices for all holdings
+            useEffect(() => {
+                if (holdings.length === 0) return;
+                let cancelled = false;
+                (async () => {
+                    setPricesLoading(true);
+                    const stockSyms = holdings.filter(h => h.asset_type !== 'crypto').map(h => h.symbol);
+                    const cryptoSyms = holdings.filter(h => h.asset_type === 'crypto').map(h => h.symbol);
+                    const proxy = `${SUPABASE_URL}/functions/v1/price-proxy`;
+                    const headers = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY };
+                    try {
+                        const results = await Promise.all([
+                            stockSyms.length ? fetch(`${proxy}?symbols=${stockSyms.join(',')}&type=stock`, { headers }).then(r => r.json()) : { data: [] },
+                            cryptoSyms.length ? fetch(`${proxy}?symbols=${cryptoSyms.join(',')}&type=crypto`, { headers }).then(r => r.json()) : { data: [] },
+                        ]);
+                        if (cancelled) return;
+                        const map = {};
+                        const sd = results[0].data || [];
+                        const cd = results[1].data || [];
+                        holdings.forEach(h => {
+                            if (h.asset_type === 'crypto') {
+                                const found = cd.find(p => p.symbol === h.symbol.toLowerCase());
+                                if (found) map[`${h.symbol}::${h.asset_type}`] = found;
+                            } else {
+                                const found = sd.find(p => p.symbol === h.symbol);
+                                if (found) map[`${h.symbol}::${h.asset_type}`] = found;
+                            }
+                        });
+                        setPrices(map);
+                    } catch (e) {
+                        console.error('Price fetch failed', e);
+                    } finally {
+                        setPricesLoading(false);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [holdings.length, transactions.length]);
+
+            // 4. Summary totals
+            const summary = useMemo(() => {
+                // Group by currency since TWD ≠ USD
+                const byCurrency = {};
+                let totalDividendsByC = {};
+                holdings.forEach(h => {
+                    const ccy = ASSET_TYPES[h.asset_type].currency;
+                    if (!byCurrency[ccy]) byCurrency[ccy] = { cost: 0, marketValue: 0, dividends: 0, count: 0 };
+                    byCurrency[ccy].cost += h.totalCost;
+                    byCurrency[ccy].dividends += h.dividends;
+                    byCurrency[ccy].count += 1;
+                    const p = prices[`${h.symbol}::${h.asset_type}`];
+                    if (p?.price) byCurrency[ccy].marketValue += h.totalShares * p.price;
+                });
+                return byCurrency;
+            }, [holdings, prices]);
+
+            // 5. Delete transaction
+            const handleDelete = async (id) => {
+                if (!confirm('確定要刪除這筆交易？此操作無法復原。')) return;
+                const { error: err } = await supabase.from('transactions').delete().eq('id', id);
+                if (err) { alert('刪除失敗：' + err.message); return; }
+                reload();
+            };
+
+            if (!user) {
+                return (
+                    <div className="rounded-2xl ring-soft p-10 text-center" style={{ background: 'var(--surface)' }}>
+                        <p className="text-5xl mb-4">🔒</p>
+                        <h3 className="text-xl font-bold text-white mb-2">請先登入</h3>
+                        <p className="text-sm" style={{ color: 'var(--text-2)' }}>登入後才能管理你的投資組合</p>
+                    </div>
+                );
+            }
+
+            if (loading) {
+                return (
+                    <div className="text-center py-16">
+                        <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-1)' }}></div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-4">
+                    {/* Header */}
+                    <div className="rounded-2xl ring-soft p-5 flex items-center justify-between flex-wrap gap-3" style={{ background: 'var(--surface)' }}>
+                        <div>
+                            <p className="label">MY INVESTMENTS</p>
+                            <h2 className="text-2xl font-extrabold text-white mt-1 tracking-tight">
+                                {subTab === 'holdings' ? '我的投資組合' : '觀察清單'}
+                            </h2>
+                            <p className="text-xs mt-1 mono" style={{ color: 'var(--text-3)' }}>
+                                {subTab === 'holdings'
+                                    ? `${holdings.length} 檔持股 · ${transactions.length} 筆交易`
+                                    : `${(watchlist || []).length} 檔追蹤中`
+                                }
+                            </p>
+                        </div>
+                        {subTab === 'holdings' && (
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={reload}
+                                    className="px-3 py-2 rounded-xl text-xs font-semibold transition-colors"
+                                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }}
+                                    title="重新整理"
+                                >
+                                    <RefreshCw size={14} className={pricesLoading ? "animate-spin" : ""} />
+                                </button>
+                                <button
+                                    onClick={() => { setEditingTx(null); setShowModal(true); }}
+                                    className="px-4 py-2 rounded-xl text-sm font-bold pill-grad glow-brand flex items-center gap-1.5"
+                                >
+                                    <span>＋</span> 新增交易
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Sub-tab switcher */}
+                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
+                        <button
+                            onClick={() => setSubTab('holdings')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${subTab === 'holdings' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            style={subTab === 'holdings' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >
+                            📊 持股
+                        </button>
+                        <button
+                            onClick={() => setSubTab('watchlist')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${subTab === 'watchlist' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            style={subTab === 'watchlist' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >
+                            ⭐ 觀察清單
+                        </button>
+                    </div>
+
+                    {/* Watchlist sub-view */}
+                    {subTab === 'watchlist' && (
+                        <WatchlistDashboard
+                            watchlist={watchlist}
+                            onUpdateWatchlist={onUpdateWatchlist}
+                            isPremium={isPremium}
+                            user={user}
+                        />
+                    )}
+
+                    {/* Holdings sub-view */}
+                    {subTab !== 'holdings' ? null : <>
+
+                    {/* Summary cards (one per currency) */}
+                    {Object.entries(summary).map(([ccy, s]) => {
+                        const pl = s.marketValue - s.cost;
+                        const plPct = s.cost > 0 ? (pl / s.cost) * 100 : 0;
+                        const isUp = pl >= 0;
+                        const sym = ccy === 'TWD' ? 'NT$' : '$';
+                        return (
+                            <div key={ccy} className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                    <p className="label">{ccy} · 總市值</p>
+                                    <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                        {sym}{s.marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                    <p className="label">總成本</p>
+                                    <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                        {sym}{s.cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                    <p className="label">未實現損益</p>
+                                    <p className="text-xl md:text-2xl font-extrabold mt-1 num" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                        {isUp ? '+' : ''}{sym}{pl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                    </p>
+                                    <p className="text-xs mono mt-0.5" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                        {isUp ? '+' : ''}{plPct.toFixed(2)}%
+                                    </p>
+                                </div>
+                                <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                    <p className="label">累計配息</p>
+                                    <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                        {sym}{s.dividends.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                    </p>
+                                </div>
+                            </div>
+                        );
+                    })}
+
+                    {/* Empty state */}
+                    {holdings.length === 0 && transactions.length === 0 && (
+                        <div className="rounded-2xl ring-soft p-10 text-center relative overflow-hidden" style={{ background: 'var(--surface)' }}>
+                            <div className="absolute inset-0 dotgrid opacity-40 pointer-events-none"></div>
+                            <div className="relative">
+                                <p className="text-5xl mb-3">📊</p>
+                                <h3 className="text-lg font-bold text-white mb-2">還沒有任何交易</h3>
+                                <p className="text-sm mb-5" style={{ color: 'var(--text-2)' }}>新增第一筆交易來開始追蹤你的投資組合</p>
+                                <button
+                                    onClick={() => { setEditingTx(null); setShowModal(true); }}
+                                    className="px-5 py-2.5 rounded-xl text-sm font-bold pill-grad glow-brand"
+                                >
+                                    ＋ 新增第一筆交易
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Holdings table */}
+                    {holdings.length > 0 && (
+                        <div className="rounded-2xl ring-soft overflow-hidden" style={{ background: 'var(--surface)' }}>
+                            <div className="p-4 border-b" style={{ borderColor: 'var(--line)' }}>
+                                <h3 className="font-bold text-white">目前持股</h3>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                                            <th className="text-left p-3 label">代號</th>
+                                            <th className="text-right p-3 label">持股</th>
+                                            <th className="text-right p-3 label">均價</th>
+                                            <th className="text-right p-3 label">現價</th>
+                                            <th className="text-right p-3 label">市值</th>
+                                            <th className="text-right p-3 label">損益</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {holdings.map((h) => {
+                                            const p = prices[`${h.symbol}::${h.asset_type}`];
+                                            const avgCost = h.totalShares > 0 ? h.totalCost / h.totalShares : 0;
+                                            const currentPrice = p?.price ?? null;
+                                            const marketValue = currentPrice ? h.totalShares * currentPrice : null;
+                                            const pl = marketValue !== null ? marketValue - h.totalCost : null;
+                                            const plPct = pl !== null && h.totalCost > 0 ? (pl / h.totalCost) * 100 : null;
+                                            const sym = ASSET_TYPES[h.asset_type].symbol;
+                                            const isUp = pl !== null && pl >= 0;
+                                            return (
+                                                <tr key={`${h.symbol}::${h.asset_type}`} className="hover:bg-white/[0.02]" style={{ borderBottom: '1px solid var(--line)' }}>
+                                                    <td className="p-3">
+                                                        <div className="font-bold text-white">{h.symbol}</div>
+                                                        <div className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>
+                                                            {ASSET_TYPES[h.asset_type].label}
+                                                            {h.dividends > 0 && ` · 配息 ${sym}${h.dividends.toFixed(0)}`}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-3 text-right mono">{h.totalShares.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
+                                                    <td className="p-3 text-right mono" style={{ color: 'var(--text-2)' }}>{sym}{avgCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                                                    <td className="p-3 text-right mono">
+                                                        {currentPrice !== null ? `${sym}${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
+                                                        {p?.changePercent !== null && p?.changePercent !== undefined && (
+                                                            <div className="text-[10px] mono" style={{ color: p.changePercent >= 0 ? '#3ce0a8' : '#ff7d8c' }}>
+                                                                {p.changePercent >= 0 ? '+' : ''}{p.changePercent.toFixed(2)}%
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-3 text-right mono font-semibold">
+                                                        {marketValue !== null ? `${sym}${marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+                                                    </td>
+                                                    <td className="p-3 text-right">
+                                                        {pl !== null ? (
+                                                            <div>
+                                                                <div className="mono font-bold" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                                                    {isUp ? '+' : ''}{sym}{pl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                                </div>
+                                                                <div className="text-[10px] mono" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                                                    {isUp ? '+' : ''}{plPct.toFixed(2)}%
+                                                                </div>
+                                                            </div>
+                                                        ) : '—'}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Recent transactions */}
+                    {transactions.length > 0 && (
+                        <div className="rounded-2xl ring-soft overflow-hidden" style={{ background: 'var(--surface)' }}>
+                            <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--line)' }}>
+                                <h3 className="font-bold text-white">交易紀錄</h3>
+                                <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>共 {transactions.length} 筆</span>
+                            </div>
+                            <div className="divide-y" style={{ borderColor: 'var(--line)' }}>
+                                {transactions.slice(0, 20).map((tx) => {
+                                    const sym = ASSET_TYPES[tx.asset_type]?.symbol || '$';
+                                    const typeColor = tx.type === 'buy' ? '#3ce0a8' : tx.type === 'sell' ? '#ff7d8c' : '#fbbf24';
+                                    const typeLabel = tx.type === 'buy' ? '買入' : tx.type === 'sell' ? '賣出' : '配息';
+                                    return (
+                                        <div key={tx.id} className="p-3 flex items-center gap-3 hover:bg-white/[0.02]" style={{ borderColor: 'var(--line)' }}>
+                                            <span className="chip whitespace-nowrap" style={{ background: `${typeColor}22`, color: typeColor }}>{typeLabel}</span>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-semibold text-white text-sm">{tx.symbol}</div>
+                                                <div className="text-[10px] mono mt-0.5" style={{ color: 'var(--text-3)' }}>
+                                                    {tx.date}
+                                                    {tx.type !== 'dividend' && ` · ${Number(tx.shares).toLocaleString()} 股 @ ${sym}${Number(tx.price).toLocaleString()}`}
+                                                    {tx.type === 'dividend' && ` · 配息 ${sym}${Number(tx.price).toLocaleString()}`}
+                                                    {tx.note && ` · ${tx.note}`}
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => { setEditingTx(tx); setShowModal(true); }}
+                                                className="px-2 py-1 text-[11px] rounded hover:bg-white/10"
+                                                style={{ color: 'var(--text-2)' }}
+                                            >
+                                                編輯
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(tx.id)}
+                                                className="px-2 py-1 text-[11px] rounded hover:bg-red-500/20"
+                                                style={{ color: '#ff7d8c' }}
+                                            >
+                                                刪除
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            {transactions.length > 20 && (
+                                <div className="p-3 text-center text-[11px] mono" style={{ color: 'var(--text-3)', borderTop: '1px solid var(--line)' }}>
+                                    僅顯示最近 20 筆 · 總共 {transactions.length} 筆
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    </>}
+
+                    {/* Modal (shared by both sub-tabs) */}
+                    {showModal && (
+                        <AddTransactionModal
+                            supabase={supabase}
+                            user={user}
+                            existing={editingTx}
+                            onClose={() => { setShowModal(false); setEditingTx(null); }}
+                            onSaved={reload}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        // ─────────────────────────────────────────────
+        // InstallHelpModal — tabbed instructions for all platforms
+        // ─────────────────────────────────────────────
+        const InstallHelpModal = ({ detectedPlatform, onClose }) => {
+            // Decide initial tab from detected platform
+            const initialTab = (detectedPlatform === 'ios') ? 'ios'
+                : (detectedPlatform === 'android') ? 'android'
+                : 'desktop';
+            const [tab, setTab] = useState(initialTab);
+
+            const isFile = typeof window !== 'undefined' && window.location.protocol === 'file:';
+
+            const tabBtn = (key, label) => (
+                <button
+                    onClick={() => setTab(key)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${tab === key ? 'pill-grad' : 'hover:bg-white/[0.05]'}`}
+                    style={tab === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                >
+                    {label}
+                </button>
+            );
+
+            return (
+                <div className="fixed inset-0 flex items-center justify-center z-[100] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
+                    <div className="glass-strong p-6 rounded-3xl shadow-2xl max-w-md w-full relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                        <button
+                            onClick={onClose}
+                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                            style={{ color: 'var(--text-3)' }}
+                        >
+                            ✕
+                        </button>
+
+                        <div className="flex items-center gap-3 mb-5">
+                            <div className="w-11 h-11 rounded-2xl flex items-center justify-center pill-grad">
+                                <Smartphone size={20} style={{ color: 'var(--brand-ink)' }} />
+                            </div>
+                            <div>
+                                <p className="label">INSTALL AS APP</p>
+                                <h3 className="text-lg font-extrabold text-white mt-0.5 tracking-tight">將 SmartDCA 加到主畫面</h3>
+                            </div>
+                        </div>
+
+                        {/* Platform tabs */}
+                        <div className="flex gap-1 p-1 rounded-xl mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+                            {tabBtn('desktop', '🖥 電腦')}
+                            {tabBtn('ios', '📱 iPhone')}
+                            {tabBtn('android', '🤖 Android')}
+                        </div>
+
+                        {/* ─── Desktop ─── */}
+                        {tab === 'desktop' && (
+                            <div className="space-y-4 text-sm" style={{ color: 'var(--text-2)' }}>
+                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                    <p className="font-bold text-white mb-2">Chrome / Edge</p>
+                                    <ol className="space-y-1.5 list-decimal list-inside pl-1 text-xs">
+                                        <li>看網址列右側的 <strong className="text-white">安裝圖示</strong> (⊕ 或 螢幕+下載)</li>
+                                        <li>點下去 → 確認 <strong className="text-white">「安裝」</strong></li>
+                                        <li>SmartDCA 會像 App 顯示在桌面 / 開始選單</li>
+                                    </ol>
+                                </div>
+
+                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                    <p className="font-bold text-white mb-2">Safari (macOS)</p>
+                                    <ol className="space-y-1.5 list-decimal list-inside pl-1 text-xs">
+                                        <li>選單列點 <strong className="text-white">檔案</strong></li>
+                                        <li>選 <strong className="text-white">「加入 Dock」</strong></li>
+                                    </ol>
+                                </div>
+
+                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                    <p className="font-bold text-white mb-2">Firefox</p>
+                                    <p className="text-xs">桌面版 Firefox 目前不支援 PWA 安裝，請改用 Chrome 或 Edge。</p>
+                                </div>
+
+                                {isFile && (
+                                    <div className="p-3 rounded-xl text-xs" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24' }}>
+                                        ⚠️ 你目前用 <code className="mono">file://</code> 開啟，PWA 必須在 HTTPS 或 localhost 才能安裝。請部署到網站或執行本機 server：
+                                        <pre className="mt-2 p-2 rounded mono text-[10px]" style={{ background: 'rgba(0,0,0,0.4)', color: 'var(--brand-1)' }}>python -m http.server 8000</pre>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ─── iOS ─── */}
+                        {tab === 'ios' && (
+                            <div className="space-y-3 text-sm" style={{ color: 'var(--text-2)' }}>
+                                <p>在 iPhone / iPad 上用 <strong className="text-white">Safari</strong> 瀏覽器打開此網站：</p>
+                                <ol className="space-y-3 pl-1">
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>1</span>
+                                        <div>
+                                            點下方工具列的 <strong className="text-white">分享</strong> 按鈕
+                                            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>（一個向上箭頭從方框射出的圖示 ↑）</div>
+                                        </div>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>2</span>
+                                        <div>下滑找到 <strong className="text-white">「加入主畫面」</strong></div>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>3</span>
+                                        <div>右上角點 <strong className="text-white">「新增」</strong> 完成 ✨</div>
+                                    </li>
+                                </ol>
+                                <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: 'rgba(196,244,50,0.06)', border: '1px solid rgba(196,244,50,0.2)', color: 'var(--text-2)' }}>
+                                    💡 必須用 <strong className="text-white">Safari</strong>，Chrome / Firefox 等其他瀏覽器無法安裝
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ─── Android ─── */}
+                        {tab === 'android' && (
+                            <div className="space-y-3 text-sm" style={{ color: 'var(--text-2)' }}>
+                                <p>在 Android 上用 <strong className="text-white">Chrome</strong> 瀏覽器打開此網站：</p>
+                                <ol className="space-y-3 pl-1">
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>1</span>
+                                        <div>
+                                            點右上角的 <strong className="text-white">⋮</strong> (三個點) 選單
+                                        </div>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>2</span>
+                                        <div>選擇 <strong className="text-white">「加到主畫面」</strong> 或 <strong className="text-white">「安裝應用程式」</strong></div>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>3</span>
+                                        <div>確認 <strong className="text-white">「安裝」</strong> ✨</div>
+                                    </li>
+                                </ol>
+                                <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: 'rgba(196,244,50,0.06)', border: '1px solid rgba(196,244,50,0.2)', color: 'var(--text-2)' }}>
+                                    💡 Samsung Internet / Firefox Mobile 也支援，但選單位置可能略不同
+                                </div>
+                            </div>
+                        )}
+
+                        <button
+                            onClick={onClose}
+                            className="w-full mt-5 py-2.5 rounded-xl text-sm font-bold pill-grad transition-all glow-brand"
+                        >
+                            知道了
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        // ─────────────────────────────────────────────
+        // SettingsModal — profile + start page + personal Gemini key
+        // ─────────────────────────────────────────────
+        const SettingsModal = ({ supabase, user, profile, onClose, onSaved }) => {
+            const [displayName, setDisplayName] = useState(profile?.display_name || '');
+            const [startPage, setStartPage] = useState(profile?.start_page || 'crypto');
+            const [apiKey, setApiKey] = useState(profile?.personal_gemini_key || '');
+            const [showKey, setShowKey] = useState(false);
+            const [saving, setSaving] = useState(false);
+            const [error, setError] = useState(null);
+            const [success, setSuccess] = useState(false);
+            const [section, setSection] = useState('profile'); // 'profile' | 'preferences' | 'api'
+
+            const inputStyle = { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', color: 'var(--text)' };
+
+            const handleSave = async () => {
+                setSaving(true);
+                setError(null);
+                setSuccess(false);
+                const payload = {
+                    display_name: displayName.trim() || null,
+                    start_page: startPage,
+                    personal_gemini_key: apiKey.trim() || null,
+                };
+                const { data, error: err } = await supabase
+                    .from('user_profiles')
+                    .update(payload)
+                    .eq('id', user.id)
+                    .select()
+                    .single();
+                setSaving(false);
+                if (err) { setError(err.message); return; }
+                setSuccess(true);
+                window.__USER_GEMINI_KEY = data.personal_gemini_key || null;
+                onSaved(data);
+                setTimeout(() => setSuccess(false), 1800);
+            };
+
+            const sectionBtn = (key, label) => (
+                <button
+                    onClick={() => setSection(key)}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${section === key ? 'pill-grad' : 'hover:bg-white/[0.05]'}`}
+                    style={section === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                >
+                    {label}
+                </button>
+            );
+
+            return (
+                <div className="fixed inset-0 flex items-center justify-center z-[110] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
+                    <div className="glass-strong rounded-3xl shadow-2xl max-w-2xl w-full relative max-h-[90vh] overflow-hidden flex flex-col md:flex-row">
+                        <button
+                            onClick={onClose}
+                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors z-10"
+                            style={{ color: 'var(--text-3)' }}
+                        >
+                            ✕
+                        </button>
+
+                        {/* Sidebar */}
+                        <div className="md:w-48 p-4 md:border-r" style={{ borderColor: 'var(--line)' }}>
+                            <div className="mb-4">
+                                <p className="label">SETTINGS</p>
+                                <h3 className="text-base font-extrabold text-white mt-1">設定</h3>
+                            </div>
+                            <div className="space-y-1 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
+                                {sectionBtn('profile', '👤 個人資料')}
+                                {sectionBtn('preferences', '🎛 偏好設定')}
+                                {sectionBtn('api', '🔑 API Keys')}
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 p-6 overflow-y-auto custom-scrollbar">
+                            {section === 'profile' && (
+                                <div className="space-y-4">
+                                    <div>
+                                        <p className="label">PROFILE</p>
+                                        <h4 className="text-lg font-bold text-white mt-1">個人資料</h4>
+                                    </div>
+
+                                    <div>
+                                        <label className="label block mb-1.5">Email</label>
+                                        <div className="px-3.5 py-2.5 rounded-xl text-sm mono" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--line)', color: 'var(--text-3)' }}>
+                                            {user?.email}
+                                        </div>
+                                        <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>無法修改</p>
+                                    </div>
+
+                                    <div>
+                                        <label className="label block mb-1.5">顯示名稱</label>
+                                        <input
+                                            type="text"
+                                            value={displayName}
+                                            onChange={e => setDisplayName(e.target.value)}
+                                            placeholder="自訂顯示名稱（預設用 email 前綴）"
+                                            className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+                                            style={inputStyle}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {section === 'preferences' && (
+                                <div className="space-y-4">
+                                    <div>
+                                        <p className="label">PREFERENCES</p>
+                                        <h4 className="text-lg font-bold text-white mt-1">偏好設定</h4>
+                                    </div>
+
+                                    <div>
+                                        <label className="label block mb-1.5">起始頁面</label>
+                                        <select
+                                            value={startPage}
+                                            onChange={e => setStartPage(e.target.value)}
+                                            className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none"
+                                            style={inputStyle}
+                                        >
+                                            <option value="crypto">🪙 加密貨幣</option>
+                                            <option value="stock">🌎 美股</option>
+                                            <option value="taiwan">🇹🇼 台股</option>
+                                            <option value="portfolio">📊 我的投資</option>
+                                            <option value="forum">💬 論壇</option>
+                                        </select>
+                                        <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>登入時自動開啟這個頁面</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {section === 'api' && (
+                                <div className="space-y-4">
+                                    <div>
+                                        <p className="label">API KEYS</p>
+                                        <h4 className="text-lg font-bold text-white mt-1">個人 API 金鑰</h4>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl text-xs" style={{ background: 'rgba(196,244,50,0.06)', border: '1px solid rgba(196,244,50,0.2)', color: 'var(--text-2)' }}>
+                                        💡 使用自己的 Gemini key 可享有：
+                                        <ul className="list-disc list-inside mt-2 space-y-1">
+                                            <li>不受預設配額限制</li>
+                                            <li>使用紀錄歸到你自己的 Google 帳號</li>
+                                            <li>不會耗用站方額度</li>
+                                        </ul>
+                                    </div>
+
+                                    <div>
+                                        <label className="label block mb-1.5">Gemini API Key</label>
+                                        <div className="relative">
+                                            <input
+                                                type={showKey ? 'text' : 'password'}
+                                                value={apiKey}
+                                                onChange={e => setApiKey(e.target.value)}
+                                                placeholder="AIzaSy..."
+                                                className="w-full rounded-xl px-3.5 py-2.5 pr-20 text-sm text-white outline-none mono"
+                                                style={inputStyle}
+                                                autoComplete="off"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowKey(!showKey)}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-[10px] rounded hover:bg-white/10"
+                                                style={{ color: 'var(--text-3)' }}
+                                            >
+                                                {showKey ? '隱藏' : '顯示'}
+                                            </button>
+                                        </div>
+                                        <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>
+                                            申請：<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style={{ color: 'var(--brand-1)' }} className="underline">Google AI Studio</a>
+                                            ・留空則使用站方預設 key
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Footer */}
+                            <div className="mt-6 pt-4 flex items-center gap-2 justify-end" style={{ borderTop: '1px solid var(--line)' }}>
+                                {error && <p className="text-xs flex-1" style={{ color: '#ff7d8c' }}>{error}</p>}
+                                {success && <p className="text-xs flex-1" style={{ color: '#3ce0a8' }}>✓ 已儲存</p>}
+                                <button
+                                    onClick={onClose}
+                                    className="px-4 py-2 rounded-xl text-xs font-semibold transition-colors"
+                                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }}
+                                >
+                                    關閉
+                                </button>
+                                <button
+                                    onClick={handleSave}
+                                    disabled={saving}
+                                    className="px-5 py-2 rounded-xl text-xs font-bold pill-grad glow-brand disabled:opacity-50"
+                                >
+                                    {saving ? '儲存中...' : '儲存設定'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         const App = () => {
             const [activeTab, setActiveTab] = useState(() =>
                 window.location.hash.startsWith('#/forum') ? 'forum' : 'crypto'
             );
             const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+
+            // PWA install prompt
+            const [installPrompt, setInstallPrompt] = useState(null);
+            const [isPwaInstalled, setIsPwaInstalled] = useState(false);
+            const [showInstallHelp, setShowInstallHelp] = useState(false);
+
+            useEffect(() => {
+                // Detect if already running as installed PWA
+                const standalone = window.matchMedia('(display-mode: standalone)').matches
+                    || window.navigator.standalone === true;
+                if (standalone) {
+                    setIsPwaInstalled(true);
+                    return;
+                }
+
+                const onBeforeInstall = (e) => {
+                    e.preventDefault();
+                    setInstallPrompt(e);
+                };
+                const onInstalled = () => {
+                    setInstallPrompt(null);
+                    setIsPwaInstalled(true);
+                };
+
+                window.addEventListener('beforeinstallprompt', onBeforeInstall);
+                window.addEventListener('appinstalled', onInstalled);
+                return () => {
+                    window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+                    window.removeEventListener('appinstalled', onInstalled);
+                };
+            }, []);
+
+            const handleInstallApp = async () => {
+                // Native prompt available (Chrome / Edge on HTTPS / localhost)
+                if (installPrompt) {
+                    installPrompt.prompt();
+                    const { outcome } = await installPrompt.userChoice;
+                    if (outcome === 'accepted') {
+                        setIsPwaInstalled(true);
+                    }
+                    setInstallPrompt(null);
+                    return;
+                }
+                // Fallback: show manual instructions
+                setShowInstallHelp(true);
+            };
+
+            // Detect platform for help modal
+            const getPlatform = () => {
+                const ua = navigator.userAgent;
+                if (/iPad|iPhone|iPod/.test(ua)) return 'ios';
+                if (/Android/.test(ua)) return 'android';
+                if (/Edg/.test(ua)) return 'edge';
+                if (/Chrome/.test(ua)) return 'chrome';
+                if (/Safari/.test(ua)) return 'safari';
+                if (/Firefox/.test(ua)) return 'firefox';
+                return 'other';
+            };
 
             // Sync hash → activeTab (so direct links like /#/forum/abc work)
             useEffect(() => {
@@ -3203,6 +4212,9 @@
             const [isAdmin, setIsAdmin] = useState(false);
             const [watchlist, setWatchlist] = useState([]);
             const [appLoading, setAppLoading] = useState(true);
+            const [userProfile, setUserProfile] = useState(null);
+            const [showSettings, setShowSettings] = useState(false);
+            const startPageAppliedRef = useRef(false);
 
             // 1. Check Auth Session & Subscribe to Changes
             useEffect(() => {
@@ -3240,12 +4252,15 @@
                         setIsPremium(false);
                         setIsAdmin(false);
                         setWatchlist([]);
+                        setUserProfile(null);
+                        window.__USER_GEMINI_KEY = null;
+                        startPageAppliedRef.current = false;
                         return;
                     }
                     try {
                         const { data, error } = await supabase
                             .from('user_profiles')
-                            .select('is_premium, is_admin, watchlist')
+                            .select('is_premium, is_admin, watchlist, display_name, start_page, personal_gemini_key')
                             .eq('id', user.id)
                             .single();
 
@@ -3253,6 +4268,13 @@
                             setIsPremium(data.is_premium || false);
                             setIsAdmin(data.is_admin || false);
                             setWatchlist(data.watchlist || []);
+                            setUserProfile(data);
+                            window.__USER_GEMINI_KEY = data.personal_gemini_key || null;
+                            // Apply start_page once on initial login (don't override user's manual tab clicks)
+                            if (data.start_page && !startPageAppliedRef.current && !window.location.hash.startsWith('#/forum')) {
+                                setActiveTab(data.start_page);
+                                startPageAppliedRef.current = true;
+                            }
                         } else if (error && error.code === 'PGRST116') {
                             // Profile doesn't exist, create default
                             const { error: insertErr } = await supabase
@@ -3449,6 +4471,28 @@
 
                             {/* Right controls */}
                             <div className="flex items-center gap-2">
+                                {/* PWA Install button — glass style, always visible until installed */}
+                                {!isPwaInstalled && (
+                                    <button
+                                        onClick={handleInstallApp}
+                                        className="hidden sm:flex items-center gap-1.5 h-10 px-3.5 rounded-full text-xs font-bold glass hover:bg-white/[0.10] transition-all"
+                                        style={{ color: 'var(--text)' }}
+                                        title="安裝為桌面 App"
+                                    >
+                                        <Smartphone size={14} style={{ color: 'var(--brand-1)' }} />
+                                        <span>安裝 App</span>
+                                    </button>
+                                )}
+                                {!isPwaInstalled && (
+                                    <button
+                                        onClick={handleInstallApp}
+                                        className="sm:hidden w-10 h-10 rounded-full flex items-center justify-center glass hover:bg-white/[0.10] transition-all"
+                                        title="安裝為桌面 App"
+                                    >
+                                        <Smartphone size={16} style={{ color: 'var(--brand-1)' }} />
+                                    </button>
+                                )}
+
                                 {/* Notification Center */}
                                 <div className="relative z-[100]">
                                     <button
@@ -3509,7 +4553,7 @@
                                     )}
                                 </div>
 
-                                <AuthComponent user={user} setUser={setUser} isPremium={isPremium} />
+                                <AuthComponent user={user} setUser={setUser} isPremium={isPremium} onOpenSettings={() => setShowSettings(true)} />
                             </div>
                         </header>
 
@@ -3559,19 +4603,20 @@
 
                             {user && (
                                 <button
-                                    onClick={() => setActiveTab('watchlist')}
+                                    onClick={() => setActiveTab('portfolio')}
                                     className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
-                                        activeTab === 'watchlist'
-                                            ? 'text-white shadow-lg'
+                                        activeTab === 'portfolio'
+                                            ? 'pill-grad text-white shadow-lg'
                                             : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
                                     }`}
-                                    style={activeTab === 'watchlist' ? { background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', boxShadow: '0 8px 24px -8px rgba(245,158,11,0.5)' } : {}}
+                                    style={activeTab === 'portfolio' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
                                 >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className={activeTab === 'watchlist' ? 'text-white' : 'text-amber-400'}>
-                                        <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                                        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
                                     </svg>
-                                    <span className="hidden md:inline">我的自選</span>
-                                    <span className="md:hidden">自選</span>
+                                    <span className="hidden md:inline">我的投資</span>
+                                    <span className="md:hidden">投資</span>
                                 </button>
                             )}
 
@@ -3622,12 +4667,13 @@
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                         />
                                     )}
-                                    {activeTab === 'watchlist' && (
-                                        <WatchlistDashboard
+                                    {activeTab === 'portfolio' && (
+                                        <PortfolioDashboard
+                                            supabase={supabase}
+                                            user={user}
                                             watchlist={watchlist}
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                             isPremium={isPremium}
-                                            user={user}
                                         />
                                     )}
                                     {activeTab === 'forum' && FORUM_ENABLED && window.ForumApp && (
@@ -3641,6 +4687,25 @@
                                 </>
                             )}
                         </main>
+
+                        {/* PWA Install Help Modal — all platforms */}
+                        {showInstallHelp && (
+                            <InstallHelpModal
+                                detectedPlatform={getPlatform()}
+                                onClose={() => setShowInstallHelp(false)}
+                            />
+                        )}
+
+                        {/* Settings Modal */}
+                        {showSettings && user && (
+                            <SettingsModal
+                                supabase={supabase}
+                                user={user}
+                                profile={userProfile}
+                                onClose={() => setShowSettings(false)}
+                                onSaved={(updated) => setUserProfile(updated)}
+                            />
+                        )}
                     </div>
                 </div>
             );
