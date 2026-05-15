@@ -415,9 +415,9 @@
         // Chart.js palette + global defaults (NEW visual system)
         // ─────────────────────────────────────────────
         const CHART = {
-            line:       '#4cc2ff',
-            fillTop:    'rgba(76,194,255,0.35)',
-            fillBot:    'rgba(76,194,255,0)',
+            line:       '#00d68f',
+            fillTop:    'rgba(0, 214, 143, 0.28)',
+            fillBot:    'rgba(0, 214, 143, 0)',
             brand1:     '#3b82f6',
             brand2:     '#8b5cf6',
             up:         '#00d68f',
@@ -1389,6 +1389,54 @@
         };
 
         // --- 自定義 Chart 元件 ---
+
+        // ─────────────────────────────────────────────
+        // Dot-grid background plugin (under the line)
+        // ─────────────────────────────────────────────
+        const dotGridPlugin = {
+            id: 'dotGrid',
+            beforeDatasetsDraw: (chart) => {
+                const { ctx, chartArea } = chart;
+                if (!chartArea) return;
+                const { left, top, right, bottom } = chartArea;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(left, top, chartArea.width, chartArea.height);
+                ctx.clip();
+                const step = 10;
+                const dotRadius = 0.7;
+                ctx.fillStyle = 'rgba(0, 214, 143, 0.08)';
+                for (let x = left; x <= right; x += step) {
+                    for (let y = top; y <= bottom; y += step) {
+                        ctx.beginPath();
+                        ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+                ctx.restore();
+            }
+        };
+
+        // ─────────────────────────────────────────────
+        // Line glow plugin (neon shadow under the line)
+        // ─────────────────────────────────────────────
+        const lineGlowPlugin = {
+            id: 'lineGlow',
+            beforeDatasetDraw: (chart, args) => {
+                const { ctx } = chart;
+                const dataset = chart.data.datasets[args.index];
+                if (dataset.type && dataset.type !== 'line') return;
+                ctx.save();
+                ctx.shadowColor = 'rgba(0, 214, 143, 0.6)';
+                ctx.shadowBlur = 12;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+            },
+            afterDatasetDraw: (chart) => {
+                chart.ctx.restore();
+            }
+        };
+
         const ChartComponent = ({ data, options, type = 'line' }) => {
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
@@ -1403,7 +1451,7 @@
                     type: type,
                     data: data,
                     options: options,
-                    plugins: [crosshairPlugin] // Register the plugin
+                    plugins: [crosshairPlugin, dotGridPlugin, lineGlowPlugin]
                 });
                 return () => {
                     if (chartInstance.current) {

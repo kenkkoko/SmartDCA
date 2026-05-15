@@ -58,3 +58,10 @@ self.addEventListener('notificationclick', function (event) {
         })
     );
 });
+
+// Minimal fetch handler — required by Chrome to qualify as installable PWA.
+// We do NOT cache anything here (network-first/pass-through) to keep things simple.
+self.addEventListener('fetch', (event) => {
+    // Pass-through; let the browser handle the request normally.
+    // Adding the listener (even no-op) is enough for Chrome's PWA install criteria.
+});
