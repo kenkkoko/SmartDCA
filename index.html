@@ -412,12 +412,24 @@
         const { useState, useEffect, useMemo, useRef } = React;
 
         // ─────────────────────────────────────────────
+        // Register Service Worker on page load (required for PWA install)
+        // ─────────────────────────────────────────────
+        if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('[SW] registered:', reg.scope))
+                    .catch(err => console.warn('[SW] registration failed:', err));
+            });
+        }
+
+
+        // ─────────────────────────────────────────────
         // Chart.js palette + global defaults (NEW visual system)
         // ─────────────────────────────────────────────
         const CHART = {
-            line:       '#00d68f',
-            fillTop:    'rgba(0, 214, 143, 0.28)',
-            fillBot:    'rgba(0, 214, 143, 0)',
+            line:       '#3b82f6',
+            fillTop:    'rgba(59, 130, 246, 0.28)',
+            fillBot:    'rgba(59, 130, 246, 0)',
             brand1:     '#3b82f6',
             brand2:     '#8b5cf6',
             up:         '#00d68f',
@@ -1405,7 +1417,7 @@
                 ctx.clip();
                 const step = 10;
                 const dotRadius = 0.7;
-                ctx.fillStyle = 'rgba(0, 214, 143, 0.08)';
+                ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
                 for (let x = left; x <= right; x += step) {
                     for (let y = top; y <= bottom; y += step) {
                         ctx.beginPath();
@@ -1427,7 +1439,7 @@
                 const dataset = chart.data.datasets[args.index];
                 if (dataset.type && dataset.type !== 'line') return;
                 ctx.save();
-                ctx.shadowColor = 'rgba(0, 214, 143, 0.6)';
+                ctx.shadowColor = 'rgba(59, 130, 246, 0.55)';
                 ctx.shadowBlur = 12;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 0;
@@ -3598,19 +3610,6 @@
                                 pointHoverRadius: 4,
                                 borderWidth: 2.5,
                                 tension: 0.3,
-                            },
-                            {
-                                label: '當前市值',
-                                data: marketValueSeries,
-                                borderColor: 'transparent',
-                                backgroundColor: '#ffffff',
-                                pointRadius: marketValueSeries
-                                    ? marketValueSeries.map(v => v !== null ? 6 : 0)
-                                    : 0,
-                                pointHoverRadius: 8,
-                                showLine: false,
-                                pointBorderColor: CHART.line,
-                                pointBorderWidth: 2,
                             }
                         ]
                     },
@@ -3656,7 +3655,7 @@
                 return () => {
                     if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
                 };
-            }, [dates, costSeries, marketValueSeries, currency]);
+            }, [dates, costSeries, currency]);
 
             if (dates.length === 0) return null;
 
@@ -3690,12 +3689,8 @@
                     {/* Legend */}
                     <div className="flex items-center gap-4 mt-2 text-[10px] mono" style={{ color: 'var(--text-3)' }}>
                         <span className="flex items-center gap-1.5">
-                            <span className="inline-block w-3 h-0.5 rounded" style={{ background: 'var(--brand-1)' }}></span>
-                            累計成本
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                            <span className="inline-block w-2 h-2 rounded-full" style={{ background: '#fff', border: '2px solid var(--brand-1)' }}></span>
-                            當前市值
+                            <span className="inline-block w-3 h-0.5 rounded" style={{ background: '#3b82f6' }}></span>
+                            累計投入成本
                         </span>
                     </div>
                 </div>
