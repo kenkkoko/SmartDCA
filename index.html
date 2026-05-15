@@ -3540,57 +3540,151 @@
         };
 
         // ─────────────────────────────────────────────
-        // PortfolioValueChart — cost basis timeline + current market value
+        // PortfolioValueChart — TRUE historical market value
+        // X axis = daily timeline; Y axis = sum(holdings[d] × price[symbol][d])
+        // Also shows cost basis line as reference
         // ─────────────────────────────────────────────
         const PortfolioValueChart = ({ transactions, holdings, prices, currency = 'USD' }) => {
             const canvasRef = useRef(null);
             const chartRef = useRef(null);
+            const [timeRange, setTimeRange] = useState('1y');  // 1mo|3mo|6mo|1y|max
+            const [historicalPrices, setHistoricalPrices] = useState({}); // {symbol::asset_type: [{date, price}]}
+            const [historyLoading, setHistoryLoading] = useState(false);
 
-            // Compute cumulative cost basis timeline filtered by currency
-            const { dates, costSeries, marketValueSeries, totalCost, currentMarketValue } = useMemo(() => {
-                const ccyMatch = currency === 'TWD' ? ['tw_stock'] : ['us_stock', 'crypto'];
+            const ccyMatch = currency === 'TWD' ? ['tw_stock'] : ['us_stock', 'crypto'];
+
+            // Get unique symbols for the relevant currency
+            const symbolKeys = useMemo(() => {
+                const set = new Set();
+                transactions.forEach(t => {
+                    if (ccyMatch.includes(t.asset_type)) {
+                        set.add(`${t.symbol}::${t.asset_type}`);
+                    }
+                });
+                return Array.from(set);
+            }, [transactions, currency]);
+
+            // Fetch historical prices for all symbols when timeRange or symbols change
+            useEffect(() => {
+                if (symbolKeys.length === 0) return;
+                let cancelled = false;
+                (async () => {
+                    setHistoryLoading(true);
+                    try {
+                        const proxy = `${SUPABASE_URL}/functions/v1/price-proxy`;
+                        const headers = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY };
+                        const stockSyms = symbolKeys.filter(k => k.endsWith('::tw_stock') || k.endsWith('::us_stock')).map(k => k.split('::')[0]);
+                        const cryptoSyms = symbolKeys.filter(k => k.endsWith('::crypto')).map(k => k.split('::')[0]);
+
+                        const results = await Promise.all([
+                            stockSyms.length ? fetch(`${proxy}?symbols=${stockSyms.join(',')}&type=stock&history=${timeRange}`, { headers }).then(r => r.json()) : { data: [] },
+                            cryptoSyms.length ? fetch(`${proxy}?symbols=${cryptoSyms.join(',')}&type=crypto&history=${timeRange}`, { headers }).then(r => r.json()) : { data: [] },
+                        ]);
+                        if (cancelled) return;
+
+                        const map = {};
+                        (results[0].data || []).forEach(r => {
+                            if (r.history && r.history.length) {
+                                const key = symbolKeys.find(k => k.split('::')[0] === r.symbol);
+                                if (key) map[key] = r.history;
+                            }
+                        });
+                        (results[1].data || []).forEach(r => {
+                            if (r.history && r.history.length) {
+                                const key = symbolKeys.find(k => k.split('::')[0].toLowerCase() === r.symbol.toLowerCase());
+                                if (key) map[key] = r.history;
+                            }
+                        });
+                        setHistoricalPrices(map);
+                    } catch (e) {
+                        console.error('Historical price fetch failed', e);
+                    } finally {
+                        setHistoryLoading(false);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [symbolKeys.join(','), timeRange]);
+
+            // Build the daily timeline
+            const { dates, valueSeries, costSeries, currentMarketValue, totalCost } = useMemo(() => {
                 const filteredTxs = transactions.filter(t => ccyMatch.includes(t.asset_type));
-                const sorted = [...filteredTxs].sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                const dates = [];
-                const costSeries = [];
-                let net = 0;
-                for (const tx of sorted) {
-                    if (tx.type === 'buy')        net += Number(tx.shares) * Number(tx.price) + (Number(tx.fee) || 0);
-                    else if (tx.type === 'sell')  net -= Number(tx.shares) * Number(tx.price);
-                    else if (tx.type === 'dividend') net -= Number(tx.price);
-                    dates.push(tx.date);
-                    costSeries.push(net);
+                if (filteredTxs.length === 0 || Object.keys(historicalPrices).length === 0) {
+                    return { dates: [], valueSeries: [], costSeries: [], currentMarketValue: 0, totalCost: 0 };
                 }
 
-                // Append today's data point with current market value
-                let marketValueSeries = null;
+                // Build a Set of all dates from historical prices
+                const dateSet = new Set();
+                Object.values(historicalPrices).forEach(arr => arr.forEach(p => dateSet.add(p.date)));
+                const allDates = Array.from(dateSet).sort();
+
+                // Index: symbol_key -> { date: price }
+                const priceByDate = {};
+                for (const [key, arr] of Object.entries(historicalPrices)) {
+                    priceByDate[key] = {};
+                    for (const p of arr) priceByDate[key][p.date] = p.price;
+                }
+
+                // Sort transactions ascending for cumulative computation
+                const txsAsc = [...filteredTxs].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                const valueSeries = [];
+                const costSeries = [];
+                let netCost = 0;
+                let txIndex = 0;
+                const holdingsByKey = {}; // current shares per key based on txs up to date
+
+                for (const date of allDates) {
+                    // Apply all transactions up to (and including) this date
+                    while (txIndex < txsAsc.length && txsAsc[txIndex].date <= date) {
+                        const tx = txsAsc[txIndex];
+                        const key = `${tx.symbol}::${tx.asset_type}`;
+                        const shares = Number(tx.shares) || 0;
+                        const price = Number(tx.price) || 0;
+                        const fee = Number(tx.fee) || 0;
+                        if (!holdingsByKey[key]) holdingsByKey[key] = 0;
+
+                        if (tx.type === 'buy') {
+                            holdingsByKey[key] += shares;
+                            netCost += shares * price + fee;
+                        } else if (tx.type === 'sell') {
+                            holdingsByKey[key] -= shares;
+                            netCost -= shares * price;
+                        } else if (tx.type === 'dividend') {
+                            netCost -= price;
+                        }
+                        txIndex++;
+                    }
+
+                    // Compute portfolio value on this date
+                    let value = 0;
+                    for (const [key, shares] of Object.entries(holdingsByKey)) {
+                        if (shares <= 0.000001) continue;
+                        const px = priceByDate[key] && priceByDate[key][date];
+                        // If no price for this exact date, use last known price
+                        if (px !== undefined) {
+                            value += shares * px;
+                        } else {
+                            // Find nearest earlier date
+                            const symbolDates = Object.keys(priceByDate[key] || {}).sort();
+                            const candidates = symbolDates.filter(d => d <= date);
+                            if (candidates.length > 0) {
+                                value += shares * priceByDate[key][candidates[candidates.length - 1]];
+                            }
+                        }
+                    }
+                    valueSeries.push(value);
+                    costSeries.push(netCost);
+                }
+
+                // Current market value from live prices
                 let currentMarketValue = 0;
                 holdings.filter(h => ccyMatch.includes(h.asset_type)).forEach(h => {
                     const p = prices[`${h.symbol}::${h.asset_type}`];
                     if (p && p.price) currentMarketValue += h.totalShares * p.price;
                 });
 
-                if (sorted.length > 0) {
-                    const today = new Date().toISOString().slice(0, 10);
-                    const lastDate = dates[dates.length - 1];
-                    if (lastDate !== today) {
-                        dates.push(today);
-                        costSeries.push(net);
-                    }
-                    // Market value series: only mark a single point at the end
-                    marketValueSeries = new Array(dates.length).fill(null);
-                    marketValueSeries[marketValueSeries.length - 1] = currentMarketValue;
-                }
-
-                return {
-                    dates,
-                    costSeries,
-                    marketValueSeries,
-                    totalCost: net,
-                    currentMarketValue,
-                };
-            }, [transactions, holdings, prices, currency]);
+                return { dates: allDates, valueSeries, costSeries, currentMarketValue, totalCost: netCost };
+            }, [transactions, historicalPrices, holdings, prices, currency]);
 
             useEffect(() => {
                 if (!canvasRef.current || dates.length === 0) return;
@@ -3603,14 +3697,25 @@
                         labels: dates,
                         datasets: [
                             {
-                                label: '累計成本',
-                                data: costSeries,
+                                label: '總市值',
+                                data: valueSeries,
                                 borderColor: CHART.line,
                                 backgroundColor: makePriceGradient,
                                 fill: true,
                                 pointRadius: 0,
                                 pointHoverRadius: 4,
                                 borderWidth: 2.5,
+                                tension: 0.3,
+                            },
+                            {
+                                label: '累計投入成本',
+                                data: costSeries,
+                                borderColor: 'rgba(255,255,255,0.35)',
+                                borderDash: [5, 5],
+                                fill: false,
+                                pointRadius: 0,
+                                pointHoverRadius: 3,
+                                borderWidth: 1.5,
                                 tension: 0.3,
                             }
                         ]
@@ -3625,19 +3730,14 @@
                                 callbacks: {
                                     title: (items) => items[0].label,
                                     label: (item) => {
-                                        const v = item.parsed.y;
-                                        if (v === null || v === undefined) return '';
                                         const sym = currency === 'TWD' ? 'NT$' : '$';
-                                        return `${item.dataset.label}: ${sym}${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+                                        return `${item.dataset.label}: ${sym}${item.parsed.y.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
                                     }
                                 }
                             }
                         },
                         scales: {
-                            x: {
-                                grid: { color: CHART.grid, display: false },
-                                ticks: { color: CHART.tick, maxTicksLimit: 6, font: { family: "'JetBrains Mono', monospace", size: 10 } }
-                            },
+                            x: { grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: 6, font: { family: "'JetBrains Mono', monospace", size: 10 } } },
                             y: {
                                 grid: { color: CHART.grid },
                                 ticks: {
@@ -3657,19 +3757,28 @@
                 return () => {
                     if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
                 };
-            }, [dates, costSeries, currency]);
+            }, [dates, valueSeries, costSeries, currency]);
 
-            if (dates.length === 0) return null;
+            if (symbolKeys.length === 0) return null;
 
             const pl = currentMarketValue - totalCost;
             const plPct = totalCost > 0 ? (pl / totalCost) * 100 : 0;
             const isUp = pl >= 0;
             const sym = currency === 'TWD' ? 'NT$' : '$';
 
+            const rangeBtn = (key, label) => (
+                <button
+                    onClick={() => setTimeRange(key)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${timeRange === key ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                    style={timeRange === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                >
+                    {label}
+                </button>
+            );
+
             return (
                 <div className="rounded-2xl ring-soft p-4 md:p-5 relative overflow-hidden" style={{ background: 'var(--surface)' }}>
-                    {/* Header: total + P/L */}
-                    <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
+                    <div className="flex items-start justify-between mb-3 flex-wrap gap-3">
                         <div>
                             <p className="label">TOTAL · {currency}</p>
                             <p className="text-3xl font-extrabold text-white mt-1 num">
@@ -3681,10 +3790,30 @@
                                 <span className="ml-2" style={{ color: 'var(--text-3)' }}>vs 成本 {sym}{totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                             </p>
                         </div>
+                        {historyLoading && (
+                            <div className="flex items-center gap-1.5 text-[11px] mono" style={{ color: 'var(--text-3)' }}>
+                                <RefreshCw className="animate-spin" size={11} />
+                                載入歷史價...
+                            </div>
+                        )}
                     </div>
 
-                    {/* Chart canvas */}
-                    <div className="relative" style={{ height: '220px' }}>
+                    {/* Time range buttons */}
+                    <div className="flex gap-1 mb-3 flex-wrap">
+                        {rangeBtn('1mo', '1M')}
+                        {rangeBtn('3mo', '3M')}
+                        {rangeBtn('6mo', '6M')}
+                        {rangeBtn('1y', '1Y')}
+                        {rangeBtn('max', 'ALL')}
+                    </div>
+
+                    {/* Chart */}
+                    <div className="relative" style={{ height: '240px' }}>
+                        {dates.length === 0 && !historyLoading && (
+                            <div className="absolute inset-0 flex items-center justify-center text-xs" style={{ color: 'var(--text-3)' }}>
+                                等待歷史價...
+                            </div>
+                        )}
                         <canvas ref={canvasRef}></canvas>
                     </div>
 
@@ -3692,6 +3821,10 @@
                     <div className="flex items-center gap-4 mt-2 text-[10px] mono" style={{ color: 'var(--text-3)' }}>
                         <span className="flex items-center gap-1.5">
                             <span className="inline-block w-3 h-0.5 rounded" style={{ background: '#3b82f6' }}></span>
+                            總市值
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                            <span className="inline-block w-3 h-0 border-t border-dashed" style={{ borderColor: 'rgba(255,255,255,0.35)', height: '1px' }}></span>
                             累計投入成本
                         </span>
                     </div>
