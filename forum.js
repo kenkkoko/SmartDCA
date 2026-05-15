@@ -454,6 +454,7 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
   const [lightbox, setLightbox] = React.useState(null); // { images: [src,...], index }
+  const [showScrollTop, setShowScrollTop] = React.useState(false);
   const contentRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -461,6 +462,7 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
     (async () => {
       setLoading(true);
       setLightbox(null);  // Clear lightbox when navigating to a different post
+      window.scrollTo(0, 0);  // Always start a new post at the top
       const { data, error: err } = await supabase
         .from('forum_posts')
         .select('*')
@@ -473,6 +475,16 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
     })();
     return () => { cancelled = true; };
   }, [supabase, postId]);
+
+  // Scroll-to-top button visibility: appears after scrolling ~one screen
+  React.useEffect(() => {
+    const onScroll = () => setShowScrollTop(window.scrollY > 400);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();  // Sync initial state
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
   React.useEffect(() => {
     if (!post || !contentRef.current) return;
@@ -618,6 +630,26 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
           }))}
         />
       )}
+
+      {/* Scroll-to-top — fades in after scrolling ~one screen */}
+      <button
+        onClick={scrollToTop}
+        aria-label="回到頂部"
+        className="fixed bottom-6 right-6 w-12 h-12 rounded-full flex items-center justify-center text-white text-xl z-50 hover:scale-110"
+        style={{
+          background: 'rgba(15,23,42,0.88)',
+          border: '1px solid rgba(139,92,246,0.4)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(139,92,246,0.08)',
+          opacity: showScrollTop ? 1 : 0,
+          pointerEvents: showScrollTop ? 'auto' : 'none',
+          transform: showScrollTop ? 'translateY(0)' : 'translateY(20px)',
+          transition: 'opacity 0.25s ease, transform 0.25s ease',
+        }}
+      >
+        ↑
+      </button>
     </div>
   );
 };
