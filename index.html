@@ -39,11 +39,12 @@
 
         <!-- 引入 Chart.js (確保使用 UMD 版本) -->
        
-    <script src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.min.js"></script>
-    <!-- Candlestick / OHLC support -->
-    <script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- Date adapter (luxon) + candlestick + zoom/pan plugins -->
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 
     <!-- Supabase JS -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -205,6 +206,8 @@
     /* Hide scrollbar for nav horizontal scroll on mobile */
     .scrollbar-none::-webkit-scrollbar { display: none; }
     .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 
     /* Fade / zoom animation for dropdowns (keeps original Tailwind animate-in working) */
     @keyframes om-fade-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
@@ -1656,6 +1659,114 @@
         const LEMON_CHECKOUT_URL = 'https://smartdca.lemonsqueezy.com/buy/931e6d89-3193-4216-8c9b-a2d88c6e4acc';
         const LEMON_PORTAL_URL = 'https://smartdca.lemonsqueezy.com/billing';
 
+        // ─────────────────────────────────────────────
+        // useEditableCards — manage a user-editable, draggable card list (persisted to localStorage)
+        // Each card is { id, symbol, name }. id is the stable key, symbol is the API ticker, name is what the user sees.
+        // ─────────────────────────────────────────────
+        const useEditableCards = (storageKey, defaults) => {
+            const [cards, setCards] = useState(() => {
+                try {
+                    const raw = localStorage.getItem(storageKey);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                    }
+                } catch {}
+                return defaults;
+            });
+            useEffect(() => {
+                try { localStorage.setItem(storageKey, JSON.stringify(cards)); } catch {}
+            }, [storageKey, cards]);
+
+            const addCard = (card) => setCards(prev => prev.some(c => c.id === card.id) ? prev : [...prev, card]);
+            const removeCard = (id) => setCards(prev => prev.filter(c => c.id !== id));
+            const moveCard = (from, to) => setCards(prev => {
+                if (from === to || from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev;
+                const next = [...prev];
+                const [it] = next.splice(from, 1);
+                next.splice(to, 0, it);
+                return next;
+            });
+            const resetCards = () => setCards(defaults);
+            return { cards, setCards, addCard, removeCard, moveCard, resetCards };
+        };
+
+        // ─────────────────────────────────────────────
+        // EditableCardGrid — wraps a row of price cards with drag-to-reorder, ✕ remove, and + add buttons.
+        // children is expected to be a flat list of card-shaped React nodes, one per item in `cards`, in the same order.
+        // ─────────────────────────────────────────────
+        const EditableCardGrid = ({ cards, editMode, onToggleEdit, onMove, onRemove, onAdd, onReset, addLabel = '+ 新增', title, children }) => {
+            const dragIdx = useRef(null);
+            const [dragOverIdx, setDragOverIdx] = useState(null);
+            const childArr = React.Children.toArray(children);
+
+            return (
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <p className="label">{title}</p>
+                        <div className="flex items-center gap-1.5">
+                            {editMode && onReset && (
+                                <button
+                                    onClick={() => { if (confirm('還原為預設清單？')) onReset(); }}
+                                    className="px-2 py-1 rounded-md text-[10px] font-bold hover:bg-white/[0.08]"
+                                    style={{ color: 'var(--text-3)', border: '1px solid var(--line)' }}
+                                >還原預設</button>
+                            )}
+                            <button
+                                onClick={onToggleEdit}
+                                className="px-2.5 py-1 rounded-md text-[11px] font-bold hover:bg-white/[0.08] transition-all"
+                                style={{ color: editMode ? 'var(--brand-1)' : 'var(--text-2)', border: '1px solid ' + (editMode ? 'var(--brand-1)' : 'var(--line)') }}
+                            >{editMode ? '完成' : '編輯'}</button>
+                        </div>
+                    </div>
+                    <div className="flex flex-col md:flex-row gap-4 flex-wrap">
+                        {childArr.map((child, i) => (
+                            <div
+                                key={(cards[i] && cards[i].id) || i}
+                                draggable={editMode}
+                                onDragStart={() => { dragIdx.current = i; }}
+                                onDragEnd={() => { dragIdx.current = null; setDragOverIdx(null); }}
+                                onDragOver={(e) => { if (editMode) { e.preventDefault(); setDragOverIdx(i); } }}
+                                onDragLeave={() => setDragOverIdx(prev => prev === i ? null : prev)}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    const from = dragIdx.current;
+                                    if (editMode && from !== null && from !== i) onMove(from, i);
+                                    dragIdx.current = null;
+                                    setDragOverIdx(null);
+                                }}
+                                className={`relative flex-1 min-w-0 md:min-w-[180px] transition-transform ${editMode ? 'cursor-move' : ''} ${dragOverIdx === i && dragIdx.current !== null && dragIdx.current !== i ? 'ring-2 ring-cyan-400 scale-[1.02]' : ''}`}
+                            >
+                                {editMode && (
+                                    <>
+                                        <span
+                                            className="absolute top-2 left-2 z-10 text-sm select-none px-1.5 py-0.5 rounded"
+                                            style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-2)' }}
+                                            title="拖曳排序"
+                                        >⋮⋮</span>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onRemove(cards[i].id); }}
+                                            className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-500/30"
+                                            style={{ background: 'rgba(0,0,0,0.5)', color: '#ff7d8c' }}
+                                            title="移除"
+                                        >✕</button>
+                                    </>
+                                )}
+                                {child}
+                            </div>
+                        ))}
+                        {editMode && (
+                            <button
+                                onClick={onAdd}
+                                className="flex-1 min-w-0 md:min-w-[180px] rounded-xl p-4 text-sm font-semibold transition-all hover:bg-white/[0.04] flex items-center justify-center gap-2"
+                                style={{ border: '2px dashed var(--line)', color: 'var(--text-3)', minHeight: '110px' }}
+                            >{addLabel}</button>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
         // --- 美股儀表板元件 ---
         const StockDashboard = ({ notificationsEnabled, toggleNotifications, userInfo = { isPremium: false, watchlist: [] }, onUpdateWatchlist }) => {
             const [showAdvanced, setShowAdvanced] = useState(false);
@@ -1666,9 +1777,17 @@
             const [fngData, setFngData] = useState(null);
             const [fngHistory, setFngHistory] = useState([]);
             const [stockNews, setStockNews] = useState([]);
-            const [indices, setIndices] = useState({ spy: null, qqq: null, gold: null });
+            const [indices, setIndices] = useState({});
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
+            // Editable card list — symbol = Yahoo ticker, id is stable key, name is shown to the user
+            const usDefaults = [
+                { id: 'spy', symbol: 'SPY', name: 'S&P 500 ETF' },
+                { id: 'qqq', symbol: 'QQQ', name: 'NASDAQ 100 ETF' },
+                { id: 'gld', symbol: 'GLD', name: 'Gold ETF' },
+            ];
+            const usCards = useEditableCards('us-dashboard-cards', usDefaults);
+            const [usEditMode, setUsEditMode] = useState(false);
 
             const fetchStockData = async () => {
                 setLoading(true);
@@ -1756,8 +1875,13 @@
                         } catch (e) { return null; }
                     };
 
-                    Promise.all([fetchYahooPrice('SPY'), fetchYahooPrice('QQQ'), fetchYahooPrice('GLD')])
-                        .then(([spy, qqq, gold]) => setIndices({ spy, qqq, gold }))
+                    // Drive cards from user-editable list
+                    Promise.all(usCards.cards.map(c => fetchYahooPrice(c.symbol)))
+                        .then(results => {
+                            const map = {};
+                            usCards.cards.forEach((c, i) => { map[c.id] = results[i]; });
+                            setIndices(map);
+                        })
                         .catch(e => console.error("Indices Fetch Error:", e));
 
                     // 4. 獲取新聞
@@ -1778,6 +1902,27 @@
             useEffect(() => {
                 fetchStockData();
             }, [selectedSymbol]);
+
+            // Re-fetch just the card prices when the user edits the card list (avoids re-fetching FNG/history)
+            useEffect(() => {
+                const fetchOne = async (symbol) => {
+                    try {
+                        const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
+                        const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
+                        const data = await res.json();
+                        const meta = data.chart.result[0].meta;
+                        const price = meta.regularMarketPrice;
+                        const prevClose = meta.chartPreviousClose || meta.previousClose || price;
+                        return { price, prevClose, change: price - prevClose, changePercent: ((price - prevClose) / prevClose) * 100 };
+                    } catch (e) { return null; }
+                };
+                Promise.all(usCards.cards.map(c => fetchOne(c.symbol)))
+                    .then(results => {
+                        const map = {};
+                        usCards.cards.forEach((c, i) => { map[c.id] = results[i]; });
+                        setIndices(map);
+                    });
+            }, [usCards.cards]);
 
             // Filter Data based on Time Range (Local Filtering)
             useEffect(() => {
@@ -1934,11 +2079,25 @@
                         userEmail={userInfo.email}
                     />
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <IndexPriceCard name="S&P 500 ETF" symbol="SPY" data={indices.spy} suggestion={suggestion} />
-                        <IndexPriceCard name="NASDAQ 100 ETF" symbol="QQQ" data={indices.qqq} suggestion={suggestion} />
-                        <IndexPriceCard name="Gold ETF" symbol="GLD" data={indices.gold} suggestion={suggestion} />
-                    </div>
+                    <EditableCardGrid
+                        title="美股指數 / ETF"
+                        cards={usCards.cards}
+                        editMode={usEditMode}
+                        onToggleEdit={() => setUsEditMode(!usEditMode)}
+                        onMove={usCards.moveCard}
+                        onRemove={usCards.removeCard}
+                        onReset={usCards.resetCards}
+                        onAdd={() => {
+                            const sym = (prompt('輸入美股代號（例如 AAPL、TSLA、VOO）：') || '').trim().toUpperCase();
+                            if (!sym) return;
+                            const name = (prompt('顯示名稱（可留空）：') || '').trim() || sym;
+                            usCards.addCard({ id: sym.toLowerCase(), symbol: sym, name });
+                        }}
+                    >
+                        {usCards.cards.map(c => (
+                            <IndexPriceCard key={c.id} name={c.name} symbol={c.symbol} data={indices[c.id]} suggestion={suggestion} />
+                        ))}
+                    </EditableCardGrid>
 
                     <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl flex flex-col items-center text-center">
                         <h2 className="text-xl font-bold text-slate-200 mb-2">美股恐懼與貪婪指數</h2>
@@ -2100,11 +2259,19 @@
             const [selectedSymbol, setSelectedSymbol] = useState('0050');
             const [timeRange, setTimeRange] = useState('1Y');
             const [rsiData, setRsiData] = useState(null);
-            const [indices, setIndices] = useState({ twii: null, tw50: null, tw56: null });
+            const [indices, setIndices] = useState({});
             const [news, setNews] = useState([]);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
             const [dataSource, setDataSource] = useState('Yahoo');
+            // Editable card list (Yahoo tickers — TW codes need .TW suffix unless it's an index like ^TWII)
+            const twDefaults = [
+                { id: 'twii', symbol: '^TWII', name: '加權指數 (^TWII)' },
+                { id: 'tw50', symbol: '0050.TW', name: '元大台灣50 (0050)' },
+                { id: 'tw56', symbol: '0056.TW', name: '元大高股息 (0056)' },
+            ];
+            const twCards = useEditableCards('tw-dashboard-cards', twDefaults);
+            const [twEditMode, setTwEditMode] = useState(false);
 
             const getSuggestion = (rsi) => {
                 if (rsi <= 25) return {
@@ -2164,9 +2331,13 @@
                         return { price, prevClose, change: price - prevClose, changePercent: ((price - prevClose) / prevClose) * 100 };
                     };
 
-                    // 1. Fetch Headline Indices (Parallel)
-                    Promise.all([fetchYahooPrice('^TWII'), fetchYahooPrice('0050.TW'), fetchYahooPrice('0056.TW')])
-                        .then(([twii, tw50, tw56]) => setIndices({ twii, tw50, tw56 }))
+                    // 1. Fetch Headline Indices (Parallel) — driven by user-editable card list
+                    Promise.all(twCards.cards.map(c => fetchYahooPrice(c.symbol)))
+                        .then(results => {
+                            const map = {};
+                            twCards.cards.forEach((c, i) => { map[c.id] = results[i]; });
+                            setIndices(map);
+                        })
                         .catch(e => console.error("Indices Error:", e));
 
                     // 2. Fetch Selected Symbol Data
@@ -2240,42 +2411,35 @@
                     });
 
 
-                    // 3. 獲取臺股新聞 (Google News RSS)
-                    const rssUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(`${selectedSymbol} 股票新聞`) + '&hl=zh-TW&gl=TW&ceid=TW:zh-Hant';
-                    const proxyUrl = 'https://cors.hellokai07.com/?' + encodeURIComponent(rssUrl);
-
-                    const newsResponse = await fetch(proxyUrl);
-                    const textData = await newsResponse.text();
-
-                    // Parse XML
-                    const parser = new DOMParser();
-                    const xmlDoc = parser.parseFromString(textData, "text/xml");
-                    const items = xmlDoc.querySelectorAll("item");
-
-                    const newsItems = Array.from(items).slice(0, 6).map(item => {
-                        const title = item.querySelector("title")?.textContent || "";
-                        const link = item.querySelector("link")?.textContent || "";
-                        const pubDate = item.querySelector("pubDate")?.textContent || "";
-
-                        // 嘗試從 enclosure 或 description 中提取圖片
-                        let thumbnail = "";
-                        const enclosure = item.querySelector("enclosure");
-                        if (enclosure && enclosure.getAttribute("type")?.startsWith("image")) {
-                            thumbnail = enclosure.getAttribute("url");
+                    // 3. 獲取臺股新聞 — 用 rss2json（跟美股 / 加密同一個 service，比 DOMParser+CORS proxy 穩）
+                    try {
+                        const rssUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(`${selectedSymbol} 股票新聞`) + '&hl=zh-TW&gl=TW&ceid=TW:zh-Hant';
+                        const newsResponse = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
+                        const newsJson = await newsResponse.json();
+                        if (newsJson.status === 'ok' && Array.isArray(newsJson.items)) {
+                            const newsItems = newsJson.items.slice(0, 6).map(item => {
+                                // rss2json sometimes returns thumbnail/enclosure; fall back to parsing description
+                                let thumbnail = item.thumbnail || item.enclosure?.link || '';
+                                if (!thumbnail && item.description) {
+                                    const m = item.description.match(/src="([^"]+)"/);
+                                    if (m) thumbnail = m[1];
+                                }
+                                return {
+                                    title: item.title || '',
+                                    link: item.link || '',
+                                    pubDate: item.pubDate || '',
+                                    thumbnail,
+                                };
+                            });
+                            setNews(newsItems);
                         } else {
-                            const imgMatch = item.querySelector("description")?.textContent.match(/src="([^"]+)"/);
-                            if (imgMatch) thumbnail = imgMatch[1];
+                            console.warn('TW news rss2json failed:', newsJson?.message);
+                            setNews([]);
                         }
-
-                        return {
-                            title,
-                            link,
-                            pubDate,
-                            thumbnail,
-                        };
-                    });
-
-                    setNews(newsItems);
+                    } catch (newsErr) {
+                        console.warn('TW news fetch error:', newsErr);
+                        setNews([]);
+                    }
 
                 } catch (e) {
                     console.error("Taiwan data error:", e);
@@ -2288,6 +2452,27 @@
             useEffect(() => {
                 fetchData();
             }, [selectedSymbol, timeRange]);
+
+            // Refetch just the card prices when the user edits the card list
+            useEffect(() => {
+                const fetchOne = async (ticker) => {
+                    try {
+                        const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+                        const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
+                        const data = await res.json();
+                        const meta = data.chart.result[0].meta;
+                        const price = meta.regularMarketPrice;
+                        const prevClose = meta.chartPreviousClose || meta.previousClose || price;
+                        return { price, prevClose, change: price - prevClose, changePercent: ((price - prevClose) / prevClose) * 100 };
+                    } catch (e) { return null; }
+                };
+                Promise.all(twCards.cards.map(c => fetchOne(c.symbol)))
+                    .then(results => {
+                        const map = {};
+                        twCards.cards.forEach((c, i) => { map[c.id] = results[i]; });
+                        setIndices(map);
+                    });
+            }, [twCards.cards]);
 
             // Watchlist Logic
             const toggleWatchlist = () => {
@@ -2378,26 +2563,33 @@
                         userEmail={userInfo.email}
                     />
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <IndexPriceCard
-                            name="加權指數 (^TWII)"
-                            symbol="^TWII"
-                            data={indices.twii}
-                            suggestion={suggestion}
-                        />
-                        <IndexPriceCard
-                            name="元大台灣50 (0050)"
-                            symbol="0050.TW"
-                            data={indices.tw50}
-                            suggestion={suggestion}
-                        />
-                        <IndexPriceCard
-                            name="元大高股息 (0056)"
-                            symbol="0056.TW"
-                            data={indices.tw56}
-                            suggestion={suggestion}
-                        />
-                    </div>
+                    <EditableCardGrid
+                        title="台股指數 / ETF"
+                        cards={twCards.cards}
+                        editMode={twEditMode}
+                        onToggleEdit={() => setTwEditMode(!twEditMode)}
+                        onMove={twCards.moveCard}
+                        onRemove={twCards.removeCard}
+                        onReset={twCards.resetCards}
+                        onAdd={() => {
+                            let sym = (prompt('輸入台股代號（例如 2330、0056；指數請含 ^，例如 ^TWII）：') || '').trim();
+                            if (!sym) return;
+                            // Auto-append .TW for plain numeric codes
+                            if (/^\d+$/.test(sym)) sym = sym + '.TW';
+                            const name = (prompt('顯示名稱（可留空）：') || '').trim() || sym;
+                            twCards.addCard({ id: sym.toLowerCase().replace(/\W+/g, '_'), symbol: sym, name });
+                        }}
+                    >
+                        {twCards.cards.map(c => (
+                            <IndexPriceCard
+                                key={c.id}
+                                name={c.name}
+                                symbol={c.symbol}
+                                data={indices[c.id]}
+                                suggestion={suggestion}
+                            />
+                        ))}
+                    </EditableCardGrid>
 
                     {/* 標題區 */}
                     <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl flex flex-col items-center text-center">
@@ -2548,33 +2740,36 @@
             const [newsData, setNewsData] = useState([]);
             const [newsLoading, setNewsLoading] = useState(true);
             const [newsError, setNewsError] = useState(null);
+            // Editable card list — slug = CoinGecko id (also used by CMC proxy)
+            const cryptoDefaults = [
+                { id: 'bitcoin', symbol: 'bitcoin', name: 'BTC', logo: 'https://cryptologos.cc/logos/bitcoin-btc-logo.png' },
+                { id: 'ethereum', symbol: 'ethereum', name: 'ETH', logo: 'https://cryptologos.cc/logos/ethereum-eth-logo.png' },
+            ];
+            const cryptoCards = useEditableCards('crypto-dashboard-cards', cryptoDefaults);
+            const [cryptoEditMode, setCryptoEditMode] = useState(false);
 
-            // Fetch Current Price from CoinMarketCap (CMC)
+            // Fetch current prices from Binance (no key, CORS-friendly, same source as history)
             const fetchCurrentPrices = async (slugs = ['bitcoin', 'ethereum']) => {
                 try {
-                    // CMC proxy via Supabase Edge Function (key stays server-side)
-                    const proxyUrl = SUPABASE_URL + '/functions/v1/cmc-proxy?slugs=' + slugs.join(',');
-                    const response = await fetch(proxyUrl, {
-                        headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY }
-                    });
-
-                    if (response.ok) {
-                        const data = await response.json();
-                        // CMC Structure: { data: { "1": { ... }, "1027": { ... } } }
-                        const newPrices = {};
-                        Object.values(data.data).forEach(coin => {
-                            newPrices[coin.slug] = {
-                                usd: coin.quote.USD.price,
-                                usd_24h_change: coin.quote.USD.percent_change_24h,
-                                symbol: coin.symbol
-                            };
-                        });
-                        setPrices(newPrices);
-                    } else {
-                        console.warn('CMC Price Fetch Failed:', await response.text());
-                    }
+                    const results = await Promise.all(slugs.map(async (slug) => {
+                        const binSym = getBinanceSymbol(slug);
+                        if (!binSym) return [slug, null];
+                        try {
+                            const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${binSym}`);
+                            if (!res.ok) return [slug, null];
+                            const d = await res.json();
+                            return [slug, {
+                                usd: +d.lastPrice,
+                                usd_24h_change: +d.priceChangePercent,
+                                symbol: binSym.replace(/USDT$/, ''),
+                            }];
+                        } catch (e) { return [slug, null]; }
+                    }));
+                    const newPrices = {};
+                    for (const [slug, p] of results) if (p) newPrices[slug] = p;
+                    setPrices(newPrices);
                 } catch (e) {
-                    console.warn("CMC Price Fetch Error:", e);
+                    console.warn("Binance Price Fetch Error:", e);
                 }
             };
 
@@ -2582,8 +2777,8 @@
                 setLoading(true);
                 setError(null);
 
-                // Fetch Prices first
-                const slugs = ['bitcoin', 'ethereum'];
+                // Fetch Prices first — include all user cards plus selected coin
+                const slugs = cryptoCards.cards.map(c => c.symbol);
                 if (!slugs.includes(selectedCoin)) slugs.push(selectedCoin);
                 fetchCurrentPrices(slugs);
 
@@ -2592,32 +2787,7 @@
                     const fngResponse = await fetch('https://api.alternative.me/fng/?limit=365');
                     const fngJson = await fngResponse.json();
 
-                    // 2. Fetch Historical Data (CoinGecko fallback for history)
-                    // Always fetch 365 days (1 Year) to support local filtering and default view
-                    // If user wants ALL, we might need 'max', but let's stick to 365 for consistency with FNG max limit (usually)
-                    // Actually, Alternative.me limit can be higher, but let's aim for 1 Year as primary.
-                    // User said "Default is Year", so 365 is good.
-                    let days = '365';
-                    // Check if we already have data for this coin? No, simpler to re-fetch on coin change.
-
-                    let coinUrl = `https://api.coingecko.com/api/v3/coins/${selectedCoin}/market_chart?vs_currency=usd&days=${days}&interval=daily`;
-                    let coinResponse = await fetch(coinUrl);
-
-                    if (coinResponse.status === 404) {
-                        try {
-                            const searchRes = await fetch(`https://api.coingecko.com/api/v3/search?query=${selectedCoin}`);
-                            const searchData = await searchRes.json();
-                            if (searchData.coins && searchData.coins.length > 0) {
-                                setSelectedCoin(searchData.coins[0].id);
-                                return;
-                            }
-                        } catch (e) { }
-                    }
-
-                    if (!coinResponse.ok) throw new Error("CoinGecko API Error (Historical Data)");
-                    const coinJson = await coinResponse.json();
-
-                    // Process FNG
+                    // 2. Process FNG (must happen before history merge)
                     const fngMap = new Map();
                     fngJson.data.forEach(item => {
                         const date = new Date(item.timestamp * 1000).toISOString().split('T')[0];
@@ -2639,15 +2809,27 @@
                     const ratingMap = { "Extreme Fear": "極度恐懼", "extreme fear": "極度恐懼", "Fear": "恐懼", "fear": "恐懼", "Neutral": "中立", "neutral": "中立", "Greed": "貪婪", "greed": "貪婪", "Extreme Greed": "極度貪婪", "extreme greed": "極度貪婪" };
                     setCurrentFNG({ ...currentItem, value_classification: ratingMap[currentRating] || currentRating });
 
-                    // Merge
-                    const mergedData = coinJson.prices.map(([timestamp, price]) => {
-                        const dateObj = new Date(timestamp);
-                        const dateStr = dateObj.toISOString().split('T')[0];
+                    // 3. Fetch Historical Prices — Binance klines (single source, no key, real daily OHLC)
+                    const binSym = getBinanceSymbol(selectedCoin);
+                    if (!binSym) throw new Error(`不支援的幣種：${selectedCoin}（不在 Binance 上市）`);
+                    const days = 365;
+                    const limit = Math.min(1000, days + 5);
+                    const binResponse = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=${limit}`);
+                    if (!binResponse.ok) throw new Error(`Binance API Error (status ${binResponse.status})`);
+                    const klines = await binResponse.json();
+
+                    // Merge price + FNG by date
+                    const mergedData = klines.map(k => {
+                        const timestamp = k[0];
+                        const dateStr = new Date(timestamp).toISOString().split('T')[0];
                         const fng = fngMap.get(dateStr) || { value: 50, classification: 'Neutral' };
                         return {
                             date: dateStr,
                             timestamp,
-                            price,
+                            price: +k[4], // close
+                            open: +k[1],
+                            high: +k[2],
+                            low: +k[3],
                             fng: fng.value,
                             classification: fng.classification
                         };
@@ -2700,6 +2882,13 @@
                 setHistoricalData(filtered);
 
             }, [timeRange, fullHistoricalData]);
+
+            // Refetch card prices when the user edits the crypto card list
+            useEffect(() => {
+                const slugs = cryptoCards.cards.map(c => c.symbol);
+                if (!slugs.includes(selectedCoin)) slugs.push(selectedCoin);
+                if (slugs.length > 0) fetchCurrentPrices(slugs);
+            }, [cryptoCards.cards]);
 
             // Watchlist Logic
             const toggleWatchlist = () => {
@@ -2786,40 +2975,45 @@
                         isLocked={!userInfo.isPremium}
                         userEmail={userInfo.email}
                     />
-                    <div className="flex gap-4 w-full flex-wrap">
-                        <div onClick={() => setSelectedCoin('bitcoin')} className={`cursor-pointer flex flex-col flex-1 p-4 rounded-xl border transition-all ${selectedCoin === 'bitcoin' ? 'bg-slate-800 border-blue-500 shadow-lg' : 'bg-slate-900/50 border-slate-800'}`}>
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                    <img src="https://cryptologos.cc/logos/bitcoin-btc-logo.png" className="w-6 h-6" alt="BTC" />
-                                    <span className="font-bold text-white">BTC</span>
-                                </div>
-                            </div>
-                            <div className="text-xl font-mono text-white">{prices && prices['bitcoin'] ? `$${formatPrice(prices['bitcoin'].usd)}` : 'Loading...'}</div>
-                            {prices && prices['bitcoin'] && <div className={`text-xs ${prices['bitcoin'].usd_24h_change >= 0 ? 'text-green-400' : 'text-red-400'}`}>{prices['bitcoin'].usd_24h_change.toFixed(2)}%</div>}
-                        </div>
-                        <div onClick={() => setSelectedCoin('ethereum')} className={`cursor-pointer flex flex-col flex-1 p-4 rounded-xl border transition-all ${selectedCoin === 'ethereum' ? 'bg-slate-800 border-blue-500 shadow-lg' : 'bg-slate-900/50 border-slate-800'}`}>
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                    <img src="https://cryptologos.cc/logos/ethereum-eth-logo.png" className="w-6 h-6" alt="ETH" />
-                                    <span className="font-bold text-white">ETH</span>
-                                </div>
-                            </div>
-                            <div className="text-xl font-mono text-white">{prices && prices['ethereum'] ? `$${formatPrice(prices['ethereum'].usd)}` : 'Loading...'}</div>
-                            {prices && prices['ethereum'] && <div className={`text-xs ${prices['ethereum'].usd_24h_change >= 0 ? 'text-green-400' : 'text-red-400'}`}>{prices['ethereum'].usd_24h_change.toFixed(2)}%</div>}
-                        </div>
-                        {!['bitcoin', 'ethereum'].includes(selectedCoin) && (
-                            <div className={`cursor-pointer flex flex-col flex-1 p-4 rounded-xl border transition-all bg-slate-800 border-blue-500 shadow-lg`}>
-                                <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs">?</div>
-                                        <span className="font-bold text-white">{selectedCoin.toUpperCase()}</span>
+                    <EditableCardGrid
+                        title="加密貨幣"
+                        cards={cryptoCards.cards}
+                        editMode={cryptoEditMode}
+                        onToggleEdit={() => setCryptoEditMode(!cryptoEditMode)}
+                        onMove={cryptoCards.moveCard}
+                        onRemove={cryptoCards.removeCard}
+                        onReset={cryptoCards.resetCards}
+                        onAdd={() => {
+                            const slug = (prompt('輸入幣種 slug（CoinGecko id，例如 bitcoin、solana、dogecoin）：') || '').trim().toLowerCase();
+                            if (!slug) return;
+                            const name = (prompt('顯示名稱（如 BTC、SOL，可留空）：') || '').trim() || slug.toUpperCase();
+                            cryptoCards.addCard({ id: slug, symbol: slug, name, logo: '' });
+                        }}
+                    >
+                        {cryptoCards.cards.map(c => {
+                            const p = prices && prices[c.symbol];
+                            const active = selectedCoin === c.symbol;
+                            return (
+                                <div
+                                    key={c.id}
+                                    onClick={() => !cryptoEditMode && setSelectedCoin(c.symbol)}
+                                    className={`${cryptoEditMode ? '' : 'cursor-pointer'} flex flex-col p-4 rounded-xl border transition-all h-full ${active ? 'bg-slate-800 border-blue-500 shadow-lg' : 'bg-slate-900/50 border-slate-800'}`}
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-2">
+                                            {c.logo
+                                                ? <img src={c.logo} className="w-6 h-6" alt={c.name} onError={(e) => { e.target.style.display = 'none'; }} />
+                                                : <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs text-slate-300">{c.name.slice(0, 1)}</div>
+                                            }
+                                            <span className="font-bold text-white">{c.name}</span>
+                                        </div>
                                     </div>
+                                    <div className="text-xl font-mono text-white">{p ? `$${formatPrice(p.usd)}` : 'Loading...'}</div>
+                                    {p && <div className={`text-xs ${p.usd_24h_change >= 0 ? 'text-green-400' : 'text-red-400'}`}>{p.usd_24h_change.toFixed(2)}%</div>}
                                 </div>
-                                <div className="text-xl font-mono text-white">{prices && prices[selectedCoin] ? `$${formatPrice(prices[selectedCoin].usd)}` : 'Loading...'}</div>
-                                {prices && prices[selectedCoin] && <div className={`text-xs ${prices[selectedCoin].usd_24h_change >= 0 ? 'text-green-400' : 'text-red-400'}`}>{prices[selectedCoin].usd_24h_change.toFixed(2)}%</div>}
-                            </div>
-                        )}
-                    </div>
+                            );
+                        })}
+                    </EditableCardGrid>
 
                     {loading && !historicalData.length ? (
                         <div className="h-64 flex flex-col items-center justify-center text-slate-500 gap-4"><RefreshCw className="animate-spin" size={32} /><p>正在同步 CoinMarketCap 數據...</p></div>
@@ -3019,9 +3213,10 @@
                                 label: fngJson.fear_and_greed.rating
                             };
                         } else if (type === 'CRYPTO') {
-                            // CoinGecko + Alt.me
-                            const map = { 'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'DOGE': 'dogecoin', 'BNB': 'binancecoin' };
-                            const id = map[symbol.toUpperCase()] || symbol.toLowerCase();
+                            // Binance klines + Alt.me FNG
+                            const id = symbol.toLowerCase();
+                            const binSym = getBinanceSymbol(id);
+                            if (!binSym) throw new Error(`不支援的幣種：${symbol}（不在 Binance 上市）`);
 
                             // FNG
                             const fngRes = await fetch('https://api.alternative.me/fng/?limit=365');
@@ -3029,15 +3224,15 @@
                             const fngMap = new Map();
                             fngJson.data.forEach(item => fngMap.set(new Date(item.timestamp * 1000).toISOString().split('T')[0], parseInt(item.value)));
 
-                            // CoinGecko
-                            const cgRes = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=365&interval=daily`);
-                            if (!cgRes.ok) throw new Error("CoinGecko Error");
-                            const cgJson = await cgRes.json();
+                            // Binance (real daily OHLC)
+                            const binRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=370`);
+                            if (!binRes.ok) throw new Error(`Binance returned ${binRes.status}`);
+                            const klines = await binRes.json();
 
-                            mergedData = cgJson.prices.map(([ts, price]) => {
-                                const date = new Date(ts).toISOString().split('T')[0];
+                            mergedData = klines.map(k => {
+                                const date = new Date(k[0]).toISOString().split('T')[0];
                                 const fng = fngMap.get(date) || 50;
-                                return { date, price, fng, classification: fng <= 25 ? 'Extreme Fear' : fng <= 45 ? 'Fear' : 'Neutral' };
+                                return { date, price: +k[4], fng, classification: fng <= 25 ? 'Extreme Fear' : fng <= 45 ? 'Fear' : 'Neutral' };
                             });
                             const last = fngJson.data[0];
                             currentStats = { value: last.value, label: last.value_classification };
@@ -3259,10 +3454,258 @@
         const getRsiSignal = getCompositeSignal;
 
         // ─────────────────────────────────────────────
+        // useLocalState — persist a piece of state to localStorage so reload remembers it
+        // ─────────────────────────────────────────────
+        const useLocalState = (key, defaultValue) => {
+            const [v, setV] = useState(() => {
+                try {
+                    const raw = localStorage.getItem(key);
+                    return raw !== null ? JSON.parse(raw) : defaultValue;
+                } catch { return defaultValue; }
+            });
+            useEffect(() => {
+                try { localStorage.setItem(key, JSON.stringify(v)); } catch {}
+            }, [key, v]);
+            return [v, setV];
+        };
+
+        // CoinGecko slug → Binance USDT pair. Crypto data goes through Binance entirely
+        // (no key, CORS-friendly, real daily klines, single source = no merge artefacts).
+        const COIN_TO_BINANCE = {
+            bitcoin: 'BTCUSDT', ethereum: 'ETHUSDT', solana: 'SOLUSDT', binancecoin: 'BNBUSDT',
+            ripple: 'XRPUSDT', cardano: 'ADAUSDT', dogecoin: 'DOGEUSDT', polkadot: 'DOTUSDT',
+            'avalanche-2': 'AVAXUSDT', tron: 'TRXUSDT', chainlink: 'LINKUSDT',
+            'matic-network': 'MATICUSDT', litecoin: 'LTCUSDT', 'shiba-inu': 'SHIBUSDT',
+            cosmos: 'ATOMUSDT', uniswap: 'UNIUSDT', near: 'NEARUSDT', aptos: 'APTUSDT',
+            sui: 'SUIUSDT', arbitrum: 'ARBUSDT', optimism: 'OPUSDT', filecoin: 'FILUSDT',
+            'internet-computer': 'ICPUSDT', stellar: 'XLMUSDT', 'bitcoin-cash': 'BCHUSDT',
+            algorand: 'ALGOUSDT', vechain: 'VETUSDT', 'the-graph': 'GRTUSDT',
+            aave: 'AAVEUSDT', maker: 'MKRUSDT', tezos: 'XTZUSDT', monero: 'XMRUSDT',
+            pepe: 'PEPEUSDT', floki: 'FLOKIUSDT', 'bonk': 'BONKUSDT',
+            ondo: 'ONDOUSDT', injective: 'INJUSDT', sei: 'SEIUSDT', kaspa: 'KASUSDT',
+            'render-token': 'RNDRUSDT', 'fetch-ai': 'FETUSDT', worldcoin: 'WLDUSDT',
+            'ethereum-classic': 'ETCUSDT', 'hedera-hashgraph': 'HBARUSDT',
+            'first-digital-usd': 'FDUSDUSDT', 'true-usd': 'TUSDUSDT',
+        };
+
+        // Resolve a CoinGecko slug or short ticker to a Binance symbol. Returns null if not on Binance.
+        const getBinanceSymbol = (slug) => {
+            const lower = (slug || '').toLowerCase();
+            if (COIN_TO_BINANCE[lower]) return COIN_TO_BINANCE[lower];
+            // Heuristic: short alphanumeric (likely a ticker like 'pepe' or 'ada') → try LOWERUSDT
+            if (/^[a-z0-9]{2,7}$/.test(lower)) return lower.toUpperCase() + 'USDT';
+            return null;
+        };
+
+        // Days lookup shared by price + FNG fetchers
+        const rangeToDays = (r) => (
+            r === '1mo' ? 30 : r === '3mo' ? 90 : r === '6mo' ? 180 :
+            r === '1y' ? 365 : r === '2y' ? 730 : r === '5y' ? 1825 :
+            r === 'max' ? 1825 : 365
+        );
+
+        // ─────────────────────────────────────────────
+        // aggregateToWeekly — collapse a daily price/OHLC series into weekly buckets (Mon-anchored)
+        // Each weekly bar: open = first day's open or first price, high = max high, low = min low,
+        //                  price (close) = last day's close, date = Monday of the week
+        // ─────────────────────────────────────────────
+        const aggregateToWeekly = (daily) => {
+            if (!Array.isArray(daily) || daily.length === 0) return daily || [];
+            const buckets = new Map();
+            for (const p of daily) {
+                if (!p || !p.date) continue;
+                const d = new Date(p.date + 'T00:00:00Z');
+                if (isNaN(d.getTime())) continue;
+                // Find Monday of the same ISO week (getUTCDay: 0=Sun,1=Mon,...)
+                const dow = d.getUTCDay();
+                const diff = dow === 0 ? -6 : 1 - dow; // shift back to Monday
+                const mon = new Date(d.getTime() + diff * 86400000);
+                const key = mon.toISOString().slice(0, 10);
+                let b = buckets.get(key);
+                if (!b) {
+                    b = { date: key, _firstTs: d.getTime(), _lastTs: d.getTime(),
+                          open: p.open ?? p.price, high: p.high ?? p.price, low: p.low ?? p.price, price: p.price };
+                    buckets.set(key, b);
+                } else {
+                    if (d.getTime() < b._firstTs) { b.open = p.open ?? p.price; b._firstTs = d.getTime(); }
+                    if (d.getTime() > b._lastTs)  { b.price = p.price; b._lastTs = d.getTime(); }
+                    const ph = p.high ?? p.price, pl = p.low ?? p.price;
+                    if (ph != null) b.high = b.high == null ? ph : Math.max(b.high, ph);
+                    if (pl != null) b.low  = b.low  == null ? pl : Math.min(b.low,  pl);
+                }
+            }
+            // Sort by date
+            const out = Array.from(buckets.values()).sort((a, b) => a.date.localeCompare(b.date));
+            // Clean internal fields
+            for (const b of out) { delete b._firstTs; delete b._lastTs; }
+            return out;
+        };
+
+        // ─────────────────────────────────────────────
         // TechnicalChartModal — full-screen TradingView-style analysis
         // ─────────────────────────────────────────────
-        const EMA_PERIODS = [5, 10, 20, 60, 120];
-        const EMA_COLORS = ['#3b82f6', '#06b6d4', '#10b981', '#fbbf24', '#f43f5e'];
+        // EMA Ribbon: fast=20, slow=50 — follows Pine "math.round(fast + (slow-fast)*0.2/0.4/0.6/0.8)"
+        // 6 lines total: fast(20), mid 26/32/38/44, slow(50). Whole ribbon recolored by trend.
+        const EMA_PERIODS = [20, 26, 32, 38, 44, 50];
+        // App-style trend colors (same green/red the app uses for buy/sell signals)
+        const EMA_TREND_UP = '#3ce0a8';
+        const EMA_TREND_DOWN = '#ff5b6e';
+        const EMA_FILL_UP = 'rgba(60, 224, 168, 0.14)';
+        const EMA_FILL_DOWN = 'rgba(255, 91, 110, 0.14)';
+
+        // ─────────────────────────────────────────────
+        // axisDragZoomPlugin — TradingView-style: drag on right/bottom axis to scale that axis
+        // ─────────────────────────────────────────────
+        const axisDragZoomPlugin = {
+            id: 'axisDragZoom',
+            afterInit(chart) {
+                const canvas = chart.canvas;
+                // mode: null | 'y' (right axis zoom) | 'x' (bottom axis zoom) | 'pan' (chart-area drag)
+                const state = { mode: null, lastX: 0, lastY: 0 };
+
+                const getPos = (e) => {
+                    const rect = canvas.getBoundingClientRect();
+                    const src = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+                    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+                };
+                const inYStrip = (x, y, ca) =>
+                    x >= ca.right - 4 && x <= ca.right + 80 && y >= ca.top && y <= ca.bottom;
+                const inXStrip = (x, y, ca) =>
+                    y >= ca.bottom - 4 && y <= ca.bottom + 60 && x >= ca.left && x <= ca.right;
+                const inChartArea = (x, y, ca) =>
+                    x >= ca.left && x <= ca.right && y >= ca.top && y <= ca.bottom;
+
+                const onDown = (e) => {
+                    if (!chart.chartArea) return;
+                    // Skip multi-touch — let chartjs-plugin-zoom handle pinch
+                    if (e.touches && e.touches.length > 1) return;
+                    const { x, y } = getPos(e);
+                    const ca = chart.chartArea;
+                    if (inYStrip(x, y, ca)) {
+                        state.mode = 'y'; state.lastY = y;
+                        canvas.style.cursor = 'ns-resize';
+                        if (e.cancelable) e.preventDefault();
+                    } else if (inXStrip(x, y, ca)) {
+                        state.mode = 'x'; state.lastX = x;
+                        canvas.style.cursor = 'ew-resize';
+                        if (e.cancelable) e.preventDefault();
+                    } else if (inChartArea(x, y, ca)) {
+                        state.mode = 'pan'; state.lastX = x; state.lastY = y;
+                        canvas.style.cursor = 'grabbing';
+                        if (e.cancelable) e.preventDefault();
+                    }
+                };
+                const onMove = (e) => {
+                    if (!state.mode) return;
+                    const { x, y } = getPos(e);
+                    if (state.mode === 'y') {
+                        const dy = y - state.lastY;
+                        state.lastY = y;
+                        if (chart.zoom) {
+                            const f = Math.max(0.6, Math.min(1.5, 1 - dy / 120));
+                            chart.zoom({ x: 1, y: f });
+                        }
+                    } else if (state.mode === 'x') {
+                        const dx = x - state.lastX;
+                        state.lastX = x;
+                        if (chart.zoom) {
+                            const f = Math.max(0.6, Math.min(1.5, 1 + dx / 120));
+                            chart.zoom({ x: f, y: 1 });
+                        }
+                    } else if (state.mode === 'pan') {
+                        const dx = x - state.lastX;
+                        const dy = y - state.lastY;
+                        state.lastX = x; state.lastY = y;
+                        if (chart.pan) chart.pan({ x: dx, y: dy }, undefined, 'default');
+                    }
+                    if (e.cancelable) e.preventDefault();
+                };
+                const onUp = () => { state.mode = null; canvas.style.cursor = 'grab'; };
+                const onHover = (e) => {
+                    if (state.mode || !chart.chartArea) return;
+                    const { x, y } = getPos(e);
+                    const ca = chart.chartArea;
+                    canvas.style.cursor = inYStrip(x, y, ca) ? 'ns-resize'
+                        : inXStrip(x, y, ca) ? 'ew-resize'
+                        : 'grab';
+                };
+
+                canvas.addEventListener('mousedown', onDown);
+                canvas.addEventListener('mousemove', onHover);
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+                canvas.addEventListener('touchstart', onDown, { passive: false });
+                window.addEventListener('touchmove', onMove, { passive: false });
+                window.addEventListener('touchend', onUp);
+                canvas.style.cursor = 'grab';
+
+                chart._axisDragCleanup = () => {
+                    canvas.removeEventListener('mousedown', onDown);
+                    canvas.removeEventListener('mousemove', onHover);
+                    window.removeEventListener('mousemove', onMove);
+                    window.removeEventListener('mouseup', onUp);
+                    canvas.removeEventListener('touchstart', onDown);
+                    window.removeEventListener('touchmove', onMove);
+                    window.removeEventListener('touchend', onUp);
+                };
+            },
+            beforeDestroy(chart) { if (chart._axisDragCleanup) chart._axisDragCleanup(); }
+        };
+
+        // ─────────────────────────────────────────────
+        // Signal-marker plugins (RSI buy/sell, MACD golden/death)
+        // ─────────────────────────────────────────────
+        const drawSignalArrow = (ctx, x, y, color, dir, text) => {
+            ctx.save();
+            ctx.fillStyle = color;
+            ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            // dir=+1 → arrow pointing up below point (buy); dir=-1 → arrow pointing down above (sell)
+            const off = 9;
+            if (dir > 0) {
+                ctx.moveTo(x, y + 5);
+                ctx.lineTo(x - 5, y + 5 + off);
+                ctx.lineTo(x + 5, y + 5 + off);
+            } else {
+                ctx.moveTo(x, y - 5);
+                ctx.lineTo(x - 5, y - 5 - off);
+                ctx.lineTo(x + 5, y - 5 - off);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            if (text) {
+                ctx.fillStyle = color;
+                ctx.font = 'bold 10px "JetBrains Mono", ui-monospace, monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = dir > 0 ? 'top' : 'bottom';
+                ctx.fillText(text, x, dir > 0 ? y + 5 + off + 3 : y - 5 - off - 3);
+            }
+            ctx.restore();
+        };
+        const signalMarkerPluginFactory = (id, accessor) => ({
+            id,
+            afterDatasetsDraw(chart) {
+                const signals = accessor(chart) || [];
+                const { ctx, chartArea, scales } = chart;
+                if (!chartArea || !scales.x || !scales.y) return;
+                const xType = scales.x.type || '';
+                const useTime = xType.includes('time');
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+                ctx.clip();
+                for (const sig of signals) {
+                    const xVal = useTime && sig.x !== undefined ? sig.x : sig.idx;
+                    const x = scales.x.getPixelForValue(xVal);
+                    const y = scales.y.getPixelForValue(sig.value);
+                    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+                    drawSignalArrow(ctx, x, y, sig.color, sig.dir, sig.text);
+                }
+                ctx.restore();
+            }
+        });
 
         const TechnicalChartModal = ({ symbol, type, onClose }) => {
             const mainCanvasRef = useRef(null);
@@ -3270,11 +3713,14 @@
             const macdCanvasRef = useRef(null);
             const chartsRef = useRef({ main: null, rsi: null, macd: null });
 
-            const [showEMA, setShowEMA] = useState(true);
-            const [showRSI, setShowRSI] = useState(true);
-            const [showMACD, setShowMACD] = useState(true);
-            const [chartMode, setChartMode] = useState('line'); // 'line' | 'candle'
-            const [showFearSignal, setShowFearSignal] = useState(true);
+            const [showHelp, setShowHelp] = useState(false);  // help popup (not persisted)
+            // Indicator visibility — persisted to localStorage so user's choices survive reload
+            const [showEMA, setShowEMA] = useLocalState('tech-show-ema', true);
+            const [showRSI, setShowRSI] = useLocalState('tech-show-rsi', true);
+            const [showMACD, setShowMACD] = useLocalState('tech-show-macd', true);
+            const [chartMode, setChartMode] = useLocalState('tech-chart-mode', 'line'); // 'line' | 'candle'
+            const [timeframe, setTimeframe] = useLocalState('tech-timeframe', '1d'); // '1d' | '1wk'
+            const [showFearSignal, setShowFearSignal] = useLocalState('tech-show-fear', true);
             // Signal source: 'fng' for crypto/US (real F&G index), 'rsi' for TW (use computed RSI)
             const signalSource = (type === 'CRYPTO' || type === 'crypto' || type === 'US') ? 'fng' : 'rsi';
             const [fngHistory, setFngHistory] = useState([]); // [{date, fng}]
@@ -3283,7 +3729,14 @@
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
 
-            // ─── Fetch historical prices via our price-proxy ───
+            // Weekly indicators (EMA 50, MACD 26) need ≥50 bars. When user picks a short range
+            // and switches to weekly, auto-extend the fetch so indicators have enough data.
+            const effectiveHistoryRange = useMemo(() => {
+                if (timeframe !== '1wk') return timeRange;
+                return ['1mo', '3mo', '6mo', '1y'].includes(timeRange) ? '2y' : timeRange;
+            }, [timeframe, timeRange]);
+
+            // ─── Fetch historical prices: crypto → Binance direct, stocks → Yahoo via Supabase proxy ───
             useEffect(() => {
                 if (!symbol) return;
                 let cancelled = false;
@@ -3291,11 +3744,41 @@
                     setLoading(true);
                     setError(null);
                     try {
+                        const apiType = type === 'CRYPTO' || type === 'crypto' ? 'crypto' : 'stock';
+
+                        // ── Crypto: one source, one API — Binance klines (no key, CORS, real daily OHLC) ──
+                        if (apiType === 'crypto') {
+                            const binSym = getBinanceSymbol(symbol);
+                            if (!binSym) {
+                                setError(`不支援的幣種：${symbol}（不在 Binance 上市）`);
+                                setHistory([]);
+                                return;
+                            }
+                            const days = rangeToDays(effectiveHistoryRange);
+                            const limit = Math.min(1000, days + 5);
+                            const binRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=${limit}`);
+                            if (cancelled) return;
+                            if (!binRes.ok) {
+                                setError(`Binance returned ${binRes.status}`);
+                                setHistory([]);
+                                return;
+                            }
+                            const klines = await binRes.json(); // [openTime, open, high, low, close, volume, ...]
+                            const hist = klines.map(k => ({
+                                date: new Date(k[0]).toISOString().slice(0, 10),
+                                price: +k[4],
+                                open: +k[1],
+                                high: +k[2],
+                                low: +k[3],
+                            }));
+                            setHistory(hist);
+                            return;
+                        }
+
+                        // ── Stocks: keep using Supabase proxy → Yahoo ──
                         const proxy = SUPABASE_URL + '/functions/v1/price-proxy';
                         const headers = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY };
-                        const apiType = type === 'CRYPTO' || type === 'crypto' ? 'crypto' : 'stock';
-                        // Crypto on CoinGecko expects slug; assume caller passes lowercase already
-                        const url = `${proxy}?symbols=${encodeURIComponent(symbol)}&type=${apiType}&history=${timeRange}`;
+                        const url = `${proxy}?symbols=${encodeURIComponent(symbol)}&type=${apiType}&history=${effectiveHistoryRange}`;
                         const res = await fetch(url, { headers });
                         const json = await res.json();
                         const item = (json.data || [])[0];
@@ -3303,9 +3786,9 @@
                         if (!item || item.error || !item.history) {
                             setError(item?.error || 'No data');
                             setHistory([]);
-                        } else {
-                            setHistory(item.history);
+                            return;
                         }
+                        setHistory(item.history);
                     } catch (e) {
                         if (!cancelled) setError(String(e));
                     } finally {
@@ -3313,7 +3796,7 @@
                     }
                 })();
                 return () => { cancelled = true; };
-            }, [symbol, type, timeRange]);
+            }, [symbol, type, effectiveHistoryRange]);
 
             // ─── Fetch FNG history (only for crypto/US) ───
             useEffect(() => {
@@ -3321,8 +3804,9 @@
                 let cancelled = false;
                 (async () => {
                     try {
-                        // Days based on timeRange
-                        const days = timeRange === '1mo' ? 30 : timeRange === '3mo' ? 90 : timeRange === '6mo' ? 180 : timeRange === '1y' ? 365 : timeRange === 'max' ? 1825 : 365;
+                        // Days based on effective range (weekly auto-extends)
+                        const r = effectiveHistoryRange;
+                        const days = r === '1mo' ? 30 : r === '3mo' ? 90 : r === '6mo' ? 180 : r === '1y' ? 365 : r === '2y' ? 730 : r === 'max' ? 1825 : 365;
 
                         if (type === 'CRYPTO' || type === 'crypto') {
                             // Alternative.me — CORS-friendly, no key
@@ -3352,11 +3836,16 @@
                     }
                 })();
                 return () => { cancelled = true; };
-            }, [type, timeRange, signalSource]);
+            }, [type, effectiveHistoryRange, signalSource]);
 
             // ─── Compute derived series ───
-            const closes = useMemo(() => history.map(p => p.price), [history]);
-            const labels = useMemo(() => history.map(p => p.date), [history]);
+            // displayHistory = history collapsed to weekly bars if timeframe='1wk', else raw daily
+            const displayHistory = useMemo(
+                () => (timeframe === '1wk' ? aggregateToWeekly(history) : history),
+                [history, timeframe]
+            );
+            const closes = useMemo(() => displayHistory.map(p => p.price), [displayHistory]);
+            const labels = useMemo(() => displayHistory.map(p => p.date), [displayHistory]);
             const emaSeries = useMemo(() => EMA_PERIODS.map(p => computeEMA(closes, p)), [closes]);
             const rsiArr = useMemo(() => {
                 if (closes.length < 15) return [];
@@ -3379,7 +3868,7 @@
                 if (signalSource === 'fng' && fngHistory.length > 0) {
                     // Map each price date to its FNG value (or nearest earlier)
                     const fngDatesSorted = Object.keys(fngByDate).sort();
-                    return history.map(p => {
+                    return displayHistory.map(p => {
                         if (fngByDate[p.date] !== undefined) return fngByDate[p.date];
                         // Find nearest earlier FNG
                         const candidates = fngDatesSorted.filter(d => d <= p.date);
@@ -3389,7 +3878,7 @@
                 }
                 // Fallback: RSI
                 return rsiArr;
-            }, [signalSource, fngHistory, fngByDate, history, rsiArr]);
+            }, [signalSource, fngHistory, fngByDate, displayHistory, rsiArr]);
 
             // Signal point colors — works for both FNG (0~100) and RSI (0~100)
             // Both have the same fear-greed semantic: low = fear/oversold = buy
@@ -3412,17 +3901,73 @@
             }, [signalValues]);
             const macd = useMemo(() => computeMACD(closes), [closes]);
 
+            // RSI buy/sell signals: crossing 30 from below (buy) or 70 from above (sell)
+            const rsiSignals = useMemo(() => {
+                const out = [];
+                for (let i = 1; i < rsiArr.length; i++) {
+                    const p = rsiArr[i - 1], c = rsiArr[i];
+                    if (p === null || c === null || p === undefined || c === undefined) continue;
+                    if (p < 30 && c >= 30) out.push({ idx: i, value: c, color: '#3ce0a8', dir: 1 });
+                    else if (p > 70 && c <= 70) out.push({ idx: i, value: c, color: '#ff5b6e', dir: -1 });
+                }
+                return out;
+            }, [rsiArr]);
+
+            // MACD golden/death cross signals
+            const macdSignals = useMemo(() => {
+                const out = [];
+                for (let i = 1; i < macd.dif.length; i++) {
+                    const p = macd.dif[i - 1], c = macd.dif[i];
+                    const pd = macd.dea[i - 1], cd = macd.dea[i];
+                    if (p === null || c === null || pd === null || cd === null) continue;
+                    if (p <= pd && c > cd) out.push({ idx: i, value: c, color: '#3ce0a8', dir: 1 });
+                    else if (p >= pd && c < cd) out.push({ idx: i, value: c, color: '#ff5b6e', dir: -1 });
+                }
+                return out;
+            }, [macd]);
+
+            // EMA ribbon golden/death cross (fast 20 vs slow 50) → LONG / SHORT on main chart
+            const emaSignals = useMemo(() => {
+                const out = [];
+                if (!emaSeries.length) return out;
+                const fast = emaSeries[0];
+                const slow = emaSeries[emaSeries.length - 1];
+                if (!fast || !slow) return out;
+                for (let i = 1; i < fast.length; i++) {
+                    const pf = fast[i - 1], cf = fast[i];
+                    const ps = slow[i - 1], cs = slow[i];
+                    if (pf == null || cf == null || ps == null || cs == null) continue;
+                    const ts = displayHistory[i] ? new Date(displayHistory[i].date).getTime() : undefined;
+                    if (pf <= ps && cf > cs) {
+                        out.push({ idx: i, x: ts, value: closes[i], color: EMA_TREND_UP, dir: 1, text: 'LONG' });
+                    } else if (pf >= ps && cf < cs) {
+                        out.push({ idx: i, x: ts, value: closes[i], color: EMA_TREND_DOWN, dir: -1, text: 'SHORT' });
+                    }
+                }
+                return out;
+            }, [emaSeries, closes, displayHistory]);
+
+            // Refs so plugin closures always read latest signals
+            const rsiSignalsRef = useRef(rsiSignals);
+            const macdSignalsRef = useRef(macdSignals);
+            const emaSignalsRef = useRef(emaSignals);
+            useEffect(() => { rsiSignalsRef.current = rsiSignals; }, [rsiSignals]);
+            useEffect(() => { macdSignalsRef.current = macdSignals; }, [macdSignals]);
+            useEffect(() => { emaSignalsRef.current = emaSignals; }, [emaSignals]);
+
             // ─── Build/destroy main chart (line or candlestick) ───
             useEffect(() => {
-                if (!mainCanvasRef.current || history.length === 0) return;
+                if (!mainCanvasRef.current || displayHistory.length === 0) return;
                 if (chartsRef.current.main) chartsRef.current.main.destroy();
 
                 const datasets = [];
 
                 if (chartMode === 'candle') {
-                    // K-line dataset
-                    const ohlcData = history
+                    // K-line dataset — dedupe by date (crypto fallback may have multiple intraday points)
+                    const seenDate = new Set();
+                    const ohlcData = displayHistory
                         .filter(p => p.open !== undefined && p.high !== undefined && p.low !== undefined)
+                        .filter(p => { if (seenDate.has(p.date)) return false; seenDate.add(p.date); return true; })
                         .map(p => ({
                             x: new Date(p.date).getTime(),
                             o: p.open, h: p.high, l: p.low, c: p.price
@@ -3431,8 +3976,8 @@
                         label: '價格 K 線',
                         data: ohlcData,
                         type: 'candlestick',
-                        borderColor: { up: '#3ce0a8', down: '#ff7d8c', unchanged: '#999' },
-                        backgroundColor: { up: '#3ce0a8', down: '#ff7d8c', unchanged: '#999' },
+                        color: { up: '#3ce0a8', down: '#ff7d8c', unchanged: '#999' },
+                        borderColor: 'rgba(255,255,255,0.15)',
                         borderWidth: 1,
                         order: 100,
                     });
@@ -3454,25 +3999,46 @@
                     });
                 }
 
-                // EMA overlay (works for both line and candle)
-                if (showEMA) {
+                // EMA overlay — trend color (green when fast>slow, red otherwise) + fill between fast/slow
+                if (showEMA && emaSeries.length) {
+                    const fastSeries = emaSeries[0];
+                    const slowSeries = emaSeries[emaSeries.length - 1];
+                    const trendAt = (i) => {
+                        if (i == null || fastSeries[i] == null || slowSeries[i] == null) return null;
+                        return fastSeries[i] > slowSeries[i];
+                    };
+                    const segmentBorderColor = (ctx) => {
+                        const i = ctx.p1DataIndex;
+                        const t = trendAt(i);
+                        if (t === null) return 'rgba(255,255,255,0.25)';
+                        return t ? EMA_TREND_UP : EMA_TREND_DOWN;
+                    };
+                    const slowOffset = emaSeries.length - 1;
                     emaSeries.forEach((s, i) => {
+                        const isFast = i === 0;
+                        const isSlow = i === slowOffset;
                         const seriesData = chartMode === 'candle'
-                            ? history.map((p, idx) => ({ x: new Date(p.date).getTime(), y: s[idx] }))
+                            ? displayHistory.map((p, idx) => ({ x: new Date(p.date).getTime(), y: s[idx] }))
                             : s;
-                        datasets.push({
+                        const ds = {
                             label: `EMA ${EMA_PERIODS[i]}`,
                             data: seriesData,
                             type: 'line',
-                            borderColor: EMA_COLORS[i],
+                            borderColor: EMA_TREND_UP, // initial; segment override drives real color
                             backgroundColor: 'transparent',
                             fill: false,
                             pointRadius: 0,
                             pointHoverRadius: 3,
-                            borderWidth: 1.5,
+                            borderWidth: isFast || isSlow ? 1.6 : 1,
                             tension: 0.3,
                             order: i,
-                        });
+                            segment: { borderColor: segmentBorderColor },
+                        };
+                        // Fast line fills toward slow line; chart.js picks above/below by relative position
+                        if (isFast) {
+                            ds.fill = { target: '+' + slowOffset, above: EMA_FILL_UP, below: EMA_FILL_DOWN };
+                        }
+                        datasets.push(ds);
                     });
                 }
 
@@ -3486,22 +4052,40 @@
                         interaction: { mode: 'index', intersect: false },
                         plugins: {
                             legend: { display: showEMA, position: 'top', labels: { color: CHART.text, boxWidth: 10, font: { size: 10 } } },
-                            tooltip: { callbacks: { title: (items) => items[0]?.label || (items[0]?.parsed?.x ? new Date(items[0].parsed.x).toISOString().slice(0,10) : '') } }
+                            tooltip: { callbacks: { title: (items) => items[0]?.label || (items[0]?.parsed?.x ? new Date(items[0].parsed.x).toISOString().slice(0,10) : '') } },
+                            zoom: {
+                                pan: { enabled: false }, // pan handled by axisDragZoomPlugin (more reliable across chart types)
+                                zoom: {
+                                    wheel: { enabled: true, speed: 0.1 },
+                                    pinch: { enabled: true },
+                                    mode: 'xy',
+                                },
+                                limits: {
+                                    x: { min: 'original', max: 'original', minRange: 7 * 24 * 60 * 60 * 1000 },
+                                    y: { min: 'original', max: 'original' }
+                                }
+                            }
                         },
                         scales: {
                             x: isCandle
                                 ? { type: 'timeseries', time: { unit: 'day' }, grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: 8, font: { family: "'JetBrains Mono', monospace", size: 10 } } }
                                 : { grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: 8, font: { family: "'JetBrains Mono', monospace", size: 10 } } },
-                            y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, font: { family: "'JetBrains Mono', monospace", size: 10 } } }
+                            y: { position: 'right', grid: { color: CHART.grid }, ticks: { color: CHART.tick, font: { family: "'JetBrains Mono', monospace", size: 10 } } }
                         }
                     },
-                    plugins: isCandle ? [dotGridPlugin] : [dotGridPlugin, lineGlowPlugin, crosshairPlugin]
+                    plugins: (isCandle
+                        ? [dotGridPlugin]
+                        : [dotGridPlugin, lineGlowPlugin, crosshairPlugin]
+                    ).concat([
+                        signalMarkerPluginFactory('emaSignalMarkers', () => showEMA ? emaSignalsRef.current : []),
+                        axisDragZoomPlugin
+                    ])
                 };
 
                 chartsRef.current.main = new window.Chart(mainCanvasRef.current.getContext('2d'), config);
 
                 return () => { if (chartsRef.current.main) { chartsRef.current.main.destroy(); chartsRef.current.main = null; } };
-            }, [closes, history, emaSeries, labels, showEMA, chartMode, showFearSignal, signalPointColors, signalPointRadii]);
+            }, [closes, displayHistory, emaSeries, labels, showEMA, chartMode, showFearSignal, signalPointColors, signalPointRadii]);
 
             // ─── Build RSI sub-chart ───
             useEffect(() => {
@@ -3531,11 +4115,17 @@
                         plugins: {
                             legend: { display: false },
                             annotation: undefined,
-                            tooltip: { callbacks: { title: (items) => items[0].label, label: (it) => `RSI: ${it.parsed.y?.toFixed(1)}` } }
+                            tooltip: { callbacks: { title: (items) => items[0].label, label: (it) => `RSI: ${it.parsed.y?.toFixed(1)}` } },
+                            zoom: {
+                                pan: { enabled: false }, // pan handled by axisDragZoomPlugin (more reliable across chart types)
+                                zoom: { wheel: { enabled: true, speed: 0.1 }, pinch: { enabled: true }, mode: 'xy' },
+                                limits: { y: { min: 0, max: 100 } }
+                            }
                         },
                         scales: {
                             x: { grid: { display: false }, ticks: { display: false } },
                             y: {
+                                position: 'right',
                                 min: 0, max: 100,
                                 grid: { color: CHART.grid },
                                 ticks: { color: CHART.tick, stepSize: 50, font: { family: "'JetBrains Mono', monospace", size: 10 }, callback: (v) => v === 0 || v === 50 || v === 100 ? v : '' }
@@ -3565,7 +4155,7 @@
                             ctx.stroke();
                             ctx.restore();
                         }
-                    }]
+                    }, signalMarkerPluginFactory('rsiSignalMarkers', () => rsiSignalsRef.current), axisDragZoomPlugin]
                 });
                 return () => { if (chartsRef.current.rsi) { chartsRef.current.rsi.destroy(); chartsRef.current.rsi = null; } };
             }, [rsiArr, labels, showRSI]);
@@ -3618,87 +4208,107 @@
                         responsive: true,
                         maintainAspectRatio: false,
                         interaction: { mode: 'index', intersect: false },
-                        plugins: { legend: { display: true, position: 'top', labels: { color: CHART.text, boxWidth: 10, font: { size: 10 } } } },
+                        plugins: {
+                            legend: { display: true, position: 'top', labels: { color: CHART.text, boxWidth: 10, font: { size: 10 } } },
+                            zoom: {
+                                pan: { enabled: false }, // pan handled by axisDragZoomPlugin (more reliable across chart types)
+                                zoom: { wheel: { enabled: true, speed: 0.1 }, pinch: { enabled: true }, mode: 'xy' }
+                            }
+                        },
                         scales: {
                             x: { grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: 8, font: { family: "'JetBrains Mono', monospace", size: 10 } } },
-                            y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, font: { family: "'JetBrains Mono', monospace", size: 10 } } }
+                            y: { position: 'right', grid: { color: CHART.grid }, ticks: { color: CHART.tick, font: { family: "'JetBrains Mono', monospace", size: 10 } } }
                         }
-                    }
+                    },
+                    plugins: [signalMarkerPluginFactory('macdSignalMarkers', () => macdSignalsRef.current), axisDragZoomPlugin]
                 });
                 return () => { if (chartsRef.current.macd) { chartsRef.current.macd.destroy(); chartsRef.current.macd = null; } };
             }, [macd.histogram, macd.dif, macd.dea, labels, showMACD]);
 
-            // ─── Sidebar toggle helper ───
-            const toggleRow = (label, checked, onChange, color) => (
-                <label className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg cursor-pointer hover:bg-white/[0.04]">
-                    <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full" style={{ background: color }}></span>
-                        <span className="text-xs font-semibold text-white">{label}</span>
-                    </div>
-                    <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="accent-lime-400" />
-                </label>
+            // ─── Compact eye-toggle button (TradingView style) ───
+            const EyeToggle = ({ label, checked, onChange, color }) => (
+                <button
+                    onClick={() => onChange(!checked)}
+                    title={label}
+                    className="flex items-center gap-1.5 px-2 h-8 rounded-lg hover:bg-white/[0.06] transition-colors shrink-0"
+                    style={{ border: '1px solid var(--line)', background: checked ? 'rgba(255,255,255,0.04)' : 'transparent' }}
+                >
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: color, opacity: checked ? 1 : 0.3 }}></span>
+                    <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: checked ? 'var(--text)' : 'var(--text-3)' }}>{label}</span>
+                    {checked ? (
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--brand-1)' }}>
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                    ) : (
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-3)' }}>
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                        </svg>
+                    )}
+                </button>
             );
 
             const rangeBtn = (key, label) => (
                 <button
+                    key={key}
                     onClick={() => setTimeRange(key)}
-                    className={`flex-1 px-2 py-1.5 rounded text-[11px] font-bold transition-all ${timeRange === key ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${timeRange === key ? 'pill-grad' : 'hover:bg-white/[0.08]'}`}
                     style={timeRange === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
                 >
                     {label}
                 </button>
             );
 
-            // ─── Layout ───
+            const resetAll = () => {
+                ['main', 'rsi', 'macd'].forEach(k => {
+                    const c = chartsRef.current[k];
+                    if (c && c.resetZoom) c.resetZoom();
+                });
+            };
+
+            // ─── Layout — full-screen, compact topbar, no fixed sidebar ───
             return (
-                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)' }}>
-                    {/* Top bar */}
-                    <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--line)' }}>
-                        <div className="flex items-center gap-3">
-                            <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10" style={{ color: 'var(--text-2)' }}>
-                                ✕
-                            </button>
-                            <div>
-                                <p className="label">TECHNICAL ANALYSIS</p>
-                                <h2 className="text-lg font-extrabold text-white tracking-tight">{symbol}</h2>
+                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh' }}>
+                    {/* Compact top bar with everything inline */}
+                    <div className="shrink-0 flex flex-col gap-2 px-3 md:px-4 pt-3 pb-2" style={{ borderBottom: '1px solid var(--line)' }}>
+                        {/* Row 1 — title + status + help/reset/close */}
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">
+                                    ✕
+                                </button>
+                                <div className="min-w-0">
+                                    <p className="label leading-none">TECHNICAL</p>
+                                    <h2 className="text-base md:text-lg font-extrabold text-white tracking-tight truncate">{symbol}</h2>
+                                </div>
+                                {loading && (
+                                    <div className="hidden sm:flex items-center gap-1.5 text-[10px] ml-2" style={{ color: 'var(--text-3)' }}>
+                                        <RefreshCw className="animate-spin" size={11} />
+                                        載入中
+                                    </div>
+                                )}
+                                {error && <div className="text-[10px] ml-2 truncate" style={{ color: '#ff7d8c' }}>{error}</div>}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                                <button onClick={resetAll}
+                                    className="h-8 px-2 rounded-md text-[10px] mono hover:bg-white/[0.08]"
+                                    style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }} title="重置縮放">
+                                    ⤾ 重置
+                                </button>
+                                <button onClick={() => setShowHelp(true)}
+                                    className="h-8 w-8 rounded-md flex items-center justify-center hover:bg-white/[0.08]"
+                                    style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }} title="說明">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                    </svg>
+                                </button>
                             </div>
                         </div>
-                        {loading && (
-                            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-3)' }}>
-                                <RefreshCw className="animate-spin" size={12} />
-                                載入中...
-                            </div>
-                        )}
-                        {error && (
-                            <div className="text-xs" style={{ color: '#ff7d8c' }}>{error}</div>
-                        )}
-                    </div>
 
-                    {/* Main content: chart area + sidebar */}
-                    <div className="flex-1 flex flex-col md:flex-row min-h-0">
-                        {/* Chart stack */}
-                        <div className="flex-1 p-3 md:p-4 flex flex-col gap-2 min-h-0">
-                            <div className={`relative ${showRSI || showMACD ? 'flex-[2]' : 'flex-1'} min-h-0`}>
-                                <canvas ref={mainCanvasRef}></canvas>
-                            </div>
-                            {showRSI && (
-                                <div className="relative flex-1 min-h-0">
-                                    <div className="absolute top-2 left-2 text-[10px] mono z-10" style={{ color: '#a78bfa' }}>RSI(14)</div>
-                                    <canvas ref={rsiCanvasRef}></canvas>
-                                </div>
-                            )}
-                            {showMACD && (
-                                <div className="relative flex-1 min-h-0">
-                                    <div className="absolute top-2 left-2 text-[10px] mono z-10" style={{ color: 'var(--text-3)' }}>MACD(12,26,9)</div>
-                                    <canvas ref={macdCanvasRef}></canvas>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Sidebar */}
-                        <div className="w-full md:w-64 p-3 md:p-4 overflow-y-auto custom-scrollbar" style={{ borderTop: '1px solid var(--line)', borderLeft: '1px solid var(--line)', background: 'rgba(255,255,255,0.01)' }}>
-                            <p className="label mb-2">時間範圍</p>
-                            <div className="grid grid-cols-5 gap-1 mb-5">
+                        {/* Row 2 — horizontally scrollable toolbar: time range • chart type • indicators */}
+                        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
                                 {rangeBtn('1mo', '1M')}
                                 {rangeBtn('3mo', '3M')}
                                 {rangeBtn('6mo', '6M')}
@@ -3706,58 +4316,76 @@
                                 {rangeBtn('max', 'ALL')}
                             </div>
 
-                            <p className="label mb-2">圖表類型</p>
-                            <div className="grid grid-cols-2 gap-1 p-1 rounded-xl mb-5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
-                                <button
-                                    onClick={() => setChartMode('line')}
-                                    className={`py-1.5 rounded-lg text-[11px] font-bold transition-all ${chartMode === 'line' ? 'pill-grad' : 'hover:bg-white/[0.05]'}`}
-                                    style={chartMode === 'line' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                                >
-                                    折線圖
-                                </button>
-                                <button
-                                    onClick={() => setChartMode('candle')}
-                                    className={`py-1.5 rounded-lg text-[11px] font-bold transition-all ${chartMode === 'candle' ? 'pill-grad' : 'hover:bg-white/[0.05]'}`}
-                                    style={chartMode === 'candle' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                                >
-                                    K 線圖
-                                </button>
+                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+                                <button onClick={() => setChartMode('line')}
+                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${chartMode === 'line' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                    style={chartMode === 'line' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>折線</button>
+                                <button onClick={() => setChartMode('candle')}
+                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${chartMode === 'candle' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                    style={chartMode === 'candle' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>K線</button>
                             </div>
 
-                            <p className="label mb-2">技術指標</p>
-                            <div className="space-y-1 mb-5">
-                                {chartMode === 'line' && toggleRow(
-                                    signalSource === 'fng' ? '恐懼貪婪指數信號 (FNG)' : '恐懼買入信號 (RSI)',
-                                    showFearSignal, setShowFearSignal, '#ff5b6e'
-                                )}
-                                {toggleRow('EMA Ribbon', showEMA, setShowEMA, '#3b82f6')}
-                                {toggleRow('RSI (14)', showRSI, setShowRSI, '#a78bfa')}
-                                {toggleRow('MACD', showMACD, setShowMACD, '#fbbf24')}
+                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }} title="K 線週期">
+                                <button onClick={() => setTimeframe('1d')}
+                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${timeframe === '1d' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                    style={timeframe === '1d' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>日</button>
+                                <button onClick={() => setTimeframe('1wk')}
+                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${timeframe === '1wk' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                    style={timeframe === '1wk' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>週</button>
                             </div>
 
-                            {showEMA && (
-                                <>
-                                    <p className="label mb-2">EMA Ribbon</p>
-                                    <div className="space-y-1 mb-5">
-                                        {EMA_PERIODS.map((p, i) => (
-                                            <div key={p} className="flex items-center gap-2 text-xs px-2 py-1.5">
-                                                <span className="w-2 h-2 rounded-full" style={{ background: EMA_COLORS[i] }}></span>
-                                                <span className="mono" style={{ color: 'var(--text-2)' }}>EMA {p}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </>
+                            <div className="w-px h-6 shrink-0" style={{ background: 'var(--line)' }}></div>
+
+                            {chartMode === 'line' && (
+                                <EyeToggle
+                                    label={signalSource === 'fng' ? 'FNG 信號' : 'RSI 信號'}
+                                    checked={showFearSignal} onChange={setShowFearSignal} color="#ff5b6e"
+                                />
                             )}
-
-                            <div className="text-[10px] mt-4 leading-relaxed" style={{ color: 'var(--text-3)' }}>
-                                <p className="mb-1.5"><strong className="text-white">K 線圖</strong>：綠 = 收紅、紅 = 收黑。同時看開/收/高/低。</p>
-                                <p className="mb-1.5"><strong className="text-white">恐懼信號</strong>：加密/美股用真實 FNG 指數（Alternative.me / CNN），台股用 RSI。值 ≤ 25 紅點、≤ 45 橘點。</p>
-                                <p className="mb-1.5"><strong className="text-white">EMA Ribbon</strong>：多條均線疊加。線整齊上揚 = 強趨勢；纏繞 = 整理。</p>
-                                <p className="mb-1.5"><strong className="text-white">RSI</strong>：&lt;30 超賣（買進）；&gt;70 超買（賣出）。</p>
-                                <p><strong className="text-white">MACD</strong>：DIF 由下穿上 DEA = 黃金交叉買進；反之為死亡交叉賣出。</p>
-                            </div>
+                            <EyeToggle label="EMA Ribbon" checked={showEMA} onChange={setShowEMA} color="#3b82f6" />
+                            <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
+                            <EyeToggle label="MACD" checked={showMACD} onChange={setShowMACD} color="#fbbf24" />
                         </div>
                     </div>
+
+                    {/* Chart stack — full width, vertical scroll fallback on tiny screens */}
+                    <div className="flex-1 min-h-0 p-2 md:p-3 flex flex-col gap-2">
+                        <div className={`relative ${showRSI || showMACD ? 'flex-[2]' : 'flex-1'} min-h-[200px]`}>
+                            <canvas ref={mainCanvasRef}></canvas>
+                        </div>
+                        {showRSI && (
+                            <div className="relative flex-1 min-h-[110px]">
+                                <div className="absolute top-1 left-2 text-[10px] mono z-10 pointer-events-none" style={{ color: '#a78bfa' }}>RSI(14)</div>
+                                <canvas ref={rsiCanvasRef}></canvas>
+                            </div>
+                        )}
+                        {showMACD && (
+                            <div className="relative flex-1 min-h-[110px]">
+                                <div className="absolute top-1 left-2 text-[10px] mono z-10 pointer-events-none" style={{ color: 'var(--text-3)' }}>MACD(12,26,9)</div>
+                                <canvas ref={macdCanvasRef}></canvas>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Help overlay — popup */}
+                    {showHelp && (
+                        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={() => setShowHelp(false)}>
+                            <div className="w-full max-w-sm rounded-2xl p-5 space-y-2" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }} onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="text-sm font-bold text-white">圖表說明</h3>
+                                    <button onClick={() => setShowHelp(false)} className="w-7 h-7 rounded-full hover:bg-white/10" style={{ color: 'var(--text-2)' }}>✕</button>
+                                </div>
+                                <div className="text-[11px] leading-relaxed space-y-1.5" style={{ color: 'var(--text-2)' }}>
+                                    <p><strong className="text-white">操作</strong>：滾輪 / 雙指縮放，拖曳右側價格軸調整縱向、拖曳下方時間軸調整橫向（如 TradingView）。</p>
+                                    <p><strong className="text-white">K 線</strong>：綠 = 收紅、紅 = 收黑。</p>
+                                    <p><strong className="text-white">EMA Ribbon</strong>：5 條均線 20/28/35/43/50，由快到慢顏色漸變。</p>
+                                    <p><strong className="text-white">恐懼信號</strong>：加密/美股用真實 FNG、台股用 RSI；≤ 25 紅點、≤ 45 橘點。</p>
+                                    <p><strong className="text-white">RSI 標記</strong>：上穿 30 ▲ 買進、下破 70 ▼ 賣出。</p>
+                                    <p><strong className="text-white">MACD 標記</strong>：DIF 上穿 DEA ▲ 黃金交叉、下破 ▼ 死亡交叉。</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
@@ -3836,12 +4464,36 @@
                 const enrichStockSymbols = (syms, isTW) =>
                     syms.map(s => isTW && !s.includes('.') ? s + '.TW' : s);
 
+                // Crypto: hit Binance directly (single source, matches the rest of the app and avoids CoinGecko rate limits)
+                const fetchCryptoOne = async (slug) => {
+                    const binSym = getBinanceSymbol(slug);
+                    if (!binSym) return { symbol: slug, error: `不在 Binance: ${slug}` };
+                    try {
+                        const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=400`);
+                        if (!res.ok) return { symbol: slug, error: `Binance ${res.status}` };
+                        const klines = await res.json();
+                        const history = klines.map(k => ({
+                            date: new Date(k[0]).toISOString().slice(0, 10),
+                            price: +k[4], open: +k[1], high: +k[2], low: +k[3],
+                        }));
+                        const last = klines[klines.length - 1];
+                        const prev = klines[klines.length - 2];
+                        return {
+                            symbol: slug,
+                            history,
+                            price: last ? +last[4] : null,
+                            previousClose: prev ? +prev[4] : null,
+                        };
+                    } catch (e) { return { symbol: slug, error: String(e) }; }
+                };
+
                 try {
-                    const [usRes, twRes, cryptoRes] = await Promise.all([
+                    const [usRes, twRes, cryptoData] = await Promise.all([
                         grouped.US.length ? fetch(`${proxy}?symbols=${enrichStockSymbols(grouped.US, false).join(',')}&type=stock&history=1y`, { headers }).then(r => r.json()) : { data: [] },
                         grouped.TW.length ? fetch(`${proxy}?symbols=${enrichStockSymbols(grouped.TW, true).join(',')}&type=stock&history=1y`, { headers }).then(r => r.json()) : { data: [] },
-                        grouped.CRYPTO.length ? fetch(`${proxy}?symbols=${grouped.CRYPTO.map(normalizeCrypto).join(',')}&type=crypto&history=1y`, { headers }).then(r => r.json()) : { data: [] },
+                        grouped.CRYPTO.length ? Promise.all(grouped.CRYPTO.map(s => fetchCryptoOne(normalizeCrypto(s)))) : [],
                     ]);
+                    const cryptoRes = { data: cryptoData };
 
                     const buildItem = (rawSymbol, displaySymbol, type, apiResult) => {
                         if (!apiResult || apiResult.error || !apiResult.history || apiResult.history.length < 14) {
@@ -3931,16 +4583,6 @@
                 );
             };
 
-            const typeChip = (type) => {
-                const styles = {
-                    TW: { bg: 'rgba(255,91,110,0.15)', color: '#ff7d8c', label: '台股' },
-                    US: { bg: 'rgba(59,130,246,0.15)', color: '#7eb6ff', label: '美股' },
-                    CRYPTO: { bg: 'rgba(245,158,11,0.15)', color: '#fbbf24', label: '加密' },
-                };
-                const s = styles[type] || styles.US;
-                return <span className="chip" style={{ background: s.bg, color: s.color }}>{s.label}</span>;
-            };
-
             const formatPrice = (p) => p === null || p === undefined ? '—' : p.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
             // ─── Render ───
@@ -3990,13 +4632,8 @@
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr style={{ borderBottom: '1px solid var(--line)' }}>
-                                        <th className="text-left p-3 label">{headerBtn('symbol', '標的')}</th>
-                                        <th className="text-left p-3 label">類型</th>
-                                        <th className="text-right p-3 label">現價</th>
-                                        <th className="text-right p-3 label">{headerBtn('change', '漲跌%')}</th>
-                                        <th className="text-right p-3 label">1Y 區間</th>
-                                        <th className="text-right p-3 label">{headerBtn('rsi', 'RSI')}</th>
-                                        <th className="text-center p-3 label">
+                                        <th className="text-left p-2 md:p-3 label">{headerBtn('symbol', '標的')}</th>
+                                        <th className="text-left p-2 md:p-3 label">
                                             <span className="inline-flex items-center gap-1.5">
                                                 {headerBtn('signal', '信號')}
                                                 <button
@@ -4009,7 +4646,11 @@
                                                 </button>
                                             </span>
                                         </th>
-                                        <th className="text-right p-3 label"></th>
+                                        <th className="text-right p-2 md:p-3 label">現價</th>
+                                        <th className="text-right p-2 md:p-3 label">{headerBtn('change', '漲跌%')}</th>
+                                        <th className="text-right p-2 md:p-3 label hidden lg:table-cell">1Y 區間</th>
+                                        <th className="text-right p-2 md:p-3 label hidden sm:table-cell">{headerBtn('rsi', 'RSI')}</th>
+                                        <th className="text-right p-2 md:p-3 label"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -4019,7 +4660,7 @@
                                         const positionPct = Math.max(0, Math.min(100, (item.position ?? 0.5) * 100));
                                         return (
                                             <tr key={item.symbol} className="hover:bg-white/[0.02] transition-colors" style={{ borderBottom: '1px solid var(--line)' }}>
-                                                <td className="p-3">
+                                                <td className="p-2 md:p-3">
                                                     <button
                                                         onClick={() => setSelectedChartItem({ symbol: item.displaySymbol || item.symbol, type: item.type })}
                                                         className="font-bold text-white hover:text-grad text-left"
@@ -4027,12 +4668,18 @@
                                                         {item.symbol}
                                                     </button>
                                                 </td>
-                                                <td className="p-3">{typeChip(item.type)}</td>
-                                                <td className="p-3 text-right mono">${formatPrice(item.price)}</td>
-                                                <td className="p-3 text-right mono font-semibold" style={{ color: changeUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                                <td className="p-2 md:p-3">
+                                                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] md:text-[11px] font-bold whitespace-nowrap" style={{ background: signal.color + '22', color: signal.color }}>
+                                                        <span>{signal.emoji}</span>
+                                                        <span>{signal.label}</span>
+                                                    </div>
+                                                    <div className="text-[10px] mono mt-0.5 hidden md:block" style={{ color: 'var(--text-3)' }}>{signal.advice}</div>
+                                                </td>
+                                                <td className="p-2 md:p-3 text-right mono">${formatPrice(item.price)}</td>
+                                                <td className="p-2 md:p-3 text-right mono font-semibold" style={{ color: changeUp ? '#3ce0a8' : '#ff7d8c' }}>
                                                     {changeUp ? '+' : ''}{item.changePercent?.toFixed(2) ?? '—'}%
                                                 </td>
-                                                <td className="p-3 text-right">
+                                                <td className="p-2 md:p-3 text-right hidden lg:table-cell">
                                                     <div className="flex items-center justify-end gap-2">
                                                         <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>{positionPct.toFixed(0)}%</span>
                                                         <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
@@ -4043,17 +4690,10 @@
                                                         </div>
                                                     </div>
                                                 </td>
-                                                <td className="p-3 text-right mono font-bold" style={{ color: signal.color }}>
+                                                <td className="p-2 md:p-3 text-right mono font-bold hidden sm:table-cell" style={{ color: signal.color }}>
                                                     {item.rsi !== null ? item.rsi.toFixed(1) : '—'}
                                                 </td>
-                                                <td className="p-3 text-center">
-                                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold" style={{ background: signal.color + '22', color: signal.color }}>
-                                                        <span>{signal.emoji}</span>
-                                                        <span>{signal.label}</span>
-                                                    </div>
-                                                    <div className="text-[10px] mono mt-0.5" style={{ color: 'var(--text-3)' }}>{signal.advice}</div>
-                                                </td>
-                                                <td className="p-3 text-right">
+                                                <td className="p-2 md:p-3 text-right">
                                                     <button
                                                         onClick={() => handleDelete(item.symbol)}
                                                         className="p-1 rounded hover:bg-red-500/20 transition-colors"

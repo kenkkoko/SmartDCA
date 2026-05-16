@@ -1,15 +1,16 @@
-// Price proxy — Yahoo Finance + CoinMarketCap unified endpoint
-// Supports current quote OR historical price series.
+// Price proxy — Yahoo Finance (stocks) + Binance (crypto) unified endpoint
+// Single source per asset class. No API keys required (anon Supabase key still
+// guards the function, but no third-party secrets are needed).
 //
 // Usage:
 //   Current price (single symbol or batch):
 //     GET /functions/v1/price-proxy?symbols=0050.TW,AAPL&type=stock
 //     GET /functions/v1/price-proxy?symbols=bitcoin,ethereum&type=crypto
 //
-//   Historical series:
+//   Historical series (daily OHLC + close):
 //     GET /functions/v1/price-proxy?symbols=0050.TW&type=stock&history=1y
+//     GET /functions/v1/price-proxy?symbols=bitcoin&type=crypto&history=2y
 //     range: 1mo | 3mo | 6mo | 1y | 2y | 5y | max
-//     interval: 1d (default), 1wk, 1mo
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -113,9 +114,35 @@ async function getStockPrice(
 }
 
 // ─────────────────────────────────────────────
-// CoinMarketCap — for crypto (current only for now)
-// Historical needs CMC paid plan; fallback to CoinGecko free historical
+// Crypto — Binance public API
+// • Klines for historical OHLC (true daily, no key, CORS-friendly)
+// • ticker/24hr for current price + 24h change
+// CoinGecko slug → Binance USDT pair. Keep this in sync with index.html.
 // ─────────────────────────────────────────────
+const COIN_TO_BINANCE: Record<string, string> = {
+  bitcoin: "BTCUSDT", ethereum: "ETHUSDT", solana: "SOLUSDT", binancecoin: "BNBUSDT",
+  ripple: "XRPUSDT", cardano: "ADAUSDT", dogecoin: "DOGEUSDT", polkadot: "DOTUSDT",
+  "avalanche-2": "AVAXUSDT", tron: "TRXUSDT", chainlink: "LINKUSDT",
+  "matic-network": "MATICUSDT", litecoin: "LTCUSDT", "shiba-inu": "SHIBUSDT",
+  cosmos: "ATOMUSDT", uniswap: "UNIUSDT", near: "NEARUSDT", aptos: "APTUSDT",
+  sui: "SUIUSDT", arbitrum: "ARBUSDT", optimism: "OPUSDT", filecoin: "FILUSDT",
+  "internet-computer": "ICPUSDT", stellar: "XLMUSDT", "bitcoin-cash": "BCHUSDT",
+  algorand: "ALGOUSDT", vechain: "VETUSDT", "the-graph": "GRTUSDT",
+  aave: "AAVEUSDT", maker: "MKRUSDT", tezos: "XTZUSDT", monero: "XMRUSDT",
+  pepe: "PEPEUSDT", floki: "FLOKIUSDT", bonk: "BONKUSDT",
+  ondo: "ONDOUSDT", injective: "INJUSDT", sei: "SEIUSDT", kaspa: "KASUSDT",
+  "render-token": "RNDRUSDT", "fetch-ai": "FETUSDT", worldcoin: "WLDUSDT",
+  "ethereum-classic": "ETCUSDT", "hedera-hashgraph": "HBARUSDT",
+};
+
+function getBinanceSymbol(slug: string): string | null {
+  const lower = slug.toLowerCase();
+  if (COIN_TO_BINANCE[lower]) return COIN_TO_BINANCE[lower];
+  // Heuristic: short alphanumeric (likely a ticker like 'pepe') → try LOWERUSDT
+  if (/^[a-z0-9]{2,7}$/.test(lower)) return lower.toUpperCase() + "USDT";
+  return null;
+}
+
 async function getCryptoPrice(
   symbol: string,
   historyRange?: string
@@ -129,80 +156,58 @@ async function getCryptoPrice(
     currency: "USD",
   } as PriceResult;
 
-  // For history, use CoinGecko free public API
-  if (historyRange) {
-    try {
+  const binSym = getBinanceSymbol(symbol);
+  if (!binSym) {
+    return { ...base, error: `Unsupported symbol on Binance: ${symbol}` };
+  }
+
+  try {
+    if (historyRange) {
       const days =
-        historyRange === "1mo"
-          ? 30
-          : historyRange === "3mo"
-          ? 90
-          : historyRange === "6mo"
-          ? 180
-          : historyRange === "1y"
-          ? 365
-          : historyRange === "2y"
-          ? 730
-          : historyRange === "5y"
-          ? 1825
-          : 365;
-      const cgUrl = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(
-        symbol.toLowerCase()
-      )}/market_chart?vs_currency=usd&days=${days}&interval=daily`;
-      const r = await fetch(cgUrl, {
-        headers: { Accept: "application/json" },
-      });
-      if (!r.ok) {
-        return { ...base, error: `CoinGecko returned ${r.status}` };
-      }
-      const data = await r.json();
-      const prices: [number, number][] = data?.prices || [];
-      const history = prices.map(([ts, price]) => ({
-        date: new Date(ts).toISOString().slice(0, 10),
-        price,
+        historyRange === "1mo" ? 30 :
+        historyRange === "3mo" ? 90 :
+        historyRange === "6mo" ? 180 :
+        historyRange === "1y" ? 365 :
+        historyRange === "2y" ? 730 :
+        historyRange === "5y" ? 1825 :
+        historyRange === "max" ? 1825 : 365;
+      const limit = Math.min(1000, days + 5);
+      const url = `https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=${limit}`;
+      const r = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!r.ok) return { ...base, error: `Binance returned ${r.status}` };
+      const klines: any[] = await r.json();
+      const history = klines.map((k: any[]) => ({
+        date: new Date(k[0]).toISOString().slice(0, 10),
+        price: +k[4],
+        open: +k[1],
+        high: +k[2],
+        low: +k[3],
       }));
-      const last = prices[prices.length - 1];
-      const prev = prices[prices.length - 2];
+      const last = klines[klines.length - 1];
+      const prev = klines[klines.length - 2];
       return {
         ...base,
         symbol: symbol.toLowerCase(),
-        price: last ? last[1] : null,
-        previousClose: prev ? prev[1] : null,
-        change: last && prev ? last[1] - prev[1] : null,
-        changePercent: last && prev ? ((last[1] - prev[1]) / prev[1]) * 100 : null,
+        price: last ? +last[4] : null,
+        previousClose: prev ? +prev[4] : null,
+        change: last && prev ? +last[4] - +prev[4] : null,
+        changePercent: last && prev ? ((+last[4] - +prev[4]) / +prev[4]) * 100 : null,
         currency: "USD",
         history,
       };
-    } catch (e) {
-      return { ...base, error: String(e) };
     }
-  }
 
-  // Current quote via CMC
-  const CMC_API_KEY = Deno.env.get("CMC_API_KEY");
-  if (!CMC_API_KEY) {
-    return { ...base, error: "CMC_API_KEY not configured" };
-  }
-  try {
+    // Current quote — Binance 24h ticker
     const r = await fetch(
-      `https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?slug=${encodeURIComponent(
-        symbol.toLowerCase()
-      )}`,
-      {
-        headers: { "X-CMC_PRO_API_KEY": CMC_API_KEY, Accept: "application/json" },
-      }
+      `https://api.binance.com/api/v3/ticker/24hr?symbol=${binSym}`,
+      { headers: { Accept: "application/json" } }
     );
-    if (!r.ok) return { ...base, error: `CMC returned ${r.status}` };
-    const data = await r.json();
-    const coin = data?.data && (Object.values(data.data)[0] as any);
-    if (!coin) return { ...base, error: "Symbol not found" };
-    const price = coin.quote?.USD?.price ?? null;
-    const changePercent = coin.quote?.USD?.percent_change_24h ?? null;
-    const prev =
-      price !== null && changePercent !== null
-        ? price / (1 + changePercent / 100)
-        : null;
-    const change = price !== null && prev !== null ? price - prev : null;
+    if (!r.ok) return { ...base, error: `Binance returned ${r.status}` };
+    const d = await r.json();
+    const price = +d.lastPrice;
+    const change = +d.priceChange;
+    const changePercent = +d.priceChangePercent;
+    const prev = price - change;
     return {
       symbol: symbol.toLowerCase(),
       price,

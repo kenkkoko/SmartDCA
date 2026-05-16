@@ -1,8 +1,8 @@
-// Smart DCA Service Worker — v2 (cache shell for PWA installability)
+// Smart DCA Service Worker — v3 (Binance migration; bumped to invalidate v2 cache)
 // - Push notification support (JSON or plain text)
 // - Network-first fetch with offline fallback (required by Chrome to install PWA)
 
-const CACHE_NAME = "smartdca-v2";
+const CACHE_NAME = "smartdca-v3";
 const SHELL_FILES = [
     "./",
     "./index.html",
