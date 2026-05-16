@@ -3092,10 +3092,48 @@
         };
 
         // --- Watchlist Dashboard Feature ---
+        // ─────────────────────────────────────────────
+        // Shared RSI helper (used by Watchlist + future Insights)
+        // ─────────────────────────────────────────────
+        const computeRSI = (closes, period = 14) => {
+            if (!closes || closes.length < period + 1) return null;
+            let gains = 0, losses = 0;
+            for (let i = 1; i <= period; i++) {
+                const d = closes[i] - closes[i - 1];
+                if (d > 0) gains += d; else losses -= d;
+            }
+            let avgGain = gains / period;
+            let avgLoss = losses / period;
+            // Smoothed RSI for the rest
+            for (let i = period + 1; i < closes.length; i++) {
+                const d = closes[i] - closes[i - 1];
+                const gain = d > 0 ? d : 0;
+                const loss = d < 0 ? -d : 0;
+                avgGain = (avgGain * (period - 1) + gain) / period;
+                avgLoss = (avgLoss * (period - 1) + loss) / period;
+            }
+            if (avgLoss === 0) return 100;
+            const rs = avgGain / avgLoss;
+            return 100 - 100 / (1 + rs);
+        };
+
+        // Signal helper: RSI → action
+        const getRsiSignal = (rsi) => {
+            if (rsi === null || rsi === undefined) return { label: '—', emoji: '⚪', color: 'var(--text-3)', advice: '計算中' };
+            if (rsi <= 25)  return { label: '強力加碼', emoji: '🔥', color: '#3ce0a8', advice: '極度超賣' };
+            if (rsi <= 35)  return { label: '加碼',     emoji: '🟢', color: '#84d76a', advice: '接近超賣' };
+            if (rsi <= 55)  return { label: '持有',     emoji: '⚪', color: 'var(--text-2)', advice: '中性區間' };
+            if (rsi <= 70)  return { label: '觀望',     emoji: '⚪', color: 'var(--text-2)', advice: '中性區間' };
+            if (rsi <= 80)  return { label: '警示',     emoji: '🟡', color: '#fbbf24', advice: '接近超買' };
+            return { label: '賣出', emoji: '🔴', color: '#ff7d8c', advice: '極度超買' };
+        };
+
         const WatchlistDashboard = ({ watchlist, onUpdateWatchlist, isPremium, user }) => {
             const [assetsData, setAssetsData] = useState([]);
             const [loading, setLoading] = useState(true);
-            const [selectedChartItem, setSelectedChartItem] = useState(null); // { symbol, type }
+            const [selectedChartItem, setSelectedChartItem] = useState(null);
+            const [sortKey, setSortKey] = useState('signal'); // signal | symbol | change | rsi
+            const [sortDir, setSortDir] = useState('asc');
 
             if (!isPremium) {
                 return (
@@ -3107,9 +3145,9 @@
                             </div>
                         </div>
                         <div>
-                            <h2 className="text-3xl font-bold text-white mb-2">解鎖我的自選儀表板</h2>
+                            <h2 className="text-3xl font-bold text-white mb-2">解鎖我的觀察清單</h2>
                             <p className="text-slate-400 max-w-md mx-auto">
-                                升級至 Premium 會員，即可建立專屬的跨市場投資組合，並獲得即時 DCA 策略建議。
+                                升級至 Premium 會員，即可建立跨市場觀察清單，並獲得 RSI 即時信號與 DCA 策略建議。
                             </p>
                         </div>
                         <button
@@ -3126,13 +3164,7 @@
                 );
             }
 
-            // Helper: Format Price
-            const formatPrice = (price) => {
-                if (price === null || price === undefined) return '0.00';
-                return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            };
-
-            // Helper: Classify Asset Type
+            // ─── Asset classification ───
             const classifyAsset = (symbol) => {
                 if (symbol.toUpperCase().includes('.TW') || /^\d+$/.test(symbol)) return 'TW';
                 const commonCryptos = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'TRX', 'LINK', 'MATIC', 'LTC', 'BITCOIN', 'ETHEREUM', 'SOLANA'];
@@ -3141,16 +3173,13 @@
                 return 'UNKNOWN';
             };
 
-            // Helper: DCA Strategy
-            const calculateDCAStrategy = (current, low, high) => {
-                if (!current || !low || !high) return { action: "N/A", color: "text-slate-500", bg: "bg-slate-800" };
-                const position = (current - low) / (high - low);
-                if (position < 0.2) return { action: "強力買入區", color: "text-green-400", bg: "bg-green-900/30", icon: "🟢" };
-                if (position < 0.4) return { action: "分批買入區", color: "text-yellow-400", bg: "bg-yellow-900/30", icon: "🟡" };
-                if (position > 0.8) return { action: "高風險/止盈區", color: "text-red-400", bg: "bg-red-900/30", icon: "🔴" };
-                return { action: "觀望區", color: "text-slate-400", bg: "bg-slate-800", icon: "⚪" };
+            // Crypto slug normalization (BTC → bitcoin)
+            const normalizeCrypto = (symbol) => {
+                const map = { BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binancecoin', XRP: 'ripple', ADA: 'cardano', DOGE: 'dogecoin', AVAX: 'avalanche-2', DOT: 'polkadot', TRX: 'tron', LINK: 'chainlink', MATIC: 'matic-network', LTC: 'litecoin' };
+                return map[symbol.toUpperCase()] || symbol.toLowerCase();
             };
 
+            // ─── Fetch via price-proxy with 1y history (so we can compute RSI + range position) ───
             const fetchData = async () => {
                 if (!watchlist || watchlist.length === 0) {
                     setAssetsData([]);
@@ -3158,152 +3187,241 @@
                     return;
                 }
                 setLoading(true);
-                const results = [];
 
-                // Group by type for efficiency (optional, but good for batching if APIs supported it)
-                // Here we just iterate and fetch parallel
-                const promises = watchlist.map(async (symbol) => {
-                    const type = classifyAsset(symbol);
-                    try {
-                        let data = { symbol, type, price: null, high: null, low: null, change: null };
+                const proxy = `${SUPABASE_URL}/functions/v1/price-proxy`;
+                const headers = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY };
 
-                        if (type === 'US' || type === 'TW') {
-                            // Yahoo Finance Logic
-                            const yfSymbol = type === 'TW' && !symbol.includes('.') ? `${symbol}.TW` : symbol;
-                            // Need range=1y to get high/low
-                            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1d&range=1y`;
-                            const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(url));
-                            const json = await res.json();
-                            const result = json.chart.result[0];
-                            const quote = result.indicators.quote[0];
-                            const closes = quote.close.filter(x => x !== null);
-
-                            if (closes.length > 0) {
-                                data.price = result.meta.regularMarketPrice;
-                                data.changePercent = ((data.price - result.meta.chartPreviousClose) / result.meta.chartPreviousClose) * 100;
-                                data.high = Math.max(...closes);
-                                data.low = Math.min(...closes);
-                            }
-                        } else if (type === 'CRYPTO') {
-                            // CoinGecko Logic for history (High/Low) + Simple Price
-                            // Need ID mapping logic or search. For "common" ones, we guess ID.
-                            // Simple mapping for common ones to avoid search overhead:
-                            const map = { 'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'DOGE': 'dogecoin', 'BITCOIN': 'bitcoin' };
-                            let id = map[symbol.toUpperCase()] || symbol.toLowerCase();
-
-                            // 1. Get Price & 24h Change
-                            const priceRes = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd&include_24hr_change=true`);
-                            const priceJson = await priceRes.json();
-
-                            if (priceJson[id]) {
-                                data.price = priceJson[id].usd;
-                                data.changePercent = priceJson[id].usd_24h_change;
-
-                                // 2. Get 1Y High/Low (Market Chart)
-                                const histRes = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=365`);
-                                const histJson = await histRes.json();
-                                if (histJson.prices) {
-                                    const prices = histJson.prices.map(p => p[1]);
-                                    data.high = Math.max(...prices);
-                                    data.low = Math.min(...prices);
-                                }
-                            }
-                        }
-                        return data;
-                    } catch (e) {
-                        console.error(`Error fetching ${symbol}:`, e);
-                        return { symbol, error: true };
-                    }
+                // Group by type for batch fetch
+                const grouped = { US: [], TW: [], CRYPTO: [] };
+                watchlist.forEach(sym => {
+                    const t = classifyAsset(sym);
+                    if (grouped[t]) grouped[t].push(sym);
                 });
 
-                const fetchedData = await Promise.all(promises);
-                setAssetsData(fetchedData.filter(d => !d.error));
-                setLoading(false);
+                const enrichStockSymbols = (syms, isTW) =>
+                    syms.map(s => isTW && !s.includes('.') ? s + '.TW' : s);
+
+                try {
+                    const [usRes, twRes, cryptoRes] = await Promise.all([
+                        grouped.US.length ? fetch(`${proxy}?symbols=${enrichStockSymbols(grouped.US, false).join(',')}&type=stock&history=1y`, { headers }).then(r => r.json()) : { data: [] },
+                        grouped.TW.length ? fetch(`${proxy}?symbols=${enrichStockSymbols(grouped.TW, true).join(',')}&type=stock&history=1y`, { headers }).then(r => r.json()) : { data: [] },
+                        grouped.CRYPTO.length ? fetch(`${proxy}?symbols=${grouped.CRYPTO.map(normalizeCrypto).join(',')}&type=crypto&history=1y`, { headers }).then(r => r.json()) : { data: [] },
+                    ]);
+
+                    const buildItem = (rawSymbol, displaySymbol, type, apiResult) => {
+                        if (!apiResult || apiResult.error || !apiResult.history || apiResult.history.length < 14) {
+                            return { symbol: rawSymbol, type, error: apiResult?.error || 'no data' };
+                        }
+                        const closes = apiResult.history.map(p => p.price);
+                        const high = Math.max(...closes);
+                        const low = Math.min(...closes);
+                        const price = apiResult.price ?? closes[closes.length - 1];
+                        const prev = apiResult.previousClose ?? closes[closes.length - 2];
+                        const changePercent = (price !== null && prev) ? ((price - prev) / prev) * 100 : null;
+                        const rsi = computeRSI(closes, 14);
+                        return {
+                            symbol: rawSymbol,
+                            displaySymbol,
+                            type,
+                            price,
+                            changePercent,
+                            high,
+                            low,
+                            rsi,
+                            position: (high - low) > 0 ? (price - low) / (high - low) : 0.5,
+                        };
+                    };
+
+                    const items = [];
+                    grouped.US.forEach((s, i) => items.push(buildItem(s, s, 'US', (usRes.data || [])[i])));
+                    grouped.TW.forEach((s, i) => {
+                        const enriched = enrichStockSymbols([s], true)[0];
+                        const apiItem = (twRes.data || []).find(d => d.symbol === enriched);
+                        items.push(buildItem(s, enriched, 'TW', apiItem));
+                    });
+                    grouped.CRYPTO.forEach((s, i) => {
+                        const slug = normalizeCrypto(s);
+                        const apiItem = (cryptoRes.data || []).find(d => d.symbol === slug);
+                        items.push(buildItem(s, slug, 'CRYPTO', apiItem));
+                    });
+
+                    setAssetsData(items.filter(it => !it.error));
+                } catch (e) {
+                    console.error('Watchlist fetch failed:', e);
+                } finally {
+                    setLoading(false);
+                }
             };
 
-            useEffect(() => {
-                fetchData();
-            }, [watchlist]);
+            useEffect(() => { fetchData(); }, [JSON.stringify(watchlist)]);
 
             const handleDelete = (symbol) => {
-                const newList = watchlist.filter(s => s !== symbol);
-                onUpdateWatchlist(newList);
+                if (!confirm(`移除「${symbol}」？`)) return;
+                onUpdateWatchlist(watchlist.filter(s => s !== symbol));
             };
 
+            // Sort logic
+            const sortedAssets = useMemo(() => {
+                if (!assetsData.length) return [];
+                const arr = [...assetsData];
+                arr.sort((a, b) => {
+                    let av, bv;
+                    if (sortKey === 'symbol') { av = a.symbol; bv = b.symbol; }
+                    else if (sortKey === 'change') { av = a.changePercent ?? 0; bv = b.changePercent ?? 0; }
+                    else if (sortKey === 'rsi') { av = a.rsi ?? 50; bv = b.rsi ?? 50; }
+                    else if (sortKey === 'signal') {
+                        // Lower RSI = stronger buy signal → sort ascending (best buy first)
+                        av = a.rsi ?? 50; bv = b.rsi ?? 50;
+                    } else { av = a.symbol; bv = b.symbol; }
+                    if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+                    return sortDir === 'asc' ? av - bv : bv - av;
+                });
+                return arr;
+            }, [assetsData, sortKey, sortDir]);
+
+            const headerBtn = (key, label) => {
+                const active = sortKey === key;
+                return (
+                    <button
+                        onClick={() => {
+                            if (active) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+                            else { setSortKey(key); setSortDir(key === 'signal' || key === 'rsi' ? 'asc' : 'desc'); }
+                        }}
+                        className="flex items-center gap-1 hover:text-white transition-colors"
+                        style={{ color: active ? 'var(--brand-1)' : 'var(--text-3)' }}
+                    >
+                        {label}
+                        {active && (sortDir === 'asc' ? <ArrowUp size={10} /> : <ArrowDown size={10} />)}
+                    </button>
+                );
+            };
+
+            const typeChip = (type) => {
+                const styles = {
+                    TW: { bg: 'rgba(255,91,110,0.15)', color: '#ff7d8c', label: '台股' },
+                    US: { bg: 'rgba(59,130,246,0.15)', color: '#7eb6ff', label: '美股' },
+                    CRYPTO: { bg: 'rgba(245,158,11,0.15)', color: '#fbbf24', label: '加密' },
+                };
+                const s = styles[type] || styles.US;
+                return <span className="chip" style={{ background: s.bg, color: s.color }}>{s.label}</span>;
+            };
+
+            const formatPrice = (p) => p === null || p === undefined ? '—' : p.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+            // ─── Render ───
             if (loading) return <div className="flex justify-center py-20"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>;
 
             if (!watchlist || watchlist.length === 0) return (
-                <div className="text-center py-20 text-slate-500">
-                    <Sparkles size={48} className="mx-auto mb-4 opacity-50" />
-                    <h3 className="text-xl font-bold text-slate-300">您的自選清單是空的</h3>
-                    <p className="mt-2 text-sm">請前往 Crypto / 美股 / 台股 分頁，點擊標題旁的星星圖示加入自選股。</p>
+                <div className="rounded-2xl ring-soft p-10 text-center relative overflow-hidden" style={{ background: 'var(--surface)' }}>
+                    <div className="absolute inset-0 dotgrid opacity-40 pointer-events-none"></div>
+                    <div className="relative">
+                        <Sparkles size={48} className="mx-auto mb-4 opacity-50" style={{ color: 'var(--text-3)' }} />
+                        <h3 className="text-xl font-bold text-white">觀察清單是空的</h3>
+                        <p className="mt-2 text-sm" style={{ color: 'var(--text-2)' }}>到加密 / 美股 / 台股 dashboard 點標題旁的星星圖示加入</p>
+                    </div>
                 </div>
             );
 
             return (
                 <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {assetsData.map((item) => {
-                            const strategy = calculateDCAStrategy(item.price, item.low, item.high);
-                            return (
-                                <div
-                                    key={item.symbol}
-                                    className="bg-slate-900 rounded-2xl border border-slate-700 p-5 relative group hover:border-blue-500 transition-colors cursor-pointer"
-                                    onClick={() => setSelectedChartItem({ symbol: item.symbol, type: item.type })}
-                                >
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); handleDelete(item.symbol); }}
-                                        className="absolute top-4 right-4 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 z-10"
-                                    >
-                                        ✕
-                                    </button>
+                    {/* Stats header */}
+                    <div className="rounded-2xl ring-soft p-4 flex items-center justify-between flex-wrap gap-3 mb-4" style={{ background: 'var(--surface)' }}>
+                        <div className="flex items-center gap-6 text-xs flex-wrap">
+                            <div>
+                                <p className="label">追蹤中</p>
+                                <p className="text-xl font-extrabold text-white num mt-0.5">{assetsData.length}</p>
+                            </div>
+                            <div>
+                                <p className="label">買進信號</p>
+                                <p className="text-xl font-extrabold num mt-0.5" style={{ color: '#3ce0a8' }}>
+                                    {assetsData.filter(a => a.rsi !== null && a.rsi <= 35).length}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="label">賣出警示</p>
+                                <p className="text-xl font-extrabold num mt-0.5" style={{ color: '#ff7d8c' }}>
+                                    {assetsData.filter(a => a.rsi !== null && a.rsi >= 70).length}
+                                </p>
+                            </div>
+                        </div>
+                        <button onClick={fetchData} className="px-3 py-2 rounded-xl text-xs font-semibold transition-colors" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }} title="重新整理">
+                            <RefreshCw size={14} />
+                        </button>
+                    </div>
 
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <span className="text-xs font-bold px-2 py-1 bg-slate-800 rounded text-slate-400">{item.type}</span>
-                                        <h3 className="text-xl font-bold text-white tracking-widest">{item.symbol}</h3>
-                                    </div>
-
-                                    <div className="flex items-baseline gap-2 mb-4">
-                                        <span className="text-2xl font-mono text-white">${formatPrice(item.price)}</span>
-                                        {item.changePercent !== undefined && (
-                                            <span className={`text-sm font-bold ${item.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                                {item.changePercent > 0 ? '+' : ''}{item.changePercent.toFixed(2)}%
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-400 mb-4 bg-slate-800/50 p-3 rounded-lg">
-                                        <div>
-                                            <div className="opacity-70">1Y High</div>
-                                            <div className="font-mono text-slate-200">${formatPrice(item.high)}</div>
-                                        </div>
-                                        <div>
-                                            <div className="opacity-70">1Y Low</div>
-                                            <div className="font-mono text-slate-200">${formatPrice(item.low)}</div>
-                                        </div>
-                                    </div>
-
-                                    <div className={`flex items-center justify-between px-3 py-2 rounded-lg ${strategy.bg} border border-white/5`}>
-                                        <div className="flex items-center gap-2">
-                                            <span>{strategy.icon}</span>
-                                            <span className={`font-bold ${strategy.color}`}>{strategy.action}</span>
-                                        </div>
-                                        {/* Position Bar */}
-                                        {item.high && item.low && (
-                                            <div className="w-16 h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                                                <div
-                                                    className={`h-full ${strategy.color.replace('text-', 'bg-')}`}
-                                                    style={{ width: `${Math.max(0, Math.min(100, ((item.price - item.low) / (item.high - item.low)) * 100))}%` }}
-                                                ></div>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="mt-3 text-xs text-center text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        點擊查看趨勢圖表 ↗
-                                    </div>
-                                </div>
-                            );
-                        })}
+                    {/* Table */}
+                    <div className="rounded-2xl ring-soft overflow-hidden" style={{ background: 'var(--surface)' }}>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                                        <th className="text-left p-3 label">{headerBtn('symbol', '標的')}</th>
+                                        <th className="text-left p-3 label">類型</th>
+                                        <th className="text-right p-3 label">現價</th>
+                                        <th className="text-right p-3 label">{headerBtn('change', '漲跌%')}</th>
+                                        <th className="text-right p-3 label">1Y 區間</th>
+                                        <th className="text-right p-3 label">{headerBtn('rsi', 'RSI')}</th>
+                                        <th className="text-center p-3 label">{headerBtn('signal', '信號')}</th>
+                                        <th className="text-right p-3 label"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {sortedAssets.map((item) => {
+                                        const signal = getRsiSignal(item.rsi);
+                                        const changeUp = (item.changePercent ?? 0) >= 0;
+                                        const positionPct = Math.max(0, Math.min(100, (item.position ?? 0.5) * 100));
+                                        return (
+                                            <tr key={item.symbol} className="hover:bg-white/[0.02] transition-colors" style={{ borderBottom: '1px solid var(--line)' }}>
+                                                <td className="p-3">
+                                                    <button
+                                                        onClick={() => setSelectedChartItem({ symbol: item.displaySymbol || item.symbol, type: item.type })}
+                                                        className="font-bold text-white hover:text-grad text-left"
+                                                    >
+                                                        {item.symbol}
+                                                    </button>
+                                                </td>
+                                                <td className="p-3">{typeChip(item.type)}</td>
+                                                <td className="p-3 text-right mono">${formatPrice(item.price)}</td>
+                                                <td className="p-3 text-right mono font-semibold" style={{ color: changeUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                                    {changeUp ? '+' : ''}{item.changePercent?.toFixed(2) ?? '—'}%
+                                                </td>
+                                                <td className="p-3 text-right">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>{positionPct.toFixed(0)}%</span>
+                                                        <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                                                            <div className="h-full rounded-full" style={{
+                                                                width: positionPct + '%',
+                                                                background: positionPct < 30 ? '#3ce0a8' : positionPct > 70 ? '#ff7d8c' : '#fbbf24'
+                                                            }}></div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="p-3 text-right mono font-bold" style={{ color: signal.color }}>
+                                                    {item.rsi !== null ? item.rsi.toFixed(1) : '—'}
+                                                </td>
+                                                <td className="p-3 text-center">
+                                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold" style={{ background: signal.color + '22', color: signal.color }}>
+                                                        <span>{signal.emoji}</span>
+                                                        <span>{signal.label}</span>
+                                                    </div>
+                                                    <div className="text-[10px] mono mt-0.5" style={{ color: 'var(--text-3)' }}>{signal.advice}</div>
+                                                </td>
+                                                <td className="p-3 text-right">
+                                                    <button
+                                                        onClick={() => handleDelete(item.symbol)}
+                                                        className="p-1 rounded hover:bg-red-500/20 transition-colors"
+                                                        style={{ color: 'var(--text-3)' }}
+                                                        title="移除"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
 
                     {selectedChartItem && (
