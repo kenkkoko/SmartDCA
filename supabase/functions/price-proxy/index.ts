@@ -25,7 +25,7 @@ interface PriceResult {
   change: number | null;
   changePercent: number | null;
   currency: string | null;
-  history?: { date: string; price: number }[];
+  history?: { date: string; price: number; open?: number; high?: number; low?: number }[];
   error?: string;
 }
 
@@ -84,17 +84,24 @@ async function getStockPrice(
       currency: meta.currency ?? null,
     };
 
-    // Include historical series if requested
+    // Include historical OHLC series if requested
     if (historyRange) {
       const timestamps: number[] = result.timestamp || [];
-      const closes: (number | null)[] =
-        result.indicators?.quote?.[0]?.close || [];
-      const history: { date: string; price: number }[] = [];
+      const q = result.indicators?.quote?.[0] || {};
+      const opens: (number | null)[] = q.open || [];
+      const highs: (number | null)[] = q.high || [];
+      const lows: (number | null)[] = q.low || [];
+      const closes: (number | null)[] = q.close || [];
+      const history: { date: string; price: number; open?: number; high?: number; low?: number }[] = [];
       for (let i = 0; i < timestamps.length; i++) {
         const close = closes[i];
         if (close !== null && close !== undefined && !isNaN(close)) {
           const date = new Date(timestamps[i] * 1000).toISOString().slice(0, 10);
-          history.push({ date, price: close });
+          const entry: any = { date, price: close };
+          if (opens[i] !== null && opens[i] !== undefined && !isNaN(opens[i])) entry.open = opens[i];
+          if (highs[i] !== null && highs[i] !== undefined && !isNaN(highs[i])) entry.high = highs[i];
+          if (lows[i] !== null && lows[i] !== undefined && !isNaN(lows[i])) entry.low = lows[i];
+          history.push(entry);
         }
       }
       out.history = history;

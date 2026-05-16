@@ -40,6 +40,10 @@
         <!-- 引入 Chart.js (確保使用 UMD 版本) -->
        
     <script src="https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.min.js"></script>
+    <!-- Candlestick / OHLC support -->
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
 
     <!-- Supabase JS -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1654,6 +1658,7 @@
 
         // --- 美股儀表板元件 ---
         const StockDashboard = ({ notificationsEnabled, toggleNotifications, userInfo = { isPremium: false, watchlist: [] }, onUpdateWatchlist }) => {
+            const [showAdvanced, setShowAdvanced] = useState(false);
             const [selectedSymbol, setSelectedSymbol] = useState('SPY');
             const [timeRange, setTimeRange] = useState('1Y');
             const [stockData, setStockData] = useState(null);
@@ -2000,7 +2005,20 @@
                                         </button>
                                     )}
                                 </h2>
-                                <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <button
+                                        onClick={() => setShowAdvanced(true)}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold glass hover:bg-white/[0.08] transition-colors"
+                                        style={{ color: 'var(--brand-1)' }}
+                                        title="進階技術分析"
+                                    >
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                                        </svg>
+                                        進階分析
+                                    </button>
+                                    <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
+                                </div>
                             </div>
                             <div className="h-[300px] sm:h-[350px] w-full relative">
                                 <StockFNGChart data={stockData} symbol={selectedSymbol} />
@@ -2025,6 +2043,13 @@
                     <div className="text-center text-slate-600 text-xs mt-8 pb-4">
                         資料來源: CNN Business, Yahoo Finance, CNBC
                     </div>
+                    {showAdvanced && (
+                        <TechnicalChartModal
+                            symbol={selectedSymbol}
+                            type="US"
+                            onClose={() => setShowAdvanced(false)}
+                        />
+                    )}
                 </div>
             );
         };
@@ -2071,6 +2096,7 @@
 
         // --- 臺股儀表板元件 ---
         const TaiwanDashboard = ({ userInfo = { isPremium: false, watchlist: [] }, onUpdateWatchlist }) => {
+            const [showAdvanced, setShowAdvanced] = useState(false);
             const [selectedSymbol, setSelectedSymbol] = useState('0050');
             const [timeRange, setTimeRange] = useState('1Y');
             const [rsiData, setRsiData] = useState(null);
@@ -2451,7 +2477,20 @@
                                         </button>
                                     )}
                                 </h2>
-                                <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <button
+                                        onClick={() => setShowAdvanced(true)}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold glass hover:bg-white/[0.08] transition-colors"
+                                        style={{ color: 'var(--brand-1)' }}
+                                        title="進階技術分析"
+                                    >
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                                        </svg>
+                                        進階分析
+                                    </button>
+                                    <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
+                                </div>
                             </div>
                             <div className="h-[350px] w-full relative">
                                 <ChartComponent data={chartData} options={chartOptions} />
@@ -2480,6 +2519,13 @@
                     <div className="text-center text-slate-600 text-xs mt-8 pb-4">
                         資料來源: Yahoo Finance, Google News, Smart DCA Bot (0050 歷史數據運算)
                     </div>
+                    {showAdvanced && (
+                        <TechnicalChartModal
+                            symbol={selectedSymbol.includes('.') ? selectedSymbol : selectedSymbol + '.TW'}
+                            type="TW"
+                            onClose={() => setShowAdvanced(false)}
+                        />
+                    )}
                 </div >
             );
         };
@@ -2489,6 +2535,7 @@
 
         // --- 加密貨幣儀表板 (Updated to use CoinMarketCap) ---
         const CryptoDashboard = ({ notificationsEnabled, toggleNotifications, userInfo = { isPremium: false, watchlist: [] }, onUpdateWatchlist }) => {
+            const [showAdvanced, setShowAdvanced] = useState(false);
             const [selectedCoin, setSelectedCoin] = useState('bitcoin'); // slug or id
             const [timeRange, setTimeRange] = useState('1Y');
             const [loading, setLoading] = useState(true);
@@ -2815,7 +2862,20 @@
                                             </button>
                                         )}
                                     </h2>
-                                    <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <button
+                                            onClick={() => setShowAdvanced(true)}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold glass hover:bg-white/[0.08] transition-colors"
+                                            style={{ color: 'var(--brand-1)' }}
+                                            title="進階技術分析"
+                                        >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                                            </svg>
+                                            進階分析
+                                        </button>
+                                        <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
+                                    </div>
                                 </div>
                                 <div className="h-[300px] sm:h-[350px] w-full relative">
                                     {chartData && <ChartComponent data={chartData} options={chartOptions} />}
@@ -2828,6 +2888,13 @@
                             </div>
                             <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 mt-6"><h3 className="font-bold text-slate-200 mb-3 flex items-center gap-2"><Info size={18} />關於數據來源</h3><div className="text-sm text-slate-400 space-y-2"><p><strong>價格數據:</strong> CoinMarketCap (即時), CoinGecko (歷史)</p><p><strong>情緒指標:</strong> Alternative.me Crypto Fear & Greed Index</p></div></div>
                         </>
+                    )}
+                    {showAdvanced && (
+                        <TechnicalChartModal
+                            symbol={selectedCoin.toLowerCase()}
+                            type="CRYPTO"
+                            onClose={() => setShowAdvanced(false)}
+                        />
                     )}
                 </div>
             );
@@ -3117,15 +3184,582 @@
             return 100 - 100 / (1 + rs);
         };
 
-        // Signal helper: RSI → action
-        const getRsiSignal = (rsi) => {
+        // ─────────────────────────────────────────────
+        // EMA & MACD helpers (used by TechnicalChartModal)
+        // ─────────────────────────────────────────────
+        const computeEMA = (values, period) => {
+            if (!values || values.length < period) return values ? values.map(() => null) : [];
+            const k = 2 / (period + 1);
+            const out = new Array(values.length).fill(null);
+            // Seed with SMA at index period-1
+            let sum = 0;
+            for (let i = 0; i < period; i++) sum += values[i];
+            out[period - 1] = sum / period;
+            for (let i = period; i < values.length; i++) {
+                out[i] = values[i] * k + out[i - 1] * (1 - k);
+            }
+            return out;
+        };
+
+        const computeMACD = (closes, fast = 12, slow = 26, signal = 9) => {
+            const emaFast = computeEMA(closes, fast);
+            const emaSlow = computeEMA(closes, slow);
+            const dif = closes.map((_, i) =>
+                (emaFast[i] !== null && emaSlow[i] !== null) ? emaFast[i] - emaSlow[i] : null
+            );
+            // Compute DEA only on the valid range
+            const firstValid = dif.findIndex(v => v !== null);
+            const validDif = firstValid >= 0 ? dif.slice(firstValid) : [];
+            const deaValid = computeEMA(validDif.filter(v => v !== null), signal);
+            const dea = new Array(closes.length).fill(null);
+            for (let i = 0; i < deaValid.length; i++) {
+                dea[firstValid + i] = deaValid[i];
+            }
+            const histogram = dif.map((v, i) =>
+                (v !== null && dea[i] !== null) ? v - dea[i] : null
+            );
+            return { dif, dea, histogram };
+        };
+
+        // Composite signal: RSI + 1Y position
+        // RSI thresholds stay standard (30/70). 1Y position acts as amplifier to catch
+        // cases like "RSI 60 but price at 95% of 1Y high" → still a sell warning.
+        const getCompositeSignal = (rsi, position) => {
             if (rsi === null || rsi === undefined) return { label: '—', emoji: '⚪', color: 'var(--text-3)', advice: '計算中' };
-            if (rsi <= 25)  return { label: '強力加碼', emoji: '🔥', color: '#3ce0a8', advice: '極度超賣' };
-            if (rsi <= 35)  return { label: '加碼',     emoji: '🟢', color: '#84d76a', advice: '接近超賣' };
-            if (rsi <= 55)  return { label: '持有',     emoji: '⚪', color: 'var(--text-2)', advice: '中性區間' };
-            if (rsi <= 70)  return { label: '觀望',     emoji: '⚪', color: 'var(--text-2)', advice: '中性區間' };
-            if (rsi <= 80)  return { label: '警示',     emoji: '🟡', color: '#fbbf24', advice: '接近超買' };
-            return { label: '賣出', emoji: '🔴', color: '#ff7d8c', advice: '極度超買' };
+            const pos = (position === null || position === undefined) ? 0.5 : position;
+
+            // 強力加碼: RSI 極度超賣 OR (RSI 超賣 且 接近 1Y 低)
+            if (rsi <= 25 || (rsi <= 30 && pos <= 0.10)) {
+                return { label: '強力加碼', emoji: '🔥', color: '#3ce0a8', advice: '極度超賣' };
+            }
+            // 加碼: RSI 超賣 OR (RSI 偏低 且 接近 1Y 低)
+            if (rsi <= 30 || (rsi <= 40 && pos <= 0.20)) {
+                return { label: '加碼', emoji: '🟢', color: '#84d76a', advice: '超賣' };
+            }
+            // 強力賣出: RSI 極度超買 OR (RSI 偏高 且 1Y 高點)
+            if (rsi >= 75 || (rsi >= 65 && pos >= 0.95)) {
+                return { label: '強力賣出', emoji: '🚨', color: '#ff5b6e', advice: '極度超買' };
+            }
+            // 賣出: RSI 超買 OR (RSI 偏高 且 接近 1Y 高)
+            if (rsi >= 70 || (rsi >= 60 && pos >= 0.90)) {
+                return { label: '賣出', emoji: '🔴', color: '#ff7d8c', advice: '超買' };
+            }
+            // 警示: RSI 接近超買 OR 純粹接近 1Y 高
+            if (rsi >= 65 || pos >= 0.85) {
+                return { label: '警示', emoji: '🟡', color: '#fbbf24', advice: '接近超買' };
+            }
+            // 觀望: RSI 中性偏強
+            if (rsi >= 50) {
+                return { label: '觀望', emoji: '⚪', color: 'var(--text-2)', advice: '中性偏強' };
+            }
+            // 持有: RSI 中性偏弱
+            return { label: '持有', emoji: '⚪', color: 'var(--text-2)', advice: '中性偏弱' };
+        };
+        // Backwards-compat alias
+        const getRsiSignal = getCompositeSignal;
+
+        // ─────────────────────────────────────────────
+        // TechnicalChartModal — full-screen TradingView-style analysis
+        // ─────────────────────────────────────────────
+        const EMA_PERIODS = [5, 10, 20, 60, 120];
+        const EMA_COLORS = ['#3b82f6', '#06b6d4', '#10b981', '#fbbf24', '#f43f5e'];
+
+        const TechnicalChartModal = ({ symbol, type, onClose }) => {
+            const mainCanvasRef = useRef(null);
+            const rsiCanvasRef = useRef(null);
+            const macdCanvasRef = useRef(null);
+            const chartsRef = useRef({ main: null, rsi: null, macd: null });
+
+            const [showEMA, setShowEMA] = useState(true);
+            const [showRSI, setShowRSI] = useState(true);
+            const [showMACD, setShowMACD] = useState(true);
+            const [chartMode, setChartMode] = useState('line'); // 'line' | 'candle'
+            const [showFearSignal, setShowFearSignal] = useState(true);
+            // Signal source: 'fng' for crypto/US (real F&G index), 'rsi' for TW (use computed RSI)
+            const signalSource = (type === 'CRYPTO' || type === 'crypto' || type === 'US') ? 'fng' : 'rsi';
+            const [fngHistory, setFngHistory] = useState([]); // [{date, fng}]
+            const [timeRange, setTimeRange] = useState('1y');
+            const [history, setHistory] = useState([]);  // [{date, price}]
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+
+            // ─── Fetch historical prices via our price-proxy ───
+            useEffect(() => {
+                if (!symbol) return;
+                let cancelled = false;
+                (async () => {
+                    setLoading(true);
+                    setError(null);
+                    try {
+                        const proxy = SUPABASE_URL + '/functions/v1/price-proxy';
+                        const headers = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY };
+                        const apiType = type === 'CRYPTO' || type === 'crypto' ? 'crypto' : 'stock';
+                        // Crypto on CoinGecko expects slug; assume caller passes lowercase already
+                        const url = `${proxy}?symbols=${encodeURIComponent(symbol)}&type=${apiType}&history=${timeRange}`;
+                        const res = await fetch(url, { headers });
+                        const json = await res.json();
+                        const item = (json.data || [])[0];
+                        if (cancelled) return;
+                        if (!item || item.error || !item.history) {
+                            setError(item?.error || 'No data');
+                            setHistory([]);
+                        } else {
+                            setHistory(item.history);
+                        }
+                    } catch (e) {
+                        if (!cancelled) setError(String(e));
+                    } finally {
+                        if (!cancelled) setLoading(false);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [symbol, type, timeRange]);
+
+            // ─── Fetch FNG history (only for crypto/US) ───
+            useEffect(() => {
+                if (signalSource !== 'fng') { setFngHistory([]); return; }
+                let cancelled = false;
+                (async () => {
+                    try {
+                        // Days based on timeRange
+                        const days = timeRange === '1mo' ? 30 : timeRange === '3mo' ? 90 : timeRange === '6mo' ? 180 : timeRange === '1y' ? 365 : timeRange === 'max' ? 1825 : 365;
+
+                        if (type === 'CRYPTO' || type === 'crypto') {
+                            // Alternative.me — CORS-friendly, no key
+                            const res = await fetch(`https://api.alternative.me/fng/?limit=${days}&format=json`);
+                            const json = await res.json();
+                            if (cancelled) return;
+                            const arr = (json.data || []).map(d => ({
+                                date: new Date(Number(d.timestamp) * 1000).toISOString().slice(0, 10),
+                                fng: parseInt(d.value, 10)
+                            })).reverse(); // API returns newest first; we want oldest first
+                            setFngHistory(arr);
+                        } else if (type === 'US') {
+                            // CNN F&G — via cors proxy
+                            const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent('https://production.dataviz.cnn.io/index/fearandgreed/graphdata'));
+                            const json = await res.json();
+                            if (cancelled) return;
+                            const raw = json?.fear_and_greed_historical?.data || [];
+                            const arr = raw.map(d => ({
+                                date: new Date(d.x).toISOString().slice(0, 10),
+                                fng: Math.round(d.y)
+                            }));
+                            setFngHistory(arr);
+                        }
+                    } catch (e) {
+                        console.warn('FNG fetch failed (using RSI fallback):', e);
+                        if (!cancelled) setFngHistory([]);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [type, timeRange, signalSource]);
+
+            // ─── Compute derived series ───
+            const closes = useMemo(() => history.map(p => p.price), [history]);
+            const labels = useMemo(() => history.map(p => p.date), [history]);
+            const emaSeries = useMemo(() => EMA_PERIODS.map(p => computeEMA(closes, p)), [closes]);
+            const rsiArr = useMemo(() => {
+                if (closes.length < 15) return [];
+                const arr = new Array(closes.length).fill(null);
+                for (let i = 14; i < closes.length; i++) {
+                    arr[i] = computeRSI(closes.slice(0, i + 1));
+                }
+                return arr;
+            }, [closes]);
+
+            // Build per-bar FNG lookup (date -> value) for FNG-based signal
+            const fngByDate = useMemo(() => {
+                const m = {};
+                for (const d of fngHistory) m[d.date] = d.fng;
+                return m;
+            }, [fngHistory]);
+
+            // Per-bar signal values based on chosen source
+            const signalValues = useMemo(() => {
+                if (signalSource === 'fng' && fngHistory.length > 0) {
+                    // Map each price date to its FNG value (or nearest earlier)
+                    const fngDatesSorted = Object.keys(fngByDate).sort();
+                    return history.map(p => {
+                        if (fngByDate[p.date] !== undefined) return fngByDate[p.date];
+                        // Find nearest earlier FNG
+                        const candidates = fngDatesSorted.filter(d => d <= p.date);
+                        if (candidates.length === 0) return null;
+                        return fngByDate[candidates[candidates.length - 1]];
+                    });
+                }
+                // Fallback: RSI
+                return rsiArr;
+            }, [signalSource, fngHistory, fngByDate, history, rsiArr]);
+
+            // Signal point colors — works for both FNG (0~100) and RSI (0~100)
+            // Both have the same fear-greed semantic: low = fear/oversold = buy
+            const signalPointColors = useMemo(() => {
+                return signalValues.map(v => {
+                    if (v === null || v === undefined) return 'rgba(0,0,0,0)';
+                    if (v <= 25) return '#ff5b6e';     // extreme fear
+                    if (v <= 45) return '#f59e0b';     // fear
+                    return 'rgba(0,0,0,0)';
+                });
+            }, [signalValues]);
+
+            const signalPointRadii = useMemo(() => {
+                return signalValues.map(v => {
+                    if (v === null || v === undefined) return 0;
+                    if (v <= 25) return 4;
+                    if (v <= 45) return 3;
+                    return 0;
+                });
+            }, [signalValues]);
+            const macd = useMemo(() => computeMACD(closes), [closes]);
+
+            // ─── Build/destroy main chart (line or candlestick) ───
+            useEffect(() => {
+                if (!mainCanvasRef.current || history.length === 0) return;
+                if (chartsRef.current.main) chartsRef.current.main.destroy();
+
+                const datasets = [];
+
+                if (chartMode === 'candle') {
+                    // K-line dataset
+                    const ohlcData = history
+                        .filter(p => p.open !== undefined && p.high !== undefined && p.low !== undefined)
+                        .map(p => ({
+                            x: new Date(p.date).getTime(),
+                            o: p.open, h: p.high, l: p.low, c: p.price
+                        }));
+                    datasets.push({
+                        label: '價格 K 線',
+                        data: ohlcData,
+                        type: 'candlestick',
+                        borderColor: { up: '#3ce0a8', down: '#ff7d8c', unchanged: '#999' },
+                        backgroundColor: { up: '#3ce0a8', down: '#ff7d8c', unchanged: '#999' },
+                        borderWidth: 1,
+                        order: 100,
+                    });
+                } else {
+                    // Line dataset with optional signal points
+                    datasets.push({
+                        label: '收盤價',
+                        data: closes,
+                        borderColor: CHART.line,
+                        backgroundColor: makePriceGradient,
+                        fill: true,
+                        pointRadius: showFearSignal ? signalPointRadii : 0,
+                        pointBackgroundColor: showFearSignal ? signalPointColors : 'rgba(0,0,0,0)',
+                        pointBorderColor: showFearSignal ? signalPointColors : 'rgba(0,0,0,0)',
+                        pointHoverRadius: 5,
+                        borderWidth: 2,
+                        tension: 0.2,
+                        order: 100,
+                    });
+                }
+
+                // EMA overlay (works for both line and candle)
+                if (showEMA) {
+                    emaSeries.forEach((s, i) => {
+                        const seriesData = chartMode === 'candle'
+                            ? history.map((p, idx) => ({ x: new Date(p.date).getTime(), y: s[idx] }))
+                            : s;
+                        datasets.push({
+                            label: `EMA ${EMA_PERIODS[i]}`,
+                            data: seriesData,
+                            type: 'line',
+                            borderColor: EMA_COLORS[i],
+                            backgroundColor: 'transparent',
+                            fill: false,
+                            pointRadius: 0,
+                            pointHoverRadius: 3,
+                            borderWidth: 1.5,
+                            tension: 0.3,
+                            order: i,
+                        });
+                    });
+                }
+
+                const isCandle = chartMode === 'candle';
+                const config = {
+                    type: isCandle ? 'candlestick' : 'line',
+                    data: isCandle ? { datasets } : { labels, datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { display: showEMA, position: 'top', labels: { color: CHART.text, boxWidth: 10, font: { size: 10 } } },
+                            tooltip: { callbacks: { title: (items) => items[0]?.label || (items[0]?.parsed?.x ? new Date(items[0].parsed.x).toISOString().slice(0,10) : '') } }
+                        },
+                        scales: {
+                            x: isCandle
+                                ? { type: 'timeseries', time: { unit: 'day' }, grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: 8, font: { family: "'JetBrains Mono', monospace", size: 10 } } }
+                                : { grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: 8, font: { family: "'JetBrains Mono', monospace", size: 10 } } },
+                            y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, font: { family: "'JetBrains Mono', monospace", size: 10 } } }
+                        }
+                    },
+                    plugins: isCandle ? [dotGridPlugin] : [dotGridPlugin, lineGlowPlugin, crosshairPlugin]
+                };
+
+                chartsRef.current.main = new window.Chart(mainCanvasRef.current.getContext('2d'), config);
+
+                return () => { if (chartsRef.current.main) { chartsRef.current.main.destroy(); chartsRef.current.main = null; } };
+            }, [closes, history, emaSeries, labels, showEMA, chartMode, showFearSignal, signalPointColors, signalPointRadii]);
+
+            // ─── Build RSI sub-chart ───
+            useEffect(() => {
+                if (!showRSI || !rsiCanvasRef.current || rsiArr.length === 0) return;
+                if (chartsRef.current.rsi) chartsRef.current.rsi.destroy();
+
+                chartsRef.current.rsi = new window.Chart(rsiCanvasRef.current.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [{
+                            label: 'RSI (14)',
+                            data: rsiArr,
+                            borderColor: '#a78bfa',
+                            backgroundColor: 'rgba(167,139,250,0.08)',
+                            fill: true,
+                            pointRadius: 0,
+                            pointHoverRadius: 3,
+                            borderWidth: 1.8,
+                            tension: 0.3,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { display: false },
+                            annotation: undefined,
+                            tooltip: { callbacks: { title: (items) => items[0].label, label: (it) => `RSI: ${it.parsed.y?.toFixed(1)}` } }
+                        },
+                        scales: {
+                            x: { grid: { display: false }, ticks: { display: false } },
+                            y: {
+                                min: 0, max: 100,
+                                grid: { color: CHART.grid },
+                                ticks: { color: CHART.tick, stepSize: 50, font: { family: "'JetBrains Mono', monospace", size: 10 }, callback: (v) => v === 0 || v === 50 || v === 100 ? v : '' }
+                            }
+                        }
+                    },
+                    plugins: [{
+                        id: 'rsiBands',
+                        beforeDatasetsDraw(chart) {
+                            const { ctx, chartArea, scales } = chart;
+                            if (!chartArea) return;
+                            // 70 line (overbought)
+                            ctx.save();
+                            ctx.strokeStyle = 'rgba(255,91,110,0.4)';
+                            ctx.setLineDash([4, 4]);
+                            ctx.beginPath();
+                            const y70 = scales.y.getPixelForValue(70);
+                            ctx.moveTo(chartArea.left, y70);
+                            ctx.lineTo(chartArea.right, y70);
+                            ctx.stroke();
+                            // 30 line (oversold)
+                            ctx.strokeStyle = 'rgba(0,214,143,0.4)';
+                            const y30 = scales.y.getPixelForValue(30);
+                            ctx.beginPath();
+                            ctx.moveTo(chartArea.left, y30);
+                            ctx.lineTo(chartArea.right, y30);
+                            ctx.stroke();
+                            ctx.restore();
+                        }
+                    }]
+                });
+                return () => { if (chartsRef.current.rsi) { chartsRef.current.rsi.destroy(); chartsRef.current.rsi = null; } };
+            }, [rsiArr, labels, showRSI]);
+
+            // ─── Build MACD sub-chart ───
+            useEffect(() => {
+                if (!showMACD || !macdCanvasRef.current || closes.length === 0) return;
+                if (chartsRef.current.macd) chartsRef.current.macd.destroy();
+
+                const histColors = macd.histogram.map(v => v === null ? 'rgba(0,0,0,0)' : (v >= 0 ? 'rgba(0,214,143,0.7)' : 'rgba(255,91,110,0.7)'));
+
+                chartsRef.current.macd = new window.Chart(macdCanvasRef.current.getContext('2d'), {
+                    data: {
+                        labels,
+                        datasets: [
+                            {
+                                type: 'bar',
+                                label: 'Histogram',
+                                data: macd.histogram,
+                                backgroundColor: histColors,
+                                borderWidth: 0,
+                                barThickness: 'flex',
+                                order: 3,
+                            },
+                            {
+                                type: 'line',
+                                label: 'DIF',
+                                data: macd.dif,
+                                borderColor: '#3b82f6',
+                                fill: false,
+                                pointRadius: 0,
+                                borderWidth: 1.5,
+                                tension: 0.3,
+                                order: 1,
+                            },
+                            {
+                                type: 'line',
+                                label: 'DEA',
+                                data: macd.dea,
+                                borderColor: '#fbbf24',
+                                fill: false,
+                                pointRadius: 0,
+                                borderWidth: 1.5,
+                                tension: 0.3,
+                                order: 2,
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: { legend: { display: true, position: 'top', labels: { color: CHART.text, boxWidth: 10, font: { size: 10 } } } },
+                        scales: {
+                            x: { grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: 8, font: { family: "'JetBrains Mono', monospace", size: 10 } } },
+                            y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, font: { family: "'JetBrains Mono', monospace", size: 10 } } }
+                        }
+                    }
+                });
+                return () => { if (chartsRef.current.macd) { chartsRef.current.macd.destroy(); chartsRef.current.macd = null; } };
+            }, [macd.histogram, macd.dif, macd.dea, labels, showMACD]);
+
+            // ─── Sidebar toggle helper ───
+            const toggleRow = (label, checked, onChange, color) => (
+                <label className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg cursor-pointer hover:bg-white/[0.04]">
+                    <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full" style={{ background: color }}></span>
+                        <span className="text-xs font-semibold text-white">{label}</span>
+                    </div>
+                    <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="accent-lime-400" />
+                </label>
+            );
+
+            const rangeBtn = (key, label) => (
+                <button
+                    onClick={() => setTimeRange(key)}
+                    className={`flex-1 px-2 py-1.5 rounded text-[11px] font-bold transition-all ${timeRange === key ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                    style={timeRange === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                >
+                    {label}
+                </button>
+            );
+
+            // ─── Layout ───
+            return (
+                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)' }}>
+                    {/* Top bar */}
+                    <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--line)' }}>
+                        <div className="flex items-center gap-3">
+                            <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10" style={{ color: 'var(--text-2)' }}>
+                                ✕
+                            </button>
+                            <div>
+                                <p className="label">TECHNICAL ANALYSIS</p>
+                                <h2 className="text-lg font-extrabold text-white tracking-tight">{symbol}</h2>
+                            </div>
+                        </div>
+                        {loading && (
+                            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-3)' }}>
+                                <RefreshCw className="animate-spin" size={12} />
+                                載入中...
+                            </div>
+                        )}
+                        {error && (
+                            <div className="text-xs" style={{ color: '#ff7d8c' }}>{error}</div>
+                        )}
+                    </div>
+
+                    {/* Main content: chart area + sidebar */}
+                    <div className="flex-1 flex flex-col md:flex-row min-h-0">
+                        {/* Chart stack */}
+                        <div className="flex-1 p-3 md:p-4 flex flex-col gap-2 min-h-0">
+                            <div className={`relative ${showRSI || showMACD ? 'flex-[2]' : 'flex-1'} min-h-0`}>
+                                <canvas ref={mainCanvasRef}></canvas>
+                            </div>
+                            {showRSI && (
+                                <div className="relative flex-1 min-h-0">
+                                    <div className="absolute top-2 left-2 text-[10px] mono z-10" style={{ color: '#a78bfa' }}>RSI(14)</div>
+                                    <canvas ref={rsiCanvasRef}></canvas>
+                                </div>
+                            )}
+                            {showMACD && (
+                                <div className="relative flex-1 min-h-0">
+                                    <div className="absolute top-2 left-2 text-[10px] mono z-10" style={{ color: 'var(--text-3)' }}>MACD(12,26,9)</div>
+                                    <canvas ref={macdCanvasRef}></canvas>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Sidebar */}
+                        <div className="w-full md:w-64 p-3 md:p-4 overflow-y-auto custom-scrollbar" style={{ borderTop: '1px solid var(--line)', borderLeft: '1px solid var(--line)', background: 'rgba(255,255,255,0.01)' }}>
+                            <p className="label mb-2">時間範圍</p>
+                            <div className="grid grid-cols-5 gap-1 mb-5">
+                                {rangeBtn('1mo', '1M')}
+                                {rangeBtn('3mo', '3M')}
+                                {rangeBtn('6mo', '6M')}
+                                {rangeBtn('1y', '1Y')}
+                                {rangeBtn('max', 'ALL')}
+                            </div>
+
+                            <p className="label mb-2">圖表類型</p>
+                            <div className="grid grid-cols-2 gap-1 p-1 rounded-xl mb-5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+                                <button
+                                    onClick={() => setChartMode('line')}
+                                    className={`py-1.5 rounded-lg text-[11px] font-bold transition-all ${chartMode === 'line' ? 'pill-grad' : 'hover:bg-white/[0.05]'}`}
+                                    style={chartMode === 'line' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                                >
+                                    折線圖
+                                </button>
+                                <button
+                                    onClick={() => setChartMode('candle')}
+                                    className={`py-1.5 rounded-lg text-[11px] font-bold transition-all ${chartMode === 'candle' ? 'pill-grad' : 'hover:bg-white/[0.05]'}`}
+                                    style={chartMode === 'candle' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                                >
+                                    K 線圖
+                                </button>
+                            </div>
+
+                            <p className="label mb-2">技術指標</p>
+                            <div className="space-y-1 mb-5">
+                                {chartMode === 'line' && toggleRow(
+                                    signalSource === 'fng' ? '恐懼貪婪指數信號 (FNG)' : '恐懼買入信號 (RSI)',
+                                    showFearSignal, setShowFearSignal, '#ff5b6e'
+                                )}
+                                {toggleRow('EMA Ribbon', showEMA, setShowEMA, '#3b82f6')}
+                                {toggleRow('RSI (14)', showRSI, setShowRSI, '#a78bfa')}
+                                {toggleRow('MACD', showMACD, setShowMACD, '#fbbf24')}
+                            </div>
+
+                            {showEMA && (
+                                <>
+                                    <p className="label mb-2">EMA Ribbon</p>
+                                    <div className="space-y-1 mb-5">
+                                        {EMA_PERIODS.map((p, i) => (
+                                            <div key={p} className="flex items-center gap-2 text-xs px-2 py-1.5">
+                                                <span className="w-2 h-2 rounded-full" style={{ background: EMA_COLORS[i] }}></span>
+                                                <span className="mono" style={{ color: 'var(--text-2)' }}>EMA {p}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+
+                            <div className="text-[10px] mt-4 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                                <p className="mb-1.5"><strong className="text-white">K 線圖</strong>：綠 = 收紅、紅 = 收黑。同時看開/收/高/低。</p>
+                                <p className="mb-1.5"><strong className="text-white">恐懼信號</strong>：加密/美股用真實 FNG 指數（Alternative.me / CNN），台股用 RSI。值 ≤ 25 紅點、≤ 45 橘點。</p>
+                                <p className="mb-1.5"><strong className="text-white">EMA Ribbon</strong>：多條均線疊加。線整齊上揚 = 強趨勢；纏繞 = 整理。</p>
+                                <p className="mb-1.5"><strong className="text-white">RSI</strong>：&lt;30 超賣（買進）；&gt;70 超買（賣出）。</p>
+                                <p><strong className="text-white">MACD</strong>：DIF 由下穿上 DEA = 黃金交叉買進；反之為死亡交叉賣出。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
         };
 
         const WatchlistDashboard = ({ watchlist, onUpdateWatchlist, isPremium, user }) => {
@@ -3134,6 +3768,7 @@
             const [selectedChartItem, setSelectedChartItem] = useState(null);
             const [sortKey, setSortKey] = useState('signal'); // signal | symbol | change | rsi
             const [sortDir, setSortDir] = useState('asc');
+            const [showSignalHelp, setShowSignalHelp] = useState(false);
 
             if (!isPremium) {
                 return (
@@ -3287,7 +3922,7 @@
                             if (active) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
                             else { setSortKey(key); setSortDir(key === 'signal' || key === 'rsi' ? 'asc' : 'desc'); }
                         }}
-                        className="flex items-center gap-1 hover:text-white transition-colors"
+                        className="inline-flex items-center gap-1 hover:text-white transition-colors"
                         style={{ color: active ? 'var(--brand-1)' : 'var(--text-3)' }}
                     >
                         {label}
@@ -3334,13 +3969,13 @@
                             <div>
                                 <p className="label">買進信號</p>
                                 <p className="text-xl font-extrabold num mt-0.5" style={{ color: '#3ce0a8' }}>
-                                    {assetsData.filter(a => a.rsi !== null && a.rsi <= 35).length}
+                                    {assetsData.filter(a => a.rsi !== null && a.rsi <= 30).length}
                                 </p>
                             </div>
                             <div>
                                 <p className="label">賣出警示</p>
                                 <p className="text-xl font-extrabold num mt-0.5" style={{ color: '#ff7d8c' }}>
-                                    {assetsData.filter(a => a.rsi !== null && a.rsi >= 70).length}
+                                    {assetsData.filter(a => a.rsi !== null && a.rsi >= 65).length}
                                 </p>
                             </div>
                         </div>
@@ -3361,13 +3996,25 @@
                                         <th className="text-right p-3 label">{headerBtn('change', '漲跌%')}</th>
                                         <th className="text-right p-3 label">1Y 區間</th>
                                         <th className="text-right p-3 label">{headerBtn('rsi', 'RSI')}</th>
-                                        <th className="text-center p-3 label">{headerBtn('signal', '信號')}</th>
+                                        <th className="text-center p-3 label">
+                                            <span className="inline-flex items-center gap-1.5">
+                                                {headerBtn('signal', '信號')}
+                                                <button
+                                                    onClick={() => setShowSignalHelp(true)}
+                                                    className="w-4 h-4 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                                                    style={{ color: 'var(--brand-1)', border: '1px solid var(--brand-1)' }}
+                                                    title="信號邏輯說明"
+                                                >
+                                                    <span className="text-[9px] font-bold leading-none">?</span>
+                                                </button>
+                                            </span>
+                                        </th>
                                         <th className="text-right p-3 label"></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {sortedAssets.map((item) => {
-                                        const signal = getRsiSignal(item.rsi);
+                                        const signal = getCompositeSignal(item.rsi, item.position);
                                         const changeUp = (item.changePercent ?? 0) >= 0;
                                         const positionPct = Math.max(0, Math.min(100, (item.position ?? 0.5) * 100));
                                         return (
@@ -3431,6 +4078,92 @@
                             onClose={() => setSelectedChartItem(null)}
                         />
                     )}
+
+                    {showSignalHelp && (
+                        <div className="fixed inset-0 flex items-center justify-center z-[100] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
+                            <div className="glass-strong p-6 rounded-3xl shadow-2xl max-w-lg w-full relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                                <button
+                                    onClick={() => setShowSignalHelp(false)}
+                                    className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                                    style={{ color: 'var(--text-3)' }}
+                                >
+                                    ✕
+                                </button>
+
+                                <div className="mb-5">
+                                    <p className="label">SIGNAL LOGIC</p>
+                                    <h3 className="text-xl font-extrabold text-white mt-1 tracking-tight">信號邏輯說明</h3>
+                                    <p className="text-xs mt-1.5" style={{ color: 'var(--text-2)' }}>
+                                        信號由 <strong className="text-white">RSI(14)</strong> + <strong className="text-white">1Y 區間位置</strong> 複合判斷
+                                    </p>
+                                </div>
+
+                                <div className="space-y-3 text-sm">
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(60,224,168,0.08)', border: '1px solid rgba(60,224,168,0.25)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">🔥</span>
+                                            <span className="font-bold" style={{ color: '#3ce0a8' }}>強力加碼</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≤ 25 <strong>或</strong> (RSI ≤ 30 <strong>且</strong> 接近 1Y 低 ≤ 10%)</p>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(132,215,106,0.05)', border: '1px solid rgba(132,215,106,0.2)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">🟢</span>
+                                            <span className="font-bold" style={{ color: '#84d76a' }}>加碼</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≤ 30 <strong>或</strong> (RSI ≤ 40 <strong>且</strong> 接近 1Y 低 ≤ 20%)</p>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">⚪</span>
+                                            <span className="font-bold" style={{ color: 'var(--text)' }}>持有 / 觀望</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI 介於 30 ~ 65 之間，無明顯訊號</p>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">🟡</span>
+                                            <span className="font-bold" style={{ color: '#fbbf24' }}>警示</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≥ 65 <strong>或</strong> 接近 1Y 高 ≥ 85%</p>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,125,140,0.08)', border: '1px solid rgba(255,125,140,0.25)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">🔴</span>
+                                            <span className="font-bold" style={{ color: '#ff7d8c' }}>賣出</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≥ 70 <strong>或</strong> (RSI ≥ 60 <strong>且</strong> 接近 1Y 高 ≥ 90%)</p>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,91,110,0.10)', border: '1px solid rgba(255,91,110,0.3)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">🚨</span>
+                                            <span className="font-bold" style={{ color: '#ff5b6e' }}>強力賣出</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≥ 75 <strong>或</strong> (RSI ≥ 65 <strong>且</strong> 接近 1Y 高 ≥ 95%)</p>
+                                    </div>
+                                </div>
+
+                                <div className="mt-5 p-3 rounded-xl text-xs leading-relaxed" style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', color: 'var(--text-2)' }}>
+                                    <p className="mb-1.5"><strong className="text-white">RSI 是什麼？</strong></p>
+                                    <p className="mb-2">相對強弱指標 (Relative Strength Index)。看過去 14 天「上漲幅度 vs 下跌幅度」的比例，0~100 之間。標準上 &lt;30 是超賣（買進）、&gt;70 是超買（賣出）。</p>
+                                    <p className="mb-1.5"><strong className="text-white">1Y 區間位置</strong>：</p>
+                                    <p>目前股價在過去 1 年高低點之間的位置。0% = 在低點、100% = 在高點。即使 RSI 還沒衝過 70，如果價格已經接近 1 年高點，也算過熱訊號。</p>
+                                </div>
+
+                                <button
+                                    onClick={() => setShowSignalHelp(false)}
+                                    className="w-full mt-5 py-2.5 pill-grad rounded-xl text-sm font-bold transition-all glow-brand"
+                                >
+                                    知道了
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </>
             );
         };
@@ -3442,7 +4175,16 @@
             tw_stock: { label: '台股', currency: 'TWD', symbol: 'NT$' },
             us_stock: { label: '美股', currency: 'USD', symbol: '$' },
             crypto:   { label: '加密貨幣', currency: 'USD', symbol: '$' },
+            cash:     { label: '現金', currency: 'dynamic', symbol: 'dynamic' },  // currency from holding.symbol
         };
+
+        // Helper: get currency code for a holding (cash uses its own symbol as currency)
+        const getHoldingCurrency = (h) => h.asset_type === 'cash' ? h.symbol : ASSET_TYPES[h.asset_type].currency;
+        const getHoldingSymbol = (h) => {
+            const ccy = getHoldingCurrency(h);
+            return ccy === 'TWD' ? 'NT$' : '$';
+        };
+        const currencyToSymbol = (ccy) => ccy === 'TWD' ? 'NT$' : '$';
 
         // Compute current holdings from a flat list of transactions
         const computeHoldings = (transactions) => {
@@ -3509,20 +4251,26 @@
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                if (!symbol.trim()) return setError('請輸入代號');
-                if (txType !== 'dividend' && !shares) return setError('請輸入股數');
-                if (!price) return setError(txType === 'dividend' ? '請輸入配息金額' : '請輸入價格');
+                if (assetType !== 'cash' && !symbol.trim()) return setError('請輸入代號');
+                if (txType !== 'dividend' && assetType !== 'cash' && !shares) return setError('請輸入股數');
+                if (!price) return setError(
+                    assetType === 'cash' ? '請輸入金額' :
+                    txType === 'dividend' ? '請輸入配息金額' :
+                    '請輸入價格'
+                );
                 setSaving(true);
                 setError(null);
+                // For cash: store amount in shares, price=1 (so cost == amount, MV == amount)
+                const isCash = assetType === 'cash';
                 const payload = {
                     user_id: user.id,
-                    symbol: symbol.trim().toUpperCase(),
+                    symbol: isCash ? symbol : symbol.trim().toUpperCase(),
                     asset_type: assetType,
                     type: txType,
                     date,
-                    shares: txType === 'dividend' ? 0 : Number(shares),
-                    price: Number(price),
-                    fee: Number(fee) || 0,
+                    shares: isCash ? Number(price) : (txType === 'dividend' ? 0 : Number(shares)),
+                    price: isCash ? 1 : Number(price),
+                    fee: isCash ? 0 : (Number(fee) || 0),
                     note: note.trim() || null,
                 };
                 let result;
@@ -3563,38 +4311,59 @@
                             <div className="grid grid-cols-2 gap-2">
                                 <div>
                                     <label className="label block mb-1.5">市場</label>
-                                    <select value={assetType} onChange={e => setAssetType(e.target.value)} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={inputStyle}>
+                                    <select value={assetType} onChange={e => {
+                                        const newType = e.target.value;
+                                        setAssetType(newType);
+                                        // Reset symbol when switching to/from cash
+                                        if (newType === 'cash' && !['TWD','USD'].includes(symbol.toUpperCase())) setSymbol('TWD');
+                                        // Cash doesn't support dividend
+                                        if (newType === 'cash' && txType === 'dividend') setTxType('buy');
+                                    }} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={inputStyle}>
                                         <option value="tw_stock">台股</option>
                                         <option value="us_stock">美股 / ETF</option>
                                         <option value="crypto">加密貨幣</option>
+                                        <option value="cash">現金</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label className="label block mb-1.5">類型</label>
                                     <select value={txType} onChange={e => setTxType(e.target.value)} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={inputStyle}>
-                                        <option value="buy">買入</option>
-                                        <option value="sell">賣出</option>
-                                        <option value="dividend">配息</option>
+                                        <option value="buy">{assetType === 'cash' ? '存入' : '買入'}</option>
+                                        <option value="sell">{assetType === 'cash' ? '提領' : '賣出'}</option>
+                                        {assetType !== 'cash' && <option value="dividend">配息</option>}
                                     </select>
                                 </div>
                             </div>
 
                             {/* Symbol */}
                             <div>
-                                <label className="label block mb-1.5">代號</label>
-                                <input
-                                    type="text"
-                                    required
-                                    value={symbol}
-                                    onChange={e => setSymbol(e.target.value)}
-                                    placeholder={assetType === 'tw_stock' ? '例如 0050.TW' : assetType === 'us_stock' ? '例如 AAPL' : '例如 bitcoin'}
-                                    className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
-                                    style={inputStyle}
-                                />
+                                <label className="label block mb-1.5">{assetType === 'cash' ? '幣別' : '代號'}</label>
+                                {assetType === 'cash' ? (
+                                    <select
+                                        value={symbol}
+                                        onChange={e => setSymbol(e.target.value)}
+                                        className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                                        style={inputStyle}
+                                    >
+                                        <option value="TWD">新台幣 (TWD)</option>
+                                        <option value="USD">美金 (USD)</option>
+                                    </select>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        required
+                                        value={symbol}
+                                        onChange={e => setSymbol(e.target.value)}
+                                        placeholder={assetType === 'tw_stock' ? '例如 0050.TW' : assetType === 'us_stock' ? '例如 AAPL' : '例如 bitcoin'}
+                                        className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+                                        style={inputStyle}
+                                    />
+                                )}
                                 <p className="text-[10px] mono mt-1" style={{ color: 'var(--text-3)' }}>
                                     {assetType === 'tw_stock' && '台股要加 .TW 後綴'}
                                     {assetType === 'us_stock' && '輸入 ticker 大寫'}
                                     {assetType === 'crypto' && '使用 CoinMarketCap slug (例如 bitcoin、ethereum)'}
+                                    {assetType === 'cash' && '記錄存入/提領金額'}
                                 </p>
                             </div>
 
@@ -3605,8 +4374,8 @@
                                     className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
                             </div>
 
-                            {/* Shares (hide for dividend) + Price */}
-                            {txType !== 'dividend' && (
+                            {/* Shares (hide for dividend AND cash; cash uses 'amount' field below) */}
+                            {txType !== 'dividend' && assetType !== 'cash' && (
                                 <div>
                                     <label className="label block mb-1.5">股數 / 數量</label>
                                     <input type="number" step="any" required value={shares} onChange={e => setShares(e.target.value)} placeholder="0"
@@ -3616,14 +4385,16 @@
 
                             <div>
                                 <label className="label block mb-1.5">
-                                    {txType === 'dividend' ? `配息總額 (${ASSET_TYPES[assetType].symbol})` : `成交價 (${ASSET_TYPES[assetType].symbol})`}
+                                    {assetType === 'cash'
+                                        ? `${txType === 'sell' ? '提領金額' : '存入金額'} (${symbol === 'TWD' ? 'NT$' : '$'})`
+                                        : txType === 'dividend' ? `配息總額 (${ASSET_TYPES[assetType].symbol})` : `成交價 (${ASSET_TYPES[assetType].symbol})`}
                                 </label>
                                 <input type="number" step="any" required value={price} onChange={e => setPrice(e.target.value)} placeholder="0"
                                     className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
                             </div>
 
                             {/* Fee */}
-                            {txType !== 'dividend' && (
+                            {txType !== 'dividend' && assetType !== 'cash' && (
                                 <div>
                                     <label className="label block mb-1.5">手續費 (選填)</label>
                                     <input type="number" step="any" value={fee} onChange={e => setFee(e.target.value)} placeholder="0"
@@ -3987,7 +4758,8 @@
                 let cancelled = false;
                 (async () => {
                     setPricesLoading(true);
-                    const stockSyms = holdings.filter(h => h.asset_type !== 'crypto').map(h => h.symbol);
+                    // Skip cash entries (always price 1) and filter by asset type
+                    const stockSyms = holdings.filter(h => h.asset_type === 'tw_stock' || h.asset_type === 'us_stock').map(h => h.symbol);
                     const cryptoSyms = holdings.filter(h => h.asset_type === 'crypto').map(h => h.symbol);
                     const proxy = `${SUPABASE_URL}/functions/v1/price-proxy`;
                     const headers = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY };
@@ -4009,6 +4781,10 @@
                                 if (found) map[`${h.symbol}::${h.asset_type}`] = found;
                             }
                         });
+                        // Inject synthetic price=1 for cash holdings
+                        holdings.filter(h => h.asset_type === 'cash').forEach(h => {
+                            map[`${h.symbol}::${h.asset_type}`] = { symbol: h.symbol, price: 1, previousClose: 1, change: 0, changePercent: 0, currency: h.symbol };
+                        });
                         setPrices(map);
                     } catch (e) {
                         console.error('Price fetch failed', e);
@@ -4021,17 +4797,23 @@
 
             // 4. Summary totals
             const summary = useMemo(() => {
-                // Group by currency since TWD ≠ USD
                 const byCurrency = {};
-                let totalDividendsByC = {};
                 holdings.forEach(h => {
-                    const ccy = ASSET_TYPES[h.asset_type].currency;
-                    if (!byCurrency[ccy]) byCurrency[ccy] = { cost: 0, marketValue: 0, dividends: 0, count: 0 };
-                    byCurrency[ccy].cost += h.totalCost;
-                    byCurrency[ccy].dividends += h.dividends;
-                    byCurrency[ccy].count += 1;
-                    const p = prices[`${h.symbol}::${h.asset_type}`];
-                    if (p?.price) byCurrency[ccy].marketValue += h.totalShares * p.price;
+                    const ccy = getHoldingCurrency(h);
+                    if (!byCurrency[ccy]) byCurrency[ccy] = { cost: 0, marketValue: 0, dividends: 0, count: 0, cash: 0 };
+                    if (h.asset_type === 'cash') {
+                        // Cash: cost == market value == net amount; price always 1
+                        byCurrency[ccy].cost += h.totalCost;
+                        byCurrency[ccy].marketValue += h.totalShares; // each "share" = 1 unit of currency
+                        byCurrency[ccy].cash += h.totalShares;
+                        byCurrency[ccy].count += 1;
+                    } else {
+                        byCurrency[ccy].cost += h.totalCost;
+                        byCurrency[ccy].dividends += h.dividends;
+                        byCurrency[ccy].count += 1;
+                        const p = prices[`${h.symbol}::${h.asset_type}`];
+                        if (p?.price) byCurrency[ccy].marketValue += h.totalShares * p.price;
+                    }
                 });
                 return byCurrency;
             }, [holdings, prices]);
@@ -4224,28 +5006,36 @@
                                     </thead>
                                     <tbody>
                                         {holdings.map((h) => {
+                                            const isCash = h.asset_type === 'cash';
                                             const p = prices[`${h.symbol}::${h.asset_type}`];
                                             const avgCost = h.totalShares > 0 ? h.totalCost / h.totalShares : 0;
                                             const currentPrice = p?.price ?? null;
                                             const marketValue = currentPrice ? h.totalShares * currentPrice : null;
-                                            const pl = marketValue !== null ? marketValue - h.totalCost : null;
-                                            const plPct = pl !== null && h.totalCost > 0 ? (pl / h.totalCost) * 100 : null;
-                                            const sym = ASSET_TYPES[h.asset_type].symbol;
+                                            const pl = isCash ? 0 : (marketValue !== null ? marketValue - h.totalCost : null);
+                                            const plPct = pl !== null && h.totalCost > 0 && !isCash ? (pl / h.totalCost) * 100 : null;
+                                            const sym = getHoldingSymbol(h);
                                             const isUp = pl !== null && pl >= 0;
                                             return (
                                                 <tr key={`${h.symbol}::${h.asset_type}`} className="hover:bg-white/[0.02]" style={{ borderBottom: '1px solid var(--line)' }}>
                                                     <td className="p-3">
-                                                        <div className="font-bold text-white">{h.symbol}</div>
+                                                        <div className="font-bold text-white flex items-center gap-2">
+                                                            {isCash && <span className="text-base">💵</span>}
+                                                            {isCash ? `${h.symbol} 現金` : h.symbol}
+                                                        </div>
                                                         <div className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>
                                                             {ASSET_TYPES[h.asset_type].label}
                                                             {h.dividends > 0 && ` · 配息 ${sym}${h.dividends.toFixed(0)}`}
                                                         </div>
                                                     </td>
-                                                    <td className="p-3 text-right mono">{h.totalShares.toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
-                                                    <td className="p-3 text-right mono" style={{ color: 'var(--text-2)' }}>{sym}{avgCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                                                     <td className="p-3 text-right mono">
-                                                        {currentPrice !== null ? `${sym}${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
-                                                        {p?.changePercent !== null && p?.changePercent !== undefined && (
+                                                        {isCash ? `${sym}${h.totalShares.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : h.totalShares.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                                                    </td>
+                                                    <td className="p-3 text-right mono" style={{ color: 'var(--text-2)' }}>
+                                                        {isCash ? '—' : `${sym}${avgCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+                                                    </td>
+                                                    <td className="p-3 text-right mono">
+                                                        {isCash ? '—' : (currentPrice !== null ? `${sym}${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—')}
+                                                        {!isCash && p?.changePercent !== null && p?.changePercent !== undefined && (
                                                             <div className="text-[10px] mono" style={{ color: p.changePercent >= 0 ? '#3ce0a8' : '#ff7d8c' }}>
                                                                 {p.changePercent >= 0 ? '+' : ''}{p.changePercent.toFixed(2)}%
                                                             </div>
@@ -4255,7 +5045,7 @@
                                                         {marketValue !== null ? `${sym}${marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
                                                     </td>
                                                     <td className="p-3 text-right">
-                                                        {pl !== null ? (
+                                                        {isCash ? <span style={{ color: 'var(--text-3)' }}>—</span> : (pl !== null ? (
                                                             <div>
                                                                 <div className="mono font-bold" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
                                                                     {isUp ? '+' : ''}{sym}{pl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -4264,7 +5054,7 @@
                                                                     {isUp ? '+' : ''}{plPct.toFixed(2)}%
                                                                 </div>
                                                             </div>
-                                                        ) : '—'}
+                                                        ) : '—')}
                                                     </td>
                                                 </tr>
                                             );
@@ -4284,18 +5074,25 @@
                             </div>
                             <div className="divide-y" style={{ borderColor: 'var(--line)' }}>
                                 {transactions.slice(0, 20).map((tx) => {
-                                    const sym = ASSET_TYPES[tx.asset_type]?.symbol || '$';
+                                    const isCashTx = tx.asset_type === 'cash';
+                                    const sym = isCashTx ? (tx.symbol === 'TWD' ? 'NT$' : '$') : (ASSET_TYPES[tx.asset_type]?.symbol || '$');
                                     const typeColor = tx.type === 'buy' ? '#3ce0a8' : tx.type === 'sell' ? '#ff7d8c' : '#fbbf24';
-                                    const typeLabel = tx.type === 'buy' ? '買入' : tx.type === 'sell' ? '賣出' : '配息';
+                                    const typeLabel = isCashTx
+                                        ? (tx.type === 'buy' ? '存入' : '提領')
+                                        : (tx.type === 'buy' ? '買入' : tx.type === 'sell' ? '賣出' : '配息');
                                     return (
                                         <div key={tx.id} className="p-3 flex items-center gap-3 hover:bg-white/[0.02]" style={{ borderColor: 'var(--line)' }}>
                                             <span className="chip whitespace-nowrap" style={{ background: `${typeColor}22`, color: typeColor }}>{typeLabel}</span>
                                             <div className="flex-1 min-w-0">
-                                                <div className="font-semibold text-white text-sm">{tx.symbol}</div>
+                                                <div className="font-semibold text-white text-sm flex items-center gap-1.5">
+                                                    {isCashTx && <span>💵</span>}
+                                                    {isCashTx ? `${tx.symbol} 現金` : tx.symbol}
+                                                </div>
                                                 <div className="text-[10px] mono mt-0.5" style={{ color: 'var(--text-3)' }}>
                                                     {tx.date}
-                                                    {tx.type !== 'dividend' && ` · ${Number(tx.shares).toLocaleString()} 股 @ ${sym}${Number(tx.price).toLocaleString()}`}
-                                                    {tx.type === 'dividend' && ` · 配息 ${sym}${Number(tx.price).toLocaleString()}`}
+                                                    {isCashTx && ` · ${sym}${Number(tx.shares).toLocaleString()}`}
+                                                    {!isCashTx && tx.type !== 'dividend' && ` · ${Number(tx.shares).toLocaleString()} 股 @ ${sym}${Number(tx.price).toLocaleString()}`}
+                                                    {!isCashTx && tx.type === 'dividend' && ` · 配息 ${sym}${Number(tx.price).toLocaleString()}`}
                                                     {tx.note && ` · ${tx.note}`}
                                                 </div>
                                             </div>
