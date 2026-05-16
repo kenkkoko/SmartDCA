@@ -3775,20 +3775,47 @@
                             return;
                         }
 
-                        // ── Stocks: keep using Supabase proxy → Yahoo ──
-                        const proxy = SUPABASE_URL + '/functions/v1/price-proxy';
-                        const headers = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY };
-                        const url = `${proxy}?symbols=${encodeURIComponent(symbol)}&type=${apiType}&history=${effectiveHistoryRange}`;
-                        const res = await fetch(url, { headers });
-                        const json = await res.json();
-                        const item = (json.data || [])[0];
+                        // ── Stocks: hit Yahoo Finance directly via cors.hellokai07.com (Cloudflare worker) ──
+                        // Single source per asset class, no Supabase function dependency. Returns daily OHLC.
+                        const range = effectiveHistoryRange === '1mo' ? '1mo'
+                            : effectiveHistoryRange === '3mo' ? '3mo'
+                            : effectiveHistoryRange === '6mo' ? '6mo'
+                            : effectiveHistoryRange === '1y' ? '1y'
+                            : effectiveHistoryRange === '2y' ? '2y'
+                            : effectiveHistoryRange === '5y' ? '5y'
+                            : 'max';
+                        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`;
+                        const stockRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yahooUrl));
                         if (cancelled) return;
-                        if (!item || item.error || !item.history) {
-                            setError(item?.error || 'No data');
+                        if (!stockRes.ok) {
+                            setError(`Yahoo returned ${stockRes.status}`);
                             setHistory([]);
                             return;
                         }
-                        setHistory(item.history);
+                        const yfJson = await stockRes.json();
+                        const result = yfJson?.chart?.result?.[0];
+                        if (!result) {
+                            setError(yfJson?.chart?.error?.description || '查無此代號');
+                            setHistory([]);
+                            return;
+                        }
+                        const ts = result.timestamp || [];
+                        const q = result.indicators?.quote?.[0] || {};
+                        const opens = q.open || [];
+                        const highs = q.high || [];
+                        const lows = q.low || [];
+                        const closes = q.close || [];
+                        const hist = [];
+                        for (let i = 0; i < ts.length; i++) {
+                            const c = closes[i];
+                            if (c == null || isNaN(c)) continue;
+                            const entry = { date: new Date(ts[i] * 1000).toISOString().slice(0, 10), price: c };
+                            if (opens[i] != null && !isNaN(opens[i])) entry.open = opens[i];
+                            if (highs[i] != null && !isNaN(highs[i])) entry.high = highs[i];
+                            if (lows[i] != null && !isNaN(lows[i])) entry.low = lows[i];
+                            hist.push(entry);
+                        }
+                        setHistory(hist);
                     } catch (e) {
                         if (!cancelled) setError(String(e));
                     } finally {
