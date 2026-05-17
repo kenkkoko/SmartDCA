@@ -3546,10 +3546,22 @@
         // TradingView Lightweight Charts v5 + deepentropy/lightweight-charts-drawing
         // (68 community-built drawing tools).
         // ─────────────────────────────────────────────
-        const EMA_PERIODS = [20, 26, 32, 38, 44, 50];
-        // Two palettes — ribbon switches whole-cloth based on latest fast > slow trend
-        const EMA_BULL_PALETTE = ['#00d68f', '#3ce0a8', '#5bd4ad', '#84d76a', '#27b070', '#0f5d3e'];
-        const EMA_BEAR_PALETTE = ['#ff5b6e', '#ff7d8c', '#ff9aa6', '#c43d4b', '#9f2a3a', '#7a1b29'];
+        // EMA Ribbon — mirrors the Pine "BTC EMA Ribbon Reversal" indicator
+        //   fast = 20, slow = 55, four mid lines at round(fast + (slow-fast)*0.2/0.4/0.6/0.8)
+        const EMA_FAST = 20;
+        const EMA_SLOW = 55;
+        const EMA_PERIODS = (() => {
+            const f = EMA_FAST, s = EMA_SLOW;
+            return [f,
+                Math.round(f + (s - f) * 0.2),
+                Math.round(f + (s - f) * 0.4),
+                Math.round(f + (s - f) * 0.6),
+                Math.round(f + (s - f) * 0.8),
+                s];
+        })();
+        // Single semi-transparent color flips with the latest fast>slow trend (matches Pine color.new(..., 40))
+        const EMA_BULL_COLOR = 'rgba(0, 200, 83, 0.6)';
+        const EMA_BEAR_COLOR = 'rgba(255, 23, 68, 0.6)';
         const UP_COLOR = '#00d68f';
         const DOWN_COLOR = '#ff5b6e';
 
@@ -3658,7 +3670,10 @@
             const ma200SeriesRef = useRef(null);
             const rsiSeriesRef = useRef(null);
             const macdRefs = useRef({ dif: null, dea: null, hist: null });
-            const markersPluginRef = useRef(null);
+            const markersPluginRef = useRef(null);     // candle pane: holds FNG dots + EMA LONG/SHORT
+            const rsiMarkersRef = useRef(null);        // RSI pane: 30 / 70 crossover markers
+            const macdMarkersRef = useRef(null);       // MACD pane: DIF×DEA golden / death cross markers
+            const emaCrossesRef = useRef([]);          // cached so the FNG-markers effect can merge them
             const drawingManagerRef = useRef(null);
             const drawingsRef = useRef([]);
             const activeToolRef = useRef(null);
@@ -3990,7 +4005,9 @@
                 try { chart.timeScale().fitContent(); } catch {}
             }, [candleData]);
 
-            // ─── EMA Ribbon (6 lines on main pane) — palette flips bull / bear ───
+            // ─── EMA Ribbon (6 lines on main pane) ───
+            // Matches Pine "BTC EMA Ribbon Reversal": all 6 lines share one semi-transparent
+            // color that flips green ↔ red whenever the fast (20) crosses the slow (55).
             useEffect(() => {
                 const chart = chartRef.current;
                 if (!chart) return;
@@ -3999,10 +4016,12 @@
                 if (!showEMA || candleData.length === 0) return;
                 const closes = candleData.map(d => d.close);
                 const emas = EMA_PERIODS.map(p => computeEMA(closes, p));
-                const lastFast = emas[0][emas[0].length - 1];
-                const lastSlow = emas[EMA_PERIODS.length - 1][emas[EMA_PERIODS.length - 1].length - 1];
+                const fastArr = emas[0];
+                const slowArr = emas[EMA_PERIODS.length - 1];
+                const lastFast = fastArr[fastArr.length - 1];
+                const lastSlow = slowArr[slowArr.length - 1];
                 const bull = lastFast != null && lastSlow != null && lastFast >= lastSlow;
-                const palette = bull ? EMA_BULL_PALETTE : EMA_BEAR_PALETTE;
+                const ribbonColor = bull ? EMA_BULL_COLOR : EMA_BEAR_COLOR;
                 EMA_PERIODS.forEach((period, idx) => {
                     const ema = emas[idx];
                     const data = [];
@@ -4011,7 +4030,7 @@
                     }
                     if (!data.length) return;
                     const s = chart.addSeries(window.LightweightCharts.LineSeries, {
-                        color: palette[idx],
+                        color: ribbonColor,
                         lineWidth: (idx === 0 || idx === EMA_PERIODS.length - 1) ? 2 : 1,
                         priceLineVisible: false,
                         lastValueVisible: false,
@@ -4020,6 +4039,26 @@
                     s.setData(data);
                     emaSeriesRef.current.push(s);
                 });
+            }, [showEMA, candleData]);
+
+            // EMA fast×slow cross markers, computed once and reused by the combined-markers effect
+            const emaCrossMarkers = useMemo(() => {
+                if (!showEMA || candleData.length === 0) return [];
+                const closes = candleData.map(d => d.close);
+                const fast = computeEMA(closes, EMA_FAST);
+                const slow = computeEMA(closes, EMA_SLOW);
+                const out = [];
+                for (let i = 1; i < candleData.length; i++) {
+                    const fPrev = fast[i - 1], fCur = fast[i];
+                    const sPrev = slow[i - 1], sCur = slow[i];
+                    if (fPrev == null || fCur == null || sPrev == null || sCur == null) continue;
+                    if (fPrev <= sPrev && fCur > sCur) {
+                        out.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR, text: 'LONG' });
+                    } else if (fPrev >= sPrev && fCur < sCur) {
+                        out.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR, text: 'SHORT' });
+                    }
+                }
+                return out;
             }, [showEMA, candleData]);
 
             // ─── 200-period SMA on main pane (price > MA = bull → green, else red) ───
@@ -4053,11 +4092,15 @@
                 ma200SeriesRef.current = s;
             }, [showMA200, candleData]);
 
-            // ─── RSI (pane 1) with 70 / 50 / 30 reference lines ───
+            // ─── RSI (pane 1) with 70 / 50 / 30 reference lines + cross markers ───
+            // LONG marker: RSI crosses UP through 30 (oversold rebound)
+            // SHORT marker: RSI crosses DOWN through 70 (overbought reversal)
             useEffect(() => {
                 const chart = chartRef.current;
+                const LWC = window.LightweightCharts;
                 if (!chart) return;
                 if (rsiSeriesRef.current) { try { chart.removeSeries(rsiSeriesRef.current); } catch {} rsiSeriesRef.current = null; }
+                rsiMarkersRef.current = null;
                 if (!showRSI || candleData.length === 0) return;
                 const period = 14;
                 const closes = candleData.map(d => d.close);
@@ -4085,7 +4128,7 @@
                     pushRsi(i);
                 }
                 const latest = out.length ? out[out.length - 1].value : 50;
-                const s = chart.addSeries(window.LightweightCharts.LineSeries, {
+                const s = chart.addSeries(LWC.LineSeries, {
                     color: latest >= 50 ? UP_COLOR : DOWN_COLOR,
                     lineWidth: 1.5,
                     priceLineVisible: false, lastValueVisible: true, title: 'RSI(14)',
@@ -4095,15 +4138,31 @@
                 try { s.createPriceLine({ price: 50, color: 'rgba(255,255,255,0.18)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
                 try { s.createPriceLine({ price: 30, color: 'rgba(0,214,143,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
                 rsiSeriesRef.current = s;
+
+                // Cross markers on the RSI line itself
+                if (typeof LWC.createSeriesMarkers === 'function') {
+                    const markers = [];
+                    for (let i = 1; i < out.length; i++) {
+                        const prev = out[i - 1].value, cur = out[i].value;
+                        if (prev <= 30 && cur > 30) {
+                            markers.push({ time: out[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR, text: 'LONG' });
+                        } else if (prev >= 70 && cur < 70) {
+                            markers.push({ time: out[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR, text: 'SHORT' });
+                        }
+                    }
+                    try { rsiMarkersRef.current = LWC.createSeriesMarkers(s, markers); } catch {}
+                }
             }, [showRSI, candleData]);
 
-            // ─── MACD (pane 2) ───
+            // ─── MACD (pane 2) + DIF×DEA golden / death cross markers on DIF line ───
             useEffect(() => {
                 const chart = chartRef.current;
+                const LWC = window.LightweightCharts;
                 if (!chart) return;
                 ['dif', 'dea', 'hist'].forEach(k => {
                     if (macdRefs.current[k]) { try { chart.removeSeries(macdRefs.current[k]); } catch {} macdRefs.current[k] = null; }
                 });
+                macdMarkersRef.current = null;
                 if (!showMACD || candleData.length === 0) return;
                 const closes = candleData.map(d => d.close);
                 const macd = computeMACD(closes);
@@ -4116,23 +4175,33 @@
                     if (macd.dif[i] != null) difData.push({ time: t, value: macd.dif[i] });
                     if (macd.dea[i] != null) deaData.push({ time: t, value: macd.dea[i] });
                 }
-                const LWC = window.LightweightCharts;
                 macdRefs.current.hist = chart.addSeries(LWC.HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, 2);
                 macdRefs.current.hist.setData(histData);
                 macdRefs.current.dif = chart.addSeries(LWC.LineSeries, { color: '#3b82f6', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DIF' }, 2);
                 macdRefs.current.dif.setData(difData);
                 macdRefs.current.dea = chart.addSeries(LWC.LineSeries, { color: '#fbbf24', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DEA' }, 2);
                 macdRefs.current.dea.setData(deaData);
+
+                // Cross markers anchored on the DIF line
+                if (typeof LWC.createSeriesMarkers === 'function') {
+                    const markers = [];
+                    for (let i = 1; i < closes.length; i++) {
+                        const dPrev = macd.dif[i - 1], dCur = macd.dif[i];
+                        const ePrev = macd.dea[i - 1], eCur = macd.dea[i];
+                        if (dPrev == null || dCur == null || ePrev == null || eCur == null) continue;
+                        if (dPrev <= ePrev && dCur > eCur) {
+                            markers.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR, text: 'LONG' });
+                        } else if (dPrev >= ePrev && dCur < eCur) {
+                            markers.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR, text: 'SHORT' });
+                        }
+                    }
+                    try { macdMarkersRef.current = LWC.createSeriesMarkers(macdRefs.current.dif, markers); } catch {}
+                }
             }, [showMACD, candleData]);
 
-            // ─── FNG markers (crypto / US only) ───
-            useEffect(() => {
-                const plugin = markersPluginRef.current;
-                if (!plugin) return;
-                if (!showFearSignal || signalSource !== 'fng' || candleData.length === 0 || fngHistory.length === 0) {
-                    try { plugin.setMarkers([]); } catch {}
-                    return;
-                }
+            // FNG dot markers (crypto / US only) — combined later with EMA cross markers
+            const fngMarkers = useMemo(() => {
+                if (!showFearSignal || signalSource !== 'fng' || candleData.length === 0 || fngHistory.length === 0) return [];
                 const sortedDates = Object.keys(fngByDate).sort();
                 const markers = [];
                 candleData.forEach(bar => {
@@ -4155,8 +4224,16 @@
                         size: v <= 25 ? 1 : 0.7,
                     });
                 });
-                try { plugin.setMarkers(markers); } catch {}
+                return markers;
             }, [candleData, fngByDate, fngHistory, showFearSignal, signalSource]);
+
+            // Combined candle-pane markers: FNG dots + EMA LONG / SHORT cross arrows, sorted by time
+            useEffect(() => {
+                const plugin = markersPluginRef.current;
+                if (!plugin) return;
+                const combined = [...fngMarkers, ...emaCrossMarkers].sort((a, b) => a.time - b.time);
+                try { plugin.setMarkers(combined); } catch {}
+            }, [fngMarkers, emaCrossMarkers]);
 
             // ─── Aggregate every signal we display into the summary panel ───
             const signalSummary = useMemo(() => {
@@ -4230,19 +4307,6 @@
 
                 return out;
             }, [candleData, fngHistory, signalSource, showEMA, showRSI, showMACD, showMA200, showComposite]);
-
-            // Overall verdict — straight count of bull vs bear (neutral ignored)
-            const overallTone = useMemo(() => {
-                let b = 0, s = 0;
-                for (const it of signalSummary) {
-                    if (it.tone === 'bull') b++;
-                    else if (it.tone === 'bear') s++;
-                }
-                if (b === 0 && s === 0) return { tone: 'neutral', label: '--' };
-                if (b > s) return { tone: 'bull', label: '偏多' };
-                if (s > b) return { tone: 'bear', label: '偏空' };
-                return { tone: 'neutral', label: '中性' };
-            }, [signalSummary]);
 
             // ─── Tool picker handlers ───
             const pickTool = (tool) => {
@@ -4505,10 +4569,6 @@
                                         <span className="text-[10px] font-bold tracking-wider uppercase" style={{ color: 'var(--text-3)' }}>信號總覽</span>
                                         <button onClick={() => setShowSignalPanel(false)} className="w-5 h-5 rounded hover:bg-white/[0.08] text-[11px]" style={{ color: 'var(--text-3)' }} title="收起">−</button>
                                     </div>
-                                    <div className="flex items-center justify-between mb-1.5 px-1.5 py-1 rounded" style={{ background: tonePill(overallTone.tone).bg, border: '1px solid ' + tonePill(overallTone.tone).border }}>
-                                        <span className="text-[10px] font-bold" style={{ color: tonePill(overallTone.tone).color }}>綜合判斷</span>
-                                        <span className="text-[11px] font-extrabold" style={{ color: tonePill(overallTone.tone).color }}>{overallTone.label}</span>
-                                    </div>
                                     <div className="space-y-1">
                                         {signalSummary.map(it => {
                                             const p = tonePill(it.tone);
@@ -4552,8 +4612,9 @@
                                     <p><strong className="text-white">圖表</strong>：基於 TradingView Lightweight Charts v5；滑鼠拖曳平移、滾輪縮放、雙指捏合縮放；拖曳價格軸 / 時間軸縮放單一方向。</p>
                                     <p><strong className="text-white">畫線工具</strong>：左側工具列共 8 分類、68 種工具。點分類圖示打開選單，挑選工具後在圖表上任意位置點擊指定數量的錨點即完成（自由位置，不會吸到 K 棒）。</p>
                                     <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊已完成的標註可選取，拖曳錨點微調；按 Delete 或左側垃圾桶刪除；Esc 取消當前繪製。手機可用單指拖曳錨點。</p>
-                                    <p><strong className="text-white">指標</strong>：EMA Ribbon 隨多空換綠 / 紅；MA200 隨價格上下換色；RSI 加 70/50/30 參考線；MACD 紅綠柱反映動能；綜合信號 = RSI + 1Y 高低位置（觀察清單一致邏輯）。</p>
-                                    <p><strong className="text-white">信號總覽</strong>：右上角面板綜合所有指標的多 / 空狀態，可隨時收起。</p>
+                                    <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20 / 27 / 34 / 41 / 48 / 55（fast=20、slow=55），整條依 fast×slow 多空換色；金叉於 K 棒下方標 LONG，死叉於上方標 SHORT。</p>
+                                    <p><strong className="text-white">RSI / MACD / MA200</strong>：RSI 加 70 / 50 / 30 線，RSI 上穿 30 = LONG、下穿 70 = SHORT；MACD DIF×DEA 金叉 = LONG、死叉 = SHORT；MA200 線色隨價格站上 / 跌破切換。</p>
+                                    <p><strong className="text-white">信號總覽</strong>：右上角面板獨立列出各指標的多 / 空狀態，不做綜合判斷；可隨時收起。</p>
                                 </div>
                             </div>
                         </div>
