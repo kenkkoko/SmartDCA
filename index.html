@@ -45,8 +45,9 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
-    <!-- KLineChart — TradingView-style candles + built-in indicators (used by TechnicalChartModal) -->
-    <script src="https://cdn.jsdelivr.net/npm/klinecharts@9.8.10/dist/umd/klinecharts.min.js"></script>
+    <!-- TradingView Lightweight Charts v5 + community drawing tools (68 tools) — used by TechnicalChartModal -->
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts-drawing@0.1.1/dist/lightweight-charts-drawing.umd.js"></script>
 
     <!-- Supabase JS -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1545,21 +1546,12 @@
 
             const isPositive = data.change >= 0;
 
-            // Determine DCA Signal Badge
-            let badge = null;
-            if (suggestion && suggestion.action.includes("買入")) {
-                badge = <span className="ml-2 px-2 py-0.5 text-xs font-bold bg-green-500/20 text-green-400 rounded">Buy</span>;
-            } else if (suggestion && suggestion.action.includes("止盈")) {
-                badge = <span className="ml-2 px-2 py-0.5 text-xs font-bold bg-red-500/20 text-red-400 rounded">Sell</span>;
-            }
-
             return (
                 <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
                     <div className="flex justify-between items-start mb-2">
                         <div>
                             <h3 className="text-slate-400 text-sm font-medium flex items-center">
                                 {name}
-                                {badge}
                             </h3>
                             <div className="text-2xl font-bold text-slate-100 mt-1">
                                 {data.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1697,7 +1689,7 @@
         // EditableCardGrid — wraps a row of price cards with drag-to-reorder, ✕ remove, and + add buttons.
         // children is expected to be a flat list of card-shaped React nodes, one per item in `cards`, in the same order.
         // ─────────────────────────────────────────────
-        const EditableCardGrid = ({ cards, editMode, onToggleEdit, onMove, onRemove, onAdd, onReset, addLabel = '+ 新增', title, children }) => {
+        const EditableCardGrid = ({ cards, editMode, onToggleEdit, onMove, onRemove, onAdd, onReset, addLabel = '+ 新增', title, children, mobileRow = false }) => {
             const dragIdx = useRef(null);
             const [dragOverIdx, setDragOverIdx] = useState(null);
             const childArr = React.Children.toArray(children);
@@ -1721,7 +1713,7 @@
                             >{editMode ? '完成' : '編輯'}</button>
                         </div>
                     </div>
-                    <div className="flex flex-col md:flex-row gap-4 flex-wrap">
+                    <div className={`flex gap-2 md:gap-4 flex-wrap ${mobileRow ? 'flex-row' : 'flex-col md:flex-row'}`}>
                         {childArr.map((child, i) => (
                             <div
                                 key={(cards[i] && cards[i].id) || i}
@@ -1737,7 +1729,7 @@
                                     dragIdx.current = null;
                                     setDragOverIdx(null);
                                 }}
-                                className={`relative flex-1 min-w-0 md:min-w-[180px] transition-transform ${editMode ? 'cursor-move' : ''} ${dragOverIdx === i && dragIdx.current !== null && dragIdx.current !== i ? 'ring-2 ring-cyan-400 scale-[1.02]' : ''}`}
+                                className={`relative flex-1 ${mobileRow ? 'basis-0 min-w-[96px]' : 'min-w-0'} md:min-w-[180px] transition-transform ${editMode ? 'cursor-move' : ''} ${dragOverIdx === i && dragIdx.current !== null && dragIdx.current !== i ? 'ring-2 ring-cyan-400 scale-[1.02]' : ''}`}
                             >
                                 {editMode && (
                                     <>
@@ -1760,7 +1752,7 @@
                         {editMode && (
                             <button
                                 onClick={onAdd}
-                                className="flex-1 min-w-0 md:min-w-[180px] rounded-xl p-4 text-sm font-semibold transition-all hover:bg-white/[0.04] flex items-center justify-center gap-2"
+                                className={`flex-1 ${mobileRow ? 'basis-0 min-w-[96px]' : 'min-w-0'} md:min-w-[180px] rounded-xl p-4 text-sm font-semibold transition-all hover:bg-white/[0.04] flex items-center justify-center gap-2`}
                                 style={{ border: '2px dashed var(--line)', color: 'var(--text-3)', minHeight: '110px' }}
                             >{addLabel}</button>
                         )}
@@ -2322,15 +2314,20 @@
                 setLoading(true);
                 setError(null);
                 try {
-                    // Helper: Yahoo Price Fetcher
+                    // Helper: Yahoo Price Fetcher (per-card try/catch so one failure doesn't drop the whole row)
                     const fetchYahooPrice = async (ticker) => {
-                        const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
-                        const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
-                        const data = await res.json();
-                        const meta = data.chart.result[0].meta;
-                        const price = meta.regularMarketPrice;
-                        const prevClose = meta.chartPreviousClose || meta.previousClose || price;
-                        return { price, prevClose, change: price - prevClose, changePercent: ((price - prevClose) / prevClose) * 100 };
+                        try {
+                            const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+                            const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
+                            if (!res.ok) return null;
+                            const data = await res.json();
+                            const meta = data?.chart?.result?.[0]?.meta;
+                            if (!meta) return null;
+                            const price = meta.regularMarketPrice;
+                            const prevClose = meta.chartPreviousClose || meta.previousClose || price;
+                            if (price == null) return null;
+                            return { price, prevClose, change: price - prevClose, changePercent: prevClose ? ((price - prevClose) / prevClose) * 100 : 0 };
+                        } catch (e) { return null; }
                     };
 
                     // 1. Fetch Headline Indices (Parallel) — driven by user-editable card list
@@ -2979,6 +2976,7 @@
                     />
                     <EditableCardGrid
                         title="加密貨幣"
+                        mobileRow
                         cards={cryptoCards.cards}
                         editMode={cryptoEditMode}
                         onToggleEdit={() => setCryptoEditMode(!cryptoEditMode)}
@@ -2999,19 +2997,19 @@
                                 <div
                                     key={c.id}
                                     onClick={() => !cryptoEditMode && setSelectedCoin(c.symbol)}
-                                    className={`${cryptoEditMode ? '' : 'cursor-pointer'} flex flex-col p-4 rounded-xl border transition-all h-full ${active ? 'bg-slate-800 border-blue-500 shadow-lg' : 'bg-slate-900/50 border-slate-800'}`}
+                                    className={`${cryptoEditMode ? '' : 'cursor-pointer'} flex flex-col p-2.5 md:p-4 rounded-xl border transition-all h-full ${active ? 'bg-slate-800 border-blue-500 shadow-lg' : 'bg-slate-900/50 border-slate-800'}`}
                                 >
                                     <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1.5 min-w-0">
                                             {c.logo
-                                                ? <img src={c.logo} className="w-6 h-6" alt={c.name} onError={(e) => { e.target.style.display = 'none'; }} />
-                                                : <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs text-slate-300">{c.name.slice(0, 1)}</div>
+                                                ? <img src={c.logo} className="w-5 h-5 md:w-6 md:h-6 shrink-0" alt={c.name} onError={(e) => { e.target.style.display = 'none'; }} />
+                                                : <div className="w-5 h-5 md:w-6 md:h-6 shrink-0 rounded-full bg-slate-700 flex items-center justify-center text-[10px] md:text-xs text-slate-300">{c.name.slice(0, 1)}</div>
                                             }
-                                            <span className="font-bold text-white">{c.name}</span>
+                                            <span className="font-bold text-white text-sm md:text-base truncate">{c.name}</span>
                                         </div>
                                     </div>
-                                    <div className="text-xl font-mono text-white">{p ? `$${formatPrice(p.usd)}` : 'Loading...'}</div>
-                                    {p && <div className={`text-xs ${p.usd_24h_change >= 0 ? 'text-green-400' : 'text-red-400'}`}>{p.usd_24h_change.toFixed(2)}%</div>}
+                                    <div className="text-base md:text-xl font-mono text-white truncate">{p ? `$${formatPrice(p.usd)}` : '...'}</div>
+                                    {p && <div className={`text-[11px] md:text-xs ${p.usd_24h_change >= 0 ? 'text-green-400' : 'text-red-400'}`}>{p.usd_24h_change.toFixed(2)}%</div>}
                                 </div>
                             );
                         })}
@@ -3544,199 +3542,138 @@
         };
 
         // ─────────────────────────────────────────────
-        // TechnicalChartModal — full-screen TradingView-style analysis
+        // TechnicalChartModal — full-screen analysis built on
+        // TradingView Lightweight Charts v5 + deepentropy/lightweight-charts-drawing
+        // (68 community-built drawing tools). Replaces the old buggy KLineChart impl.
         // ─────────────────────────────────────────────
-        // EMA Ribbon: fast=20, slow=50 — follows Pine "math.round(fast + (slow-fast)*0.2/0.4/0.6/0.8)"
-        // 6 lines total: fast(20), mid 26/32/38/44, slow(50). Whole ribbon recolored by trend.
         const EMA_PERIODS = [20, 26, 32, 38, 44, 50];
-        // App-style trend colors (same green/red the app uses for buy/sell signals)
-        const EMA_TREND_UP = '#3ce0a8';
-        const EMA_TREND_DOWN = '#ff5b6e';
-        const EMA_FILL_UP = 'rgba(60, 224, 168, 0.14)';
-        const EMA_FILL_DOWN = 'rgba(255, 91, 110, 0.14)';
+        const EMA_COLORS = ['#3b82f6', '#5fa8ff', '#06b6d4', '#84d76a', '#fbbf24', '#f97316'];
 
-        // ─────────────────────────────────────────────
-        // axisDragZoomPlugin — TradingView-style: drag on right/bottom axis to scale that axis
-        // ─────────────────────────────────────────────
-        const axisDragZoomPlugin = {
-            id: 'axisDragZoom',
-            afterInit(chart) {
-                const canvas = chart.canvas;
-                // mode: null | 'y' (right axis zoom) | 'x' (bottom axis zoom) | 'pan' (chart-area drag)
-                const state = { mode: null, lastX: 0, lastY: 0 };
-
-                const getPos = (e) => {
-                    const rect = canvas.getBoundingClientRect();
-                    const src = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
-                    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
-                };
-                const inYStrip = (x, y, ca) =>
-                    x >= ca.right - 4 && x <= ca.right + 80 && y >= ca.top && y <= ca.bottom;
-                const inXStrip = (x, y, ca) =>
-                    y >= ca.bottom - 4 && y <= ca.bottom + 60 && x >= ca.left && x <= ca.right;
-                const inChartArea = (x, y, ca) =>
-                    x >= ca.left && x <= ca.right && y >= ca.top && y <= ca.bottom;
-
-                const onDown = (e) => {
-                    if (!chart.chartArea) return;
-                    // Skip multi-touch — let chartjs-plugin-zoom handle pinch
-                    if (e.touches && e.touches.length > 1) return;
-                    const { x, y } = getPos(e);
-                    const ca = chart.chartArea;
-                    if (inYStrip(x, y, ca)) {
-                        state.mode = 'y'; state.lastY = y;
-                        canvas.style.cursor = 'ns-resize';
-                        if (e.cancelable) e.preventDefault();
-                    } else if (inXStrip(x, y, ca)) {
-                        state.mode = 'x'; state.lastX = x;
-                        canvas.style.cursor = 'ew-resize';
-                        if (e.cancelable) e.preventDefault();
-                    } else if (inChartArea(x, y, ca)) {
-                        state.mode = 'pan'; state.lastX = x; state.lastY = y;
-                        canvas.style.cursor = 'grabbing';
-                        if (e.cancelable) e.preventDefault();
-                    }
-                };
-                const onMove = (e) => {
-                    if (!state.mode) return;
-                    const { x, y } = getPos(e);
-                    if (state.mode === 'y') {
-                        const dy = y - state.lastY;
-                        state.lastY = y;
-                        if (chart.zoom) {
-                            const f = Math.max(0.6, Math.min(1.5, 1 - dy / 120));
-                            chart.zoom({ x: 1, y: f });
-                        }
-                    } else if (state.mode === 'x') {
-                        const dx = x - state.lastX;
-                        state.lastX = x;
-                        if (chart.zoom) {
-                            const f = Math.max(0.6, Math.min(1.5, 1 + dx / 120));
-                            chart.zoom({ x: f, y: 1 });
-                        }
-                    } else if (state.mode === 'pan') {
-                        const dx = x - state.lastX;
-                        const dy = y - state.lastY;
-                        state.lastX = x; state.lastY = y;
-                        if (chart.pan) chart.pan({ x: dx, y: dy }, undefined, 'default');
-                    }
-                    if (e.cancelable) e.preventDefault();
-                };
-                const onUp = () => { state.mode = null; canvas.style.cursor = 'grab'; };
-                const onHover = (e) => {
-                    if (state.mode || !chart.chartArea) return;
-                    const { x, y } = getPos(e);
-                    const ca = chart.chartArea;
-                    canvas.style.cursor = inYStrip(x, y, ca) ? 'ns-resize'
-                        : inXStrip(x, y, ca) ? 'ew-resize'
-                        : 'grab';
-                };
-
-                canvas.addEventListener('mousedown', onDown);
-                canvas.addEventListener('mousemove', onHover);
-                window.addEventListener('mousemove', onMove);
-                window.addEventListener('mouseup', onUp);
-                canvas.addEventListener('touchstart', onDown, { passive: false });
-                window.addEventListener('touchmove', onMove, { passive: false });
-                window.addEventListener('touchend', onUp);
-                canvas.style.cursor = 'grab';
-
-                chart._axisDragCleanup = () => {
-                    canvas.removeEventListener('mousedown', onDown);
-                    canvas.removeEventListener('mousemove', onHover);
-                    window.removeEventListener('mousemove', onMove);
-                    window.removeEventListener('mouseup', onUp);
-                    canvas.removeEventListener('touchstart', onDown);
-                    window.removeEventListener('touchmove', onMove);
-                    window.removeEventListener('touchend', onUp);
-                };
-            },
-            beforeDestroy(chart) { if (chart._axisDragCleanup) chart._axisDragCleanup(); }
-        };
-
-        // ─────────────────────────────────────────────
-        // Signal-marker plugins (RSI buy/sell, MACD golden/death)
-        // ─────────────────────────────────────────────
-        const drawSignalArrow = (ctx, x, y, color, dir, text) => {
-            ctx.save();
-            ctx.fillStyle = color;
-            ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            // dir=+1 → arrow pointing up below point (buy); dir=-1 → arrow pointing down above (sell)
-            const off = 9;
-            if (dir > 0) {
-                ctx.moveTo(x, y + 5);
-                ctx.lineTo(x - 5, y + 5 + off);
-                ctx.lineTo(x + 5, y + 5 + off);
-            } else {
-                ctx.moveTo(x, y - 5);
-                ctx.lineTo(x - 5, y - 5 - off);
-                ctx.lineTo(x + 5, y - 5 - off);
-            }
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-            if (text) {
-                ctx.fillStyle = color;
-                ctx.font = 'bold 10px "JetBrains Mono", ui-monospace, monospace';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = dir > 0 ? 'top' : 'bottom';
-                ctx.fillText(text, x, dir > 0 ? y + 5 + off + 3 : y - 5 - off - 3);
-            }
-            ctx.restore();
-        };
-        const signalMarkerPluginFactory = (id, accessor) => ({
-            id,
-            afterDatasetsDraw(chart) {
-                const signals = accessor(chart) || [];
-                const { ctx, chartArea, scales } = chart;
-                if (!chartArea || !scales.x || !scales.y) return;
-                const xType = scales.x.type || '';
-                const useTime = xType.includes('time');
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
-                ctx.clip();
-                for (const sig of signals) {
-                    const xVal = useTime && sig.x !== undefined ? sig.x : sig.idx;
-                    const x = scales.x.getPixelForValue(xVal);
-                    const y = scales.y.getPixelForValue(sig.value);
-                    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-                    drawSignalArrow(ctx, x, y, sig.color, sig.dir, sig.text);
-                }
-                ctx.restore();
-            }
-        });
+        // 68 tools grouped into 8 categories. Anchor counts come from the library's registry.
+        const DRAWING_TOOL_CATEGORIES = [
+            { key: 'line', label: '線', tools: [
+                { type: 'trend-line', name: '趨勢線', a: 2 },
+                { type: 'ray', name: '射線', a: 2 },
+                { type: 'extended-line', name: '延伸線', a: 2 },
+                { type: 'horizontal-line', name: '水平線', a: 1 },
+                { type: 'horizontal-ray', name: '水平射線', a: 1 },
+                { type: 'vertical-line', name: '垂直線', a: 1 },
+                { type: 'cross-line', name: '十字線', a: 1 },
+                { type: 'info-line', name: '訊息線', a: 2 },
+                { type: 'trend-angle', name: '趨勢角度', a: 2 },
+                { type: 'arrow', name: '箭頭', a: 2 },
+            ]},
+            { key: 'channel', label: '通道', tools: [
+                { type: 'parallel-channel', name: '平行通道', a: 3 },
+                { type: 'regression-trend', name: '迴歸趨勢', a: 2 },
+                { type: 'flat-top-bottom', name: '平頂 / 底', a: 3 },
+                { type: 'disjoint-channel', name: '斷開通道', a: 4 },
+            ]},
+            { key: 'pitchfork', label: '叉形', tools: [
+                { type: 'andrews-pitchfork', name: 'Andrews 叉形', a: 3 },
+                { type: 'schiff-pitchfork', name: 'Schiff 叉形', a: 3 },
+                { type: 'modified-schiff-pitchfork', name: 'Modified Schiff', a: 3 },
+                { type: 'inside-pitchfork', name: 'Inside 叉形', a: 3 },
+            ]},
+            { key: 'fibonacci', label: '黃金分割', tools: [
+                { type: 'fib-retracement', name: 'Fib 回撤', a: 2 },
+                { type: 'fib-extension', name: 'Fib 延伸', a: 3 },
+                { type: 'fib-channel', name: 'Fib 通道', a: 3 },
+                { type: 'fib-time-zone', name: 'Fib 時區', a: 2 },
+                { type: 'fib-speed-fan', name: 'Fib 速度扇形', a: 2 },
+                { type: 'fib-time-extension', name: 'Fib 時間延伸', a: 3 },
+                { type: 'fib-circles', name: 'Fib 圓', a: 2 },
+                { type: 'fib-spiral', name: 'Fib 螺旋', a: 2 },
+                { type: 'fib-arcs', name: 'Fib 弧', a: 2 },
+                { type: 'fib-wedge', name: 'Fib 楔形', a: 3 },
+                { type: 'pitchfan', name: 'Pitchfan', a: 3 },
+            ]},
+            { key: 'gann', label: '江恩', tools: [
+                { type: 'gann-box', name: '江恩盒', a: 2 },
+                { type: 'gann-fan', name: '江恩扇形', a: 2 },
+                { type: 'gann-square-fixed', name: '江恩方形（固定）', a: 1 },
+                { type: 'gann-square', name: '江恩方形', a: 2 },
+            ]},
+            { key: 'forecasting', label: '預測', tools: [
+                { type: 'long-position', name: '多單部位', a: 3 },
+                { type: 'short-position', name: '空單部位', a: 3 },
+                { type: 'forecast', name: '預測', a: 2 },
+                { type: 'bars-pattern', name: 'K 棒模式', a: 3 },
+                { type: 'projection', name: '投影', a: 3 },
+                { type: 'price-range', name: '價格區間', a: 2 },
+                { type: 'date-range', name: '日期區間', a: 2 },
+                { type: 'date-price-range', name: '日期 + 價格區間', a: 2 },
+            ]},
+            { key: 'shape', label: '形狀', tools: [
+                { type: 'rectangle', name: '矩形', a: 2 },
+                { type: 'rotated-rectangle', name: '旋轉矩形', a: 3 },
+                { type: 'circle', name: '圓形', a: 2 },
+                { type: 'triangle', name: '三角形', a: 3 },
+                { type: 'ellipse', name: '橢圓', a: 2 },
+                { type: 'arc', name: '弧', a: 3 },
+                { type: 'path', name: '路徑', a: 2 },
+                { type: 'polyline', name: '折線', a: 2 },
+                { type: 'curve', name: '曲線', a: 4 },
+                { type: 'double-curve', name: '雙曲線', a: 3 },
+            ]},
+            { key: 'annotation', label: '標註', tools: [
+                { type: 'text-annotation', name: '文字', a: 1 },
+                { type: 'callout', name: '標註框', a: 2 },
+                { type: 'anchored-text', name: '錨定文字', a: 2 },
+                { type: 'note', name: '便籤', a: 1 },
+                { type: 'price-note', name: '價格便籤', a: 1 },
+                { type: 'price-label', name: '價格標籤', a: 1 },
+                { type: 'flag-mark', name: '旗幟', a: 1 },
+                { type: 'pin', name: '釘子', a: 1 },
+                { type: 'comment', name: '註解', a: 1 },
+                { type: 'signpost', name: '路標', a: 1 },
+                { type: 'table', name: '表格', a: 1 },
+                { type: 'brush', name: '筆刷', a: 2 },
+                { type: 'highlighter', name: '螢光筆', a: 2 },
+                { type: 'arrow-marker', name: '箭頭記號', a: 1 },
+                { type: 'arrow-mark-up', name: '向上箭頭', a: 1 },
+                { type: 'arrow-mark-down', name: '向下箭頭', a: 1 },
+            ]},
+        ];
 
         const TechnicalChartModal = ({ symbol, type, onClose }) => {
             const containerRef = useRef(null);
             const chartRef = useRef(null);
+            const candleSeriesRef = useRef(null);
+            const emaSeriesRef = useRef([]);
+            const rsiSeriesRef = useRef(null);
+            const macdRefs = useRef({ dif: null, dea: null, hist: null });
+            const markersPluginRef = useRef(null);
+            const drawingManagerRef = useRef(null);
+            const drawingsRef = useRef([]);
+            const activeToolRef = useRef(null);
+            const pendingAnchorsRef = useRef([]);
+            const selectedDrawingIdRef = useRef(null);
 
-            const [showHelp, setShowHelp] = useState(false);  // help popup (not persisted)
-            // Indicator visibility — persisted to localStorage so user's choices survive reload
+            const [showHelp, setShowHelp] = useState(false);
+            const [activeTool, setActiveTool] = useState(null); // { type, name, requiredAnchors, collected }
+            const [openCategory, setOpenCategory] = useState(null);
+            const [hasSelection, setHasSelection] = useState(false);
             const [showEMA, setShowEMA] = useLocalState('tech-show-ema', true);
             const [showRSI, setShowRSI] = useLocalState('tech-show-rsi', true);
             const [showMACD, setShowMACD] = useLocalState('tech-show-macd', true);
-            const [chartMode, setChartMode] = useLocalState('tech-chart-mode', 'candle'); // 'candle' | 'area' (line)
             const [timeframe, setTimeframe] = useLocalState('tech-timeframe', '1d'); // '1d' | '1wk'
             const [showFearSignal, setShowFearSignal] = useLocalState('tech-show-fear', true);
-            // Signal source: 'fng' for crypto/US (real F&G index), 'rsi' for TW (use computed RSI)
+
             const signalSource = (type === 'CRYPTO' || type === 'crypto' || type === 'US') ? 'fng' : 'rsi';
-            const [fngHistory, setFngHistory] = useState([]); // [{date, fng}]
+            const [fngHistory, setFngHistory] = useState([]);
             const [timeRange, setTimeRange] = useState('1y');
-            const [history, setHistory] = useState([]);  // [{date, price}]
+            const [history, setHistory] = useState([]);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
 
-            // Weekly indicators (EMA 50, MACD 26) need ≥50 bars. When user picks a short range
-            // and switches to weekly, auto-extend the fetch so indicators have enough data.
+            // Weekly indicators need >= 50 bars — auto-extend when user switches to weekly with a short range
             const effectiveHistoryRange = useMemo(() => {
                 if (timeframe !== '1wk') return timeRange;
                 return ['1mo', '3mo', '6mo', '1y'].includes(timeRange) ? '2y' : timeRange;
             }, [timeframe, timeRange]);
 
-            // ─── Fetch historical prices: crypto → Binance direct, stocks → Yahoo via Supabase proxy ───
+            // ─── Fetch price history (Binance for crypto, Yahoo via cors proxy for stocks) ───
             useEffect(() => {
                 if (!symbol) return;
                 let cancelled = false;
@@ -3744,67 +3681,33 @@
                     setLoading(true);
                     setError(null);
                     try {
-                        const apiType = type === 'CRYPTO' || type === 'crypto' ? 'crypto' : 'stock';
-
-                        // ── Crypto: one source, one API — Binance klines (no key, CORS, real daily OHLC) ──
+                        const apiType = (type === 'CRYPTO' || type === 'crypto') ? 'crypto' : 'stock';
                         if (apiType === 'crypto') {
                             const binSym = getBinanceSymbol(symbol);
-                            if (!binSym) {
-                                setError(`不支援的幣種：${symbol}（不在 Binance 上市）`);
-                                setHistory([]);
-                                return;
-                            }
+                            if (!binSym) { setError(`不支援的幣種：${symbol}（不在 Binance 上市）`); setHistory([]); return; }
                             const days = rangeToDays(effectiveHistoryRange);
                             const limit = Math.min(1000, days + 5);
                             const binRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=${limit}`);
                             if (cancelled) return;
-                            if (!binRes.ok) {
-                                setError(`Binance returned ${binRes.status}`);
-                                setHistory([]);
-                                return;
-                            }
-                            const klines = await binRes.json(); // [openTime, open, high, low, close, volume, ...]
-                            const hist = klines.map(k => ({
+                            if (!binRes.ok) { setError(`Binance returned ${binRes.status}`); setHistory([]); return; }
+                            const klines = await binRes.json();
+                            setHistory(klines.map(k => ({
                                 date: new Date(k[0]).toISOString().slice(0, 10),
-                                price: +k[4],
-                                open: +k[1],
-                                high: +k[2],
-                                low: +k[3],
-                            }));
-                            setHistory(hist);
+                                price: +k[4], open: +k[1], high: +k[2], low: +k[3],
+                            })));
                             return;
                         }
-
-                        // ── Stocks: hit Yahoo Finance directly via cors.hellokai07.com (Cloudflare worker) ──
-                        // Single source per asset class, no Supabase function dependency. Returns daily OHLC.
-                        const range = effectiveHistoryRange === '1mo' ? '1mo'
-                            : effectiveHistoryRange === '3mo' ? '3mo'
-                            : effectiveHistoryRange === '6mo' ? '6mo'
-                            : effectiveHistoryRange === '1y' ? '1y'
-                            : effectiveHistoryRange === '2y' ? '2y'
-                            : effectiveHistoryRange === '5y' ? '5y'
-                            : 'max';
+                        const range = ['1mo','3mo','6mo','1y','2y','5y','max'].includes(effectiveHistoryRange) ? effectiveHistoryRange : 'max';
                         const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`;
                         const stockRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yahooUrl));
                         if (cancelled) return;
-                        if (!stockRes.ok) {
-                            setError(`Yahoo returned ${stockRes.status}`);
-                            setHistory([]);
-                            return;
-                        }
+                        if (!stockRes.ok) { setError(`Yahoo returned ${stockRes.status}`); setHistory([]); return; }
                         const yfJson = await stockRes.json();
                         const result = yfJson?.chart?.result?.[0];
-                        if (!result) {
-                            setError(yfJson?.chart?.error?.description || '查無此代號');
-                            setHistory([]);
-                            return;
-                        }
+                        if (!result) { setError(yfJson?.chart?.error?.description || '查無此代號'); setHistory([]); return; }
                         const ts = result.timestamp || [];
                         const q = result.indicators?.quote?.[0] || {};
-                        const opens = q.open || [];
-                        const highs = q.high || [];
-                        const lows = q.low || [];
-                        const closes = q.close || [];
+                        const opens = q.open || [], highs = q.high || [], lows = q.low || [], closes = q.close || [];
                         const hist = [];
                         for (let i = 0; i < ts.length; i++) {
                             const c = closes[i];
@@ -3825,223 +3728,351 @@
                 return () => { cancelled = true; };
             }, [symbol, type, effectiveHistoryRange]);
 
-            // ─── Fetch FNG history (only for crypto/US) ───
+            // ─── Fetch FNG history (crypto / US only) ───
             useEffect(() => {
                 if (signalSource !== 'fng') { setFngHistory([]); return; }
                 let cancelled = false;
                 (async () => {
                     try {
-                        // Days based on effective range (weekly auto-extends)
                         const r = effectiveHistoryRange;
-                        const days = r === '1mo' ? 30 : r === '3mo' ? 90 : r === '6mo' ? 180 : r === '1y' ? 365 : r === '2y' ? 730 : r === 'max' ? 1825 : 365;
-
+                        const days = r === '1mo' ? 30 : r === '3mo' ? 90 : r === '6mo' ? 180 :
+                                     r === '1y' ? 365 : r === '2y' ? 730 : r === 'max' ? 1825 : 365;
                         if (type === 'CRYPTO' || type === 'crypto') {
-                            // Alternative.me — CORS-friendly, no key
                             const res = await fetch(`https://api.alternative.me/fng/?limit=${days}&format=json`);
                             const json = await res.json();
                             if (cancelled) return;
                             const arr = (json.data || []).map(d => ({
                                 date: new Date(Number(d.timestamp) * 1000).toISOString().slice(0, 10),
-                                fng: parseInt(d.value, 10)
-                            })).reverse(); // API returns newest first; we want oldest first
+                                fng: parseInt(d.value, 10),
+                            })).reverse();
                             setFngHistory(arr);
                         } else if (type === 'US') {
-                            // CNN F&G — via cors proxy
                             const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent('https://production.dataviz.cnn.io/index/fearandgreed/graphdata'));
                             const json = await res.json();
                             if (cancelled) return;
                             const raw = json?.fear_and_greed_historical?.data || [];
-                            const arr = raw.map(d => ({
-                                date: new Date(d.x).toISOString().slice(0, 10),
-                                fng: Math.round(d.y)
-                            }));
-                            setFngHistory(arr);
+                            setFngHistory(raw.map(d => ({ date: new Date(d.x).toISOString().slice(0, 10), fng: Math.round(d.y) })));
                         }
                     } catch (e) {
-                        console.warn('FNG fetch failed (using RSI fallback):', e);
+                        console.warn('FNG fetch failed:', e);
                         if (!cancelled) setFngHistory([]);
                     }
                 })();
                 return () => { cancelled = true; };
             }, [type, effectiveHistoryRange, signalSource]);
 
-            // ─── Compute derived series ───
-            // displayHistory = history collapsed to weekly bars if timeframe='1wk', else raw daily
             const displayHistory = useMemo(
                 () => (timeframe === '1wk' ? aggregateToWeekly(history) : history),
                 [history, timeframe]
             );
 
-            // KLineChart input format: { timestamp, open, high, low, close }
-            const klineData = useMemo(() => {
+            // Lightweight Charts wants time as UTCTimestamp (seconds) for intraday-ish series. Use date midnight UTC.
+            const candleData = useMemo(() => {
                 const seen = new Set();
-                return displayHistory
+                const arr = displayHistory
                     .filter(p => { if (seen.has(p.date)) return false; seen.add(p.date); return true; })
                     .map(p => ({
-                        timestamp: new Date(p.date).getTime(),
-                        open: p.open ?? p.price,
-                        high: p.high ?? p.price,
-                        low: p.low ?? p.price,
-                        close: p.price,
+                        time: Math.floor(new Date(p.date + 'T00:00:00Z').getTime() / 1000),
+                        open: +(p.open ?? p.price),
+                        high: +(p.high ?? p.price),
+                        low: +(p.low ?? p.price),
+                        close: +p.price,
                     }));
+                arr.sort((a, b) => a.time - b.time);
+                return arr;
             }, [displayHistory]);
 
-            // FNG date → value lookup (used by signal overlay)
             const fngByDate = useMemo(() => {
                 const m = {};
                 for (const d of fngHistory) m[d.date] = d.fng;
                 return m;
             }, [fngHistory]);
 
-            // ─── Init KLineChart once on mount, dispose on unmount ───
+            // ─── Init chart (once) ───
             useEffect(() => {
-                if (!containerRef.current || !window.klinecharts) return;
-                const chart = window.klinecharts.init(containerRef.current, {
-                    styles: {
-                        grid: {
-                            show: true,
-                            horizontal: { color: 'rgba(255,255,255,0.04)' },
-                            vertical:   { color: 'rgba(255,255,255,0.04)' },
-                        },
-                        candle: {
-                            bar: {
-                                upColor: '#3ce0a8', downColor: '#ff5b6e',
-                                upBorderColor: '#3ce0a8', downBorderColor: '#ff5b6e',
-                                upWickColor: '#3ce0a8', downWickColor: '#ff5b6e',
-                                noChangeColor: '#888',
-                            },
-                            area: {
-                                lineColor: '#3b82f6', lineSize: 2,
-                                backgroundColor: [
-                                    { offset: 0, color: 'rgba(59,130,246,0.30)' },
-                                    { offset: 1, color: 'rgba(59,130,246,0.02)' },
-                                ],
-                            },
-                            tooltip: {
-                                showRule: 'always', showType: 'standard',
-                                custom: [
-                                    { title: '時間', value: '{time}' },
-                                    { title: '開', value: '{open}' },
-                                    { title: '高', value: '{high}' },
-                                    { title: '低', value: '{low}' },
-                                    { title: '收', value: '{close}' },
-                                ],
-                            },
-                            priceMark: {
-                                last: {
-                                    show: true,
-                                    upColor: '#3ce0a8', downColor: '#ff5b6e', noChangeColor: '#888',
-                                    line: { show: true, style: 'dashed', dashedValue: [4, 4], size: 1 },
-                                    text: { show: true, color: '#fff', size: 11, paddingLeft: 4, paddingRight: 4, paddingTop: 2, paddingBottom: 2 },
-                                },
-                            },
-                        },
-                        indicator: {
-                            ohlc: { upColor: '#3ce0a8', downColor: '#ff5b6e', noChangeColor: '#888' },
-                            bars: [{ style: 'fill', borderStyle: 'solid', borderSize: 1, borderColor: '#666', upColor: 'rgba(60,224,168,0.7)', downColor: 'rgba(255,91,110,0.7)', noChangeColor: '#888' }],
-                            lines: [
-                                { color: '#3b82f6', size: 1.6 },  // fast
-                                { color: '#5fa8ff', size: 1   },
-                                { color: '#06b6d4', size: 1   },
-                                { color: '#84d76a', size: 1   },
-                                { color: '#fbbf24', size: 1   },
-                                { color: '#f97316', size: 1.6 },  // slow
-                            ],
-                            tooltip: { showRule: 'always', showType: 'standard' },
-                        },
-                        crosshair: {
-                            horizontal: { line: { color: 'rgba(167,139,250,0.6)', size: 1, style: 'dashed', dashedValue: [4, 4] } },
-                            vertical:   { line: { color: 'rgba(167,139,250,0.6)', size: 1, style: 'dashed', dashedValue: [4, 4] } },
-                        },
-                        xAxis: { axisLine: { color: 'rgba(255,255,255,0.1)' }, tickLine: { color: 'rgba(255,255,255,0.1)' }, tickText: { color: 'rgba(255,255,255,0.5)', size: 10 } },
-                        yAxis: { position: 'right', axisLine: { color: 'rgba(255,255,255,0.1)' }, tickLine: { color: 'rgba(255,255,255,0.1)' }, tickText: { color: 'rgba(255,255,255,0.5)', size: 10 } },
+                if (!containerRef.current || !window.LightweightCharts) return;
+                const LWC = window.LightweightCharts;
+                const chart = LWC.createChart(containerRef.current, {
+                    layout: {
+                        background: { type: (LWC.ColorType && LWC.ColorType.Solid) || 'solid', color: '#07080c' },
+                        textColor: '#b8bcc8',
+                        panes: { separatorColor: 'rgba(255,255,255,0.10)', separatorHoverColor: 'rgba(255,255,255,0.20)', enableResize: true },
                     },
+                    grid: {
+                        vertLines: { color: 'rgba(255,255,255,0.04)' },
+                        horzLines: { color: 'rgba(255,255,255,0.04)' },
+                    },
+                    timeScale: { borderColor: 'rgba(255,255,255,0.1)', timeVisible: true, secondsVisible: false, rightOffset: 6 },
+                    rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
+                    crosshair: { mode: 1 },
+                    autoSize: true,
                 });
                 chartRef.current = chart;
+
+                const candleSeries = chart.addSeries(LWC.CandlestickSeries, {
+                    upColor: '#3ce0a8', downColor: '#ff5b6e',
+                    borderUpColor: '#3ce0a8', borderDownColor: '#ff5b6e',
+                    wickUpColor: '#3ce0a8', wickDownColor: '#ff5b6e',
+                }, 0);
+                candleSeriesRef.current = candleSeries;
+
+                if (typeof LWC.createSeriesMarkers === 'function') {
+                    markersPluginRef.current = LWC.createSeriesMarkers(candleSeries, []);
+                }
+
+                // ─── Attach drawing manager ───
+                if (window.LightweightChartsDrawing && window.LightweightChartsDrawing.DrawingManager) {
+                    const manager = new window.LightweightChartsDrawing.DrawingManager();
+                    manager.attach(chart, candleSeries, containerRef.current);
+                    drawingManagerRef.current = manager;
+                    manager.on && manager.on('drawing:selected', (e) => {
+                        selectedDrawingIdRef.current = e.drawingId || null;
+                        setHasSelection(true);
+                    });
+                    manager.on && manager.on('drawing:deselected', () => {
+                        selectedDrawingIdRef.current = null;
+                        setHasSelection(false);
+                    });
+                }
+
+                // ─── Click-to-draw: collect anchors until tool's requiredAnchors is reached ───
+                const onClick = (param) => {
+                    const tool = activeToolRef.current;
+                    if (!tool || !param || !param.point || param.time == null) return;
+                    const price = candleSeries.coordinateToPrice(param.point.y);
+                    if (price == null) return;
+                    pendingAnchorsRef.current.push({ time: param.time, price });
+                    setActiveTool(prev => prev ? { ...prev, collected: pendingAnchorsRef.current.length } : prev);
+                    if (pendingAnchorsRef.current.length >= tool.requiredAnchors) {
+                        const registry = window.LightweightChartsDrawing && window.LightweightChartsDrawing.getToolRegistry && window.LightweightChartsDrawing.getToolRegistry();
+                        if (registry && drawingManagerRef.current) {
+                            const id = 'd-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+                            const drawing = registry.createDrawing(tool.type, id, pendingAnchorsRef.current.slice());
+                            if (drawing) {
+                                drawingManagerRef.current.addDrawing(drawing);
+                                drawingsRef.current.push(id);
+                            }
+                        }
+                        pendingAnchorsRef.current = [];
+                        activeToolRef.current = null;
+                        setActiveTool(null);
+                        if (containerRef.current) containerRef.current.style.cursor = '';
+                    }
+                };
+                chart.subscribeClick(onClick);
+
+                const onKey = (e) => {
+                    if (e.key === 'Escape') {
+                        if (activeToolRef.current) {
+                            activeToolRef.current = null;
+                            pendingAnchorsRef.current = [];
+                            setActiveTool(null);
+                            if (containerRef.current) containerRef.current.style.cursor = '';
+                        } else {
+                            onClose && onClose();
+                        }
+                    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                        const m = drawingManagerRef.current;
+                        const id = selectedDrawingIdRef.current;
+                        if (m && id) {
+                            m.removeDrawing(id);
+                            drawingsRef.current = drawingsRef.current.filter(x => x !== id);
+                            selectedDrawingIdRef.current = null;
+                            setHasSelection(false);
+                        }
+                    }
+                };
+                window.addEventListener('keydown', onKey);
+
                 return () => {
-                    window.klinecharts.dispose(containerRef.current);
+                    window.removeEventListener('keydown', onKey);
+                    try { chart.unsubscribeClick(onClick); } catch {}
+                    try { drawingManagerRef.current && drawingManagerRef.current.detach(); } catch {}
+                    try { chart.remove(); } catch {}
                     chartRef.current = null;
+                    candleSeriesRef.current = null;
+                    drawingManagerRef.current = null;
+                    markersPluginRef.current = null;
+                    emaSeriesRef.current = [];
+                    rsiSeriesRef.current = null;
+                    macdRefs.current = { dif: null, dea: null, hist: null };
                 };
             }, []);
 
-            // Update data when displayHistory changes
+            // ─── Apply candle data + auto-fit on first load / range change ───
             useEffect(() => {
-                if (chartRef.current) chartRef.current.applyNewData(klineData);
-            }, [klineData]);
+                const series = candleSeriesRef.current;
+                const chart = chartRef.current;
+                if (!series || !chart || candleData.length === 0) return;
+                series.setData(candleData);
+                try { chart.timeScale().fitContent(); } catch {}
+            }, [candleData]);
 
-            // Switch between candle and area (line) mode
-            useEffect(() => {
-                if (!chartRef.current) return;
-                chartRef.current.setStyles({ candle: { type: chartMode === 'candle' ? 'candle_solid' : 'area' } });
-            }, [chartMode]);
-
-            // Toggle EMA Ribbon on the price pane (6 lines: 20/26/32/38/44/50)
+            // ─── EMA Ribbon (6 lines on main pane) ───
             useEffect(() => {
                 const chart = chartRef.current;
                 if (!chart) return;
-                if (showEMA) {
-                    chart.createIndicator({ name: 'EMA', calcParams: EMA_PERIODS }, true, { id: 'candle_pane' });
-                } else {
-                    chart.removeIndicator({ paneId: 'candle_pane', name: 'EMA' });
-                }
-            }, [showEMA]);
-
-            // Toggle RSI sub-pane
-            useEffect(() => {
-                const chart = chartRef.current;
-                if (!chart) return;
-                if (showRSI) {
-                    chart.createIndicator({ name: 'RSI', calcParams: [14] }, false, { id: 'rsi_pane' });
-                } else {
-                    chart.removeIndicator({ paneId: 'rsi_pane' });
-                }
-            }, [showRSI]);
-
-            // Toggle MACD sub-pane
-            useEffect(() => {
-                const chart = chartRef.current;
-                if (!chart) return;
-                if (showMACD) {
-                    chart.createIndicator({ name: 'MACD', calcParams: [12, 26, 9] }, false, { id: 'macd_pane' });
-                } else {
-                    chart.removeIndicator({ paneId: 'macd_pane' });
-                }
-            }, [showMACD]);
-
-            // Fear / Greed signal points overlaid on candle pane (low FNG / RSI = buy hint)
-            useEffect(() => {
-                const chart = chartRef.current;
-                if (!chart) return;
-                // Always remove old markers first
-                chart.removeOverlay({ groupId: 'fear_signals' });
-                if (!showFearSignal || klineData.length === 0) return;
-                // Build per-bar signal values (FNG preferred, RSI fallback)
-                const fngDatesSorted = Object.keys(fngByDate).sort();
-                const overlays = [];
-                klineData.forEach((bar) => {
-                    const dateStr = new Date(bar.timestamp).toISOString().slice(0, 10);
-                    let v;
-                    if (signalSource === 'fng' && fngHistory.length > 0) {
-                        v = fngByDate[dateStr];
-                        if (v === undefined) {
-                            const earlier = fngDatesSorted.filter(d => d <= dateStr);
-                            v = earlier.length ? fngByDate[earlier[earlier.length - 1]] : null;
-                        }
+                emaSeriesRef.current.forEach(s => { try { chart.removeSeries(s); } catch {} });
+                emaSeriesRef.current = [];
+                if (!showEMA || candleData.length === 0) return;
+                const closes = candleData.map(d => d.close);
+                EMA_PERIODS.forEach((period, idx) => {
+                    const ema = computeEMA(closes, period);
+                    const data = [];
+                    for (let i = 0; i < ema.length; i++) {
+                        if (ema[i] != null) data.push({ time: candleData[i].time, value: ema[i] });
                     }
-                    if (v == null || v === undefined) return;
-                    if (v > 45) return;
-                    const color = v <= 25 ? '#ff5b6e' : '#f59e0b';
-                    overlays.push({
-                        name: 'simpleAnnotation',
-                        groupId: 'fear_signals',
-                        points: [{ timestamp: bar.timestamp, value: bar.low }],
-                        styles: { circle: { color, borderColor: color, size: v <= 25 ? 4 : 3 } },
+                    if (!data.length) return;
+                    const s = chart.addSeries(window.LightweightCharts.LineSeries, {
+                        color: EMA_COLORS[idx],
+                        lineWidth: (idx === 0 || idx === EMA_PERIODS.length - 1) ? 2 : 1,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        crosshairMarkerVisible: false,
+                    }, 0);
+                    s.setData(data);
+                    emaSeriesRef.current.push(s);
+                });
+            }, [showEMA, candleData]);
+
+            // ─── RSI (pane 1) ───
+            useEffect(() => {
+                const chart = chartRef.current;
+                if (!chart) return;
+                if (rsiSeriesRef.current) { try { chart.removeSeries(rsiSeriesRef.current); } catch {} rsiSeriesRef.current = null; }
+                if (!showRSI || candleData.length === 0) return;
+                const period = 14;
+                const closes = candleData.map(d => d.close);
+                if (closes.length <= period) return;
+                let gains = 0, losses = 0;
+                for (let i = 1; i <= period; i++) {
+                    const d = closes[i] - closes[i - 1];
+                    if (d > 0) gains += d; else losses -= d;
+                }
+                let avgGain = gains / period;
+                let avgLoss = losses / period;
+                const out = [];
+                const pushRsi = (idx) => {
+                    const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss;
+                    const rsi = avgLoss === 0 ? 100 : 100 - 100 / (1 + rs);
+                    out.push({ time: candleData[idx].time, value: rsi });
+                };
+                pushRsi(period);
+                for (let i = period + 1; i < closes.length; i++) {
+                    const d = closes[i] - closes[i - 1];
+                    const gain = d > 0 ? d : 0;
+                    const loss = d < 0 ? -d : 0;
+                    avgGain = (avgGain * (period - 1) + gain) / period;
+                    avgLoss = (avgLoss * (period - 1) + loss) / period;
+                    pushRsi(i);
+                }
+                const s = chart.addSeries(window.LightweightCharts.LineSeries, {
+                    color: '#a78bfa', lineWidth: 1.5,
+                    priceLineVisible: false, lastValueVisible: true, title: 'RSI(14)',
+                }, 1);
+                s.setData(out);
+                // 70 / 30 reference lines via series.createPriceLine
+                try { s.createPriceLine({ price: 70, color: 'rgba(255,91,110,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
+                try { s.createPriceLine({ price: 30, color: 'rgba(60,224,168,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
+                rsiSeriesRef.current = s;
+            }, [showRSI, candleData]);
+
+            // ─── MACD (pane 2) ───
+            useEffect(() => {
+                const chart = chartRef.current;
+                if (!chart) return;
+                ['dif', 'dea', 'hist'].forEach(k => {
+                    if (macdRefs.current[k]) { try { chart.removeSeries(macdRefs.current[k]); } catch {} macdRefs.current[k] = null; }
+                });
+                if (!showMACD || candleData.length === 0) return;
+                const closes = candleData.map(d => d.close);
+                const macd = computeMACD(closes);
+                const histData = [];
+                const difData = [];
+                const deaData = [];
+                for (let i = 0; i < closes.length; i++) {
+                    const t = candleData[i].time;
+                    if (macd.histogram[i] != null) histData.push({ time: t, value: macd.histogram[i], color: macd.histogram[i] >= 0 ? 'rgba(60,224,168,0.7)' : 'rgba(255,91,110,0.7)' });
+                    if (macd.dif[i] != null) difData.push({ time: t, value: macd.dif[i] });
+                    if (macd.dea[i] != null) deaData.push({ time: t, value: macd.dea[i] });
+                }
+                const LWC = window.LightweightCharts;
+                macdRefs.current.hist = chart.addSeries(LWC.HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, 2);
+                macdRefs.current.hist.setData(histData);
+                macdRefs.current.dif = chart.addSeries(LWC.LineSeries, { color: '#3b82f6', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DIF' }, 2);
+                macdRefs.current.dif.setData(difData);
+                macdRefs.current.dea = chart.addSeries(LWC.LineSeries, { color: '#fbbf24', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DEA' }, 2);
+                macdRefs.current.dea.setData(deaData);
+            }, [showMACD, candleData]);
+
+            // ─── FNG markers (crypto / US only) ───
+            useEffect(() => {
+                const plugin = markersPluginRef.current;
+                if (!plugin) return;
+                if (!showFearSignal || signalSource !== 'fng' || candleData.length === 0 || fngHistory.length === 0) {
+                    try { plugin.setMarkers([]); } catch {}
+                    return;
+                }
+                const sortedDates = Object.keys(fngByDate).sort();
+                const markers = [];
+                candleData.forEach(bar => {
+                    const dateStr = new Date(bar.time * 1000).toISOString().slice(0, 10);
+                    let v = fngByDate[dateStr];
+                    if (v === undefined) {
+                        let lo = 0, hi = sortedDates.length - 1, best = -1;
+                        while (lo <= hi) {
+                            const mid = (lo + hi) >> 1;
+                            if (sortedDates[mid] <= dateStr) { best = mid; lo = mid + 1; } else hi = mid - 1;
+                        }
+                        v = best >= 0 ? fngByDate[sortedDates[best]] : null;
+                    }
+                    if (v == null || v > 45) return;
+                    markers.push({
+                        time: bar.time,
+                        position: 'belowBar',
+                        color: v <= 25 ? '#ff5b6e' : '#f59e0b',
+                        shape: 'circle',
+                        size: v <= 25 ? 1 : 0.7,
                     });
                 });
-                if (overlays.length) chart.createOverlay(overlays);
-            }, [klineData, fngByDate, fngHistory, showFearSignal, signalSource]);
+                try { plugin.setMarkers(markers); } catch {}
+            }, [candleData, fngByDate, fngHistory, showFearSignal, signalSource]);
 
-            // ─── Compact eye-toggle button (TradingView style) ───
+            // ─── Tool picker handlers ───
+            const pickTool = (tool) => {
+                pendingAnchorsRef.current = [];
+                activeToolRef.current = { type: tool.type, requiredAnchors: tool.a };
+                setActiveTool({ type: tool.type, name: tool.name, requiredAnchors: tool.a, collected: 0 });
+                setOpenCategory(null);
+                if (containerRef.current) containerRef.current.style.cursor = 'crosshair';
+            };
+            const cancelTool = () => {
+                activeToolRef.current = null;
+                pendingAnchorsRef.current = [];
+                setActiveTool(null);
+                if (containerRef.current) containerRef.current.style.cursor = '';
+            };
+            const clearAllDrawings = () => {
+                const m = drawingManagerRef.current;
+                if (!m) return;
+                if (!confirm('清除所有畫線標註？')) return;
+                m.clearAll();
+                drawingsRef.current = [];
+                selectedDrawingIdRef.current = null;
+                setHasSelection(false);
+            };
+            const deleteSelected = () => {
+                const m = drawingManagerRef.current;
+                const id = selectedDrawingIdRef.current;
+                if (!m || !id) return;
+                m.removeDrawing(id);
+                drawingsRef.current = drawingsRef.current.filter(x => x !== id);
+                selectedDrawingIdRef.current = null;
+                setHasSelection(false);
+            };
+            const resetZoom = () => { try { chartRef.current && chartRef.current.timeScale().fitContent(); } catch {} };
+
+            // ─── Compact eye-toggle button ───
             const EyeToggle = ({ label, checked, onChange, color }) => (
                 <button
                     onClick={() => onChange(!checked)}
@@ -4051,17 +4082,6 @@
                 >
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: color, opacity: checked ? 1 : 0.3 }}></span>
                     <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: checked ? 'var(--text)' : 'var(--text-3)' }}>{label}</span>
-                    {checked ? (
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--brand-1)' }}>
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                            <circle cx="12" cy="12" r="3"/>
-                        </svg>
-                    ) : (
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-3)' }}>
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                            <line x1="1" y1="1" x2="23" y2="23"/>
-                        </svg>
-                    )}
                 </button>
             );
 
@@ -4071,30 +4091,33 @@
                     onClick={() => setTimeRange(key)}
                     className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${timeRange === key ? 'pill-grad' : 'hover:bg-white/[0.08]'}`}
                     style={timeRange === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                >
-                    {label}
-                </button>
+                >{label}</button>
             );
 
-            const resetAll = () => {
-                const chart = chartRef.current;
-                if (!chart) return;
-                // Reset zoom + scroll back to the right edge
-                if (chart.setBarSpace) chart.setBarSpace(6);
-                if (chart.scrollToRealTime) chart.scrollToRealTime();
+            // Tool category icon mapping (uses inline SVG for crispness)
+            const CategoryIcon = ({ k }) => {
+                const stroke = 'currentColor';
+                const common = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke, strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' };
+                if (k === 'line') return <svg {...common}><line x1="4" y1="20" x2="20" y2="4"/></svg>;
+                if (k === 'channel') return <svg {...common}><line x1="4" y1="18" x2="20" y2="6"/><line x1="4" y1="14" x2="20" y2="2"/></svg>;
+                if (k === 'pitchfork') return <svg {...common}><line x1="4" y1="20" x2="20" y2="4"/><line x1="8" y1="20" x2="20" y2="8"/><line x1="12" y1="20" x2="20" y2="12"/></svg>;
+                if (k === 'fibonacci') return <svg {...common}><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="3" y1="14" x2="21" y2="14"/><line x1="3" y1="18" x2="21" y2="18"/></svg>;
+                if (k === 'gann') return <svg {...common}><rect x="4" y="4" width="16" height="16"/><line x1="4" y1="4" x2="20" y2="20"/></svg>;
+                if (k === 'forecasting') return <svg {...common}><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>;
+                if (k === 'shape') return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="1"/></svg>;
+                if (k === 'annotation') return <svg {...common}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
+                return null;
             };
 
-            // ─── Layout — full-screen, compact topbar, no fixed sidebar ───
+            // ─── Layout ───
             return (
                 <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh' }}>
-                    {/* Compact top bar with everything inline */}
+                    {/* Top bar */}
                     <div className="shrink-0 flex flex-col gap-2 px-3 md:px-4 pt-3 pb-2" style={{ borderBottom: '1px solid var(--line)' }}>
-                        {/* Row 1 — title + status + help/reset/close */}
+                        {/* Row 1: title + status + help/reset/close */}
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
-                                <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">
-                                    ✕
-                                </button>
+                                <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>
                                 <div className="min-w-0">
                                     <p className="label leading-none">TECHNICAL</p>
                                     <h2 className="text-base md:text-lg font-extrabold text-white tracking-tight truncate">{symbol}</h2>
@@ -4106,13 +4129,17 @@
                                     </div>
                                 )}
                                 {error && <div className="text-[10px] ml-2 truncate" style={{ color: '#ff7d8c' }}>{error}</div>}
+                                {activeTool && (
+                                    <div className="hidden md:flex items-center gap-1.5 text-[10px] ml-2 px-2 py-0.5 rounded-md" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--brand-1)', border: '1px solid var(--brand-1)' }}>
+                                        繪製：{activeTool.name}（{activeTool.collected ?? 0}/{activeTool.requiredAnchors}）
+                                        <button onClick={cancelTool} className="ml-1 hover:underline">取消</button>
+                                    </div>
+                                )}
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
-                                <button onClick={resetAll}
+                                <button onClick={resetZoom}
                                     className="h-8 px-2 rounded-md text-[10px] mono hover:bg-white/[0.08]"
-                                    style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }} title="重置縮放">
-                                    ⤾ 重置
-                                </button>
+                                    style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }} title="重置縮放">⤾ 重置</button>
                                 <button onClick={() => setShowHelp(true)}
                                     className="h-8 w-8 rounded-md flex items-center justify-center hover:bg-white/[0.08]"
                                     style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }} title="說明">
@@ -4123,7 +4150,7 @@
                             </div>
                         </div>
 
-                        {/* Row 2 — horizontally scrollable toolbar: time range • chart type • indicators */}
+                        {/* Row 2: range • timeframe • indicator toggles (horizontally scrollable) */}
                         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
                             <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
                                 {rangeBtn('1mo', '1M')}
@@ -4131,15 +4158,6 @@
                                 {rangeBtn('6mo', '6M')}
                                 {rangeBtn('1y', '1Y')}
                                 {rangeBtn('max', 'ALL')}
-                            </div>
-
-                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
-                                <button onClick={() => setChartMode('area')}
-                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${chartMode === 'area' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                                    style={chartMode === 'area' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>折線</button>
-                                <button onClick={() => setChartMode('candle')}
-                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${chartMode === 'candle' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                                    style={chartMode === 'candle' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>K線</button>
                             </div>
 
                             <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }} title="K 線週期">
@@ -4154,10 +4172,7 @@
                             <div className="w-px h-6 shrink-0" style={{ background: 'var(--line)' }}></div>
 
                             {signalSource === 'fng' && (
-                                <EyeToggle
-                                    label="FNG 信號"
-                                    checked={showFearSignal} onChange={setShowFearSignal} color="#ff5b6e"
-                                />
+                                <EyeToggle label="FNG 信號" checked={showFearSignal} onChange={setShowFearSignal} color="#ff5b6e" />
                             )}
                             <EyeToggle label="EMA Ribbon" checked={showEMA} onChange={setShowEMA} color="#3b82f6" />
                             <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
@@ -4165,12 +4180,84 @@
                         </div>
                     </div>
 
-                    {/* KLineChart — single canvas-managed root. Panes (main + RSI + MACD) are stacked internally. */}
-                    <div className="flex-1 min-h-0 p-2 md:p-3">
-                        <div ref={containerRef} className="w-full h-full" style={{ minHeight: '400px' }}></div>
+                    {/* Body: drawing toolbar + chart */}
+                    <div className="flex-1 min-h-0 flex">
+                        {/* Vertical toolbar (left). Categories pop a submenu of tools. */}
+                        <div className="shrink-0 flex flex-col items-stretch gap-1 py-2 px-1.5" style={{ borderRight: '1px solid var(--line)', width: 48, background: 'rgba(255,255,255,0.02)' }}>
+                            {DRAWING_TOOL_CATEGORIES.map(cat => (
+                                <div key={cat.key} className="relative">
+                                    <button
+                                        onClick={() => setOpenCategory(openCategory === cat.key ? null : cat.key)}
+                                        className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-white/[0.08] transition-colors"
+                                        style={{
+                                            color: openCategory === cat.key ? 'var(--brand-1)' : 'var(--text-2)',
+                                            background: openCategory === cat.key ? 'rgba(59,130,246,0.12)' : 'transparent',
+                                            border: '1px solid ' + (openCategory === cat.key ? 'var(--brand-1)' : 'transparent'),
+                                        }}
+                                        title={cat.label}
+                                    >
+                                        <CategoryIcon k={cat.key} />
+                                    </button>
+                                    {openCategory === cat.key && (
+                                        <div
+                                            className="absolute left-full top-0 ml-1 rounded-lg shadow-2xl z-30 p-1 min-w-[180px] max-h-[60vh] overflow-y-auto"
+                                            style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
+                                        >
+                                            <div className="text-[10px] uppercase tracking-wider px-2 py-1 mb-0.5" style={{ color: 'var(--text-3)' }}>{cat.label}</div>
+                                            {cat.tools.map(tool => (
+                                                <button
+                                                    key={tool.type}
+                                                    onClick={() => pickTool(tool)}
+                                                    className="block w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-white/[0.06]"
+                                                    style={{ color: 'var(--text)' }}
+                                                >
+                                                    {tool.name}
+                                                    <span className="ml-2 text-[10px]" style={{ color: 'var(--text-3)' }}>{tool.a}點</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+
+                            <div className="my-1 h-px" style={{ background: 'var(--line)' }}></div>
+
+                            <button
+                                onClick={deleteSelected}
+                                disabled={!hasSelection}
+                                className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-white/[0.08] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                                style={{ color: hasSelection ? '#ff7d8c' : 'var(--text-3)' }}
+                                title="刪除選取的標註（或按 Delete 鍵）"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                </svg>
+                            </button>
+                            <button
+                                onClick={clearAllDrawings}
+                                className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-white/[0.08] transition-colors"
+                                style={{ color: 'var(--text-2)' }}
+                                title="清除所有標註"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        {/* Chart container */}
+                        <div className="flex-1 min-w-0 p-1 md:p-2 relative">
+                            <div ref={containerRef} className="w-full h-full" style={{ minHeight: '400px' }}></div>
+                            {activeTool && (
+                                <div className="md:hidden absolute top-2 left-2 right-2 px-3 py-2 rounded-lg flex items-center justify-between text-[11px] z-20" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--brand-1)', border: '1px solid var(--brand-1)' }}>
+                                    <span>繪製：{activeTool.name}（{activeTool.collected ?? 0}/{activeTool.requiredAnchors}）</span>
+                                    <button onClick={cancelTool} className="hover:underline">取消</button>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
-                    {/* Help overlay — popup */}
+                    {/* Help overlay */}
                     {showHelp && (
                         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={() => setShowHelp(false)}>
                             <div className="w-full max-w-sm rounded-2xl p-5 space-y-2" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }} onClick={(e) => e.stopPropagation()}>
@@ -4179,11 +4266,11 @@
                                     <button onClick={() => setShowHelp(false)} className="w-7 h-7 rounded-full hover:bg-white/10" style={{ color: 'var(--text-2)' }}>✕</button>
                                 </div>
                                 <div className="text-[11px] leading-relaxed space-y-1.5" style={{ color: 'var(--text-2)' }}>
-                                    <p><strong className="text-white">操作</strong>：滑鼠拖曳平移、滾輪縮放、雙指捏合縮放；拖曳右側價格軸調整縱向、拖曳下方時間軸調整橫向。</p>
-                                    <p><strong className="text-white">K 線</strong>：綠 = 收漲、紅 = 收跌；可切換折線模式。</p>
-                                    <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20/26/32/38/44/50，快慢線粗、中間細。</p>
-                                    <p><strong className="text-white">恐懼信號</strong>：加密 / 美股用真實 FNG，於 K 棒下方標紅 / 橘點（≤ 25 紅、≤ 45 橘）。</p>
-                                    <p><strong className="text-white">RSI / MACD</strong>：下方子圖獨立顯示，可在工具列各自開關。</p>
+                                    <p><strong className="text-white">圖表</strong>：基於 TradingView Lightweight Charts v5；滑鼠拖曳平移，滾輪縮放，拖曳價格軸/時間軸縮放單一方向。</p>
+                                    <p><strong className="text-white">畫線工具</strong>：左側工具列共 8 個分類、68 種工具（趨勢線、Fibonacci、Gann、叉形、形狀、標註…）。點分類圖示展開選單，挑選工具後在圖表上點擊指定數量的錨點即可完成。</p>
+                                    <p><strong className="text-white">選取 / 移動 / 刪除</strong>：點擊已完成的標註可選取（再拖曳錨點即可調整），按 Delete 或左側工具列垃圾桶圖示刪除。Esc 取消當前繪製。</p>
+                                    <p><strong className="text-white">指標</strong>：EMA Ribbon 為 20 / 26 / 32 / 38 / 44 / 50；RSI 與 MACD 分別在獨立子圖；可在工具列各自開關。</p>
+                                    <p><strong className="text-white">FNG 信號</strong>：加密 / 美股使用真實 Fear &amp; Greed 指數，於 K 棒下方標紅 / 橘點（≤ 25 紅、≤ 45 橘）。</p>
                                 </div>
                             </div>
                         </div>
