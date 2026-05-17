@@ -3544,10 +3544,14 @@
         // ─────────────────────────────────────────────
         // TechnicalChartModal — full-screen analysis built on
         // TradingView Lightweight Charts v5 + deepentropy/lightweight-charts-drawing
-        // (68 community-built drawing tools). Replaces the old buggy KLineChart impl.
+        // (68 community-built drawing tools).
         // ─────────────────────────────────────────────
         const EMA_PERIODS = [20, 26, 32, 38, 44, 50];
-        const EMA_COLORS = ['#3b82f6', '#5fa8ff', '#06b6d4', '#84d76a', '#fbbf24', '#f97316'];
+        // Two palettes — ribbon switches whole-cloth based on latest fast > slow trend
+        const EMA_BULL_PALETTE = ['#00d68f', '#3ce0a8', '#5bd4ad', '#84d76a', '#27b070', '#0f5d3e'];
+        const EMA_BEAR_PALETTE = ['#ff5b6e', '#ff7d8c', '#ff9aa6', '#c43d4b', '#9f2a3a', '#7a1b29'];
+        const UP_COLOR = '#00d68f';
+        const DOWN_COLOR = '#ff5b6e';
 
         // 68 tools grouped into 8 categories. Anchor counts come from the library's registry.
         const DRAWING_TOOL_CATEGORIES = [
@@ -3636,11 +3640,22 @@
             ]},
         ];
 
+        // FNG → bull/bear/neutral classification (mirrors the dashboard's DCA suggestion)
+        const fngClassify = (v) => {
+            if (v == null || isNaN(v)) return null;
+            if (v <= 25) return { tone: 'bull', label: '極度恐懼' };
+            if (v <= 45) return { tone: 'bull', label: '恐懼' };
+            if (v <= 55) return { tone: 'neutral', label: '中立' };
+            if (v <= 74) return { tone: 'bear', label: '貪婪' };
+            return { tone: 'bear', label: '極度貪婪' };
+        };
+
         const TechnicalChartModal = ({ symbol, type, onClose }) => {
             const containerRef = useRef(null);
             const chartRef = useRef(null);
             const candleSeriesRef = useRef(null);
             const emaSeriesRef = useRef([]);
+            const ma200SeriesRef = useRef(null);
             const rsiSeriesRef = useRef(null);
             const macdRefs = useRef({ dif: null, dea: null, hist: null });
             const markersPluginRef = useRef(null);
@@ -3649,16 +3664,21 @@
             const activeToolRef = useRef(null);
             const pendingAnchorsRef = useRef([]);
             const selectedDrawingIdRef = useRef(null);
+            const candleDataRef = useRef([]);
 
             const [showHelp, setShowHelp] = useState(false);
             const [activeTool, setActiveTool] = useState(null); // { type, name, requiredAnchors, collected }
             const [openCategory, setOpenCategory] = useState(null);
             const [hasSelection, setHasSelection] = useState(false);
+
             const [showEMA, setShowEMA] = useLocalState('tech-show-ema', true);
+            const [showMA200, setShowMA200] = useLocalState('tech-show-ma200', true);
             const [showRSI, setShowRSI] = useLocalState('tech-show-rsi', true);
             const [showMACD, setShowMACD] = useLocalState('tech-show-macd', true);
-            const [timeframe, setTimeframe] = useLocalState('tech-timeframe', '1d'); // '1d' | '1wk'
             const [showFearSignal, setShowFearSignal] = useLocalState('tech-show-fear', true);
+            const [showComposite, setShowComposite] = useLocalState('tech-show-composite', true);
+            const [showSignalPanel, setShowSignalPanel] = useLocalState('tech-show-panel', true);
+            const [timeframe, setTimeframe] = useLocalState('tech-timeframe', '1d'); // '1d' | '1wk'
 
             const signalSource = (type === 'CRYPTO' || type === 'crypto' || type === 'US') ? 'fng' : 'rsi';
             const [fngHistory, setFngHistory] = useState([]);
@@ -3667,11 +3687,16 @@
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
 
-            // Weekly indicators need >= 50 bars — auto-extend when user switches to weekly with a short range
+            // Auto-extend the underlying fetch range so indicators have enough bars to compute
             const effectiveHistoryRange = useMemo(() => {
-                if (timeframe !== '1wk') return timeRange;
-                return ['1mo', '3mo', '6mo', '1y'].includes(timeRange) ? '2y' : timeRange;
-            }, [timeframe, timeRange]);
+                let r = timeRange;
+                if (timeframe === '1wk' && ['1mo', '3mo', '6mo', '1y'].includes(r)) r = '2y';
+                if (showMA200) {
+                    if (timeframe === '1d' && ['1mo', '3mo', '6mo'].includes(r)) r = '1y';
+                    if (timeframe === '1wk' && ['1y', '2y'].includes(r)) r = '5y';
+                }
+                return r;
+            }, [timeframe, timeRange, showMA200]);
 
             // ─── Fetch price history (Binance for crypto, Yahoo via cors proxy for stocks) ───
             useEffect(() => {
@@ -3766,7 +3791,6 @@
                 [history, timeframe]
             );
 
-            // Lightweight Charts wants time as UTCTimestamp (seconds) for intraday-ish series. Use date midnight UTC.
             const candleData = useMemo(() => {
                 const seen = new Set();
                 const arr = displayHistory
@@ -3781,6 +3805,9 @@
                 arr.sort((a, b) => a.time - b.time);
                 return arr;
             }, [displayHistory]);
+
+            // Click handler reads through this ref so it always sees fresh data
+            useEffect(() => { candleDataRef.current = candleData; }, [candleData]);
 
             const fngByDate = useMemo(() => {
                 const m = {};
@@ -3810,9 +3837,9 @@
                 chartRef.current = chart;
 
                 const candleSeries = chart.addSeries(LWC.CandlestickSeries, {
-                    upColor: '#3ce0a8', downColor: '#ff5b6e',
-                    borderUpColor: '#3ce0a8', borderDownColor: '#ff5b6e',
-                    wickUpColor: '#3ce0a8', wickDownColor: '#ff5b6e',
+                    upColor: UP_COLOR, downColor: DOWN_COLOR,
+                    borderUpColor: UP_COLOR, borderDownColor: DOWN_COLOR,
+                    wickUpColor: UP_COLOR, wickDownColor: DOWN_COLOR,
                 }, 0);
                 candleSeriesRef.current = candleSeries;
 
@@ -3820,7 +3847,6 @@
                     markersPluginRef.current = LWC.createSeriesMarkers(candleSeries, []);
                 }
 
-                // ─── Attach drawing manager ───
                 if (window.LightweightChartsDrawing && window.LightweightChartsDrawing.DrawingManager) {
                     const manager = new window.LightweightChartsDrawing.DrawingManager();
                     manager.attach(chart, candleSeries, containerRef.current);
@@ -3835,13 +3861,38 @@
                     });
                 }
 
-                // ─── Click-to-draw: collect anchors until tool's requiredAnchors is reached ───
+                // ─── Free-form click → anchor: interpolate sub-bar time so the anchor
+                //     lands exactly where the user tapped (no bar snap). ───
                 const onClick = (param) => {
                     const tool = activeToolRef.current;
-                    if (!tool || !param || !param.point || param.time == null) return;
+                    if (!tool || !param || !param.point) return;
+                    const data = candleDataRef.current;
+                    let time = null;
+                    try {
+                        const logical = chart.timeScale().coordinateToLogical(param.point.x);
+                        if (logical != null && data.length > 0) {
+                            const idx = Math.floor(logical);
+                            const frac = logical - idx;
+                            if (idx >= 0 && idx < data.length - 1) {
+                                time = data[idx].time + (data[idx + 1].time - data[idx].time) * frac;
+                            } else if (idx >= data.length - 1) {
+                                const n = data.length;
+                                const spacing = n >= 2 ? data[n - 1].time - data[n - 2].time : 86400;
+                                time = data[n - 1].time + spacing * (logical - (n - 1));
+                            } else {
+                                const spacing = data.length >= 2 ? data[1].time - data[0].time : 86400;
+                                time = data[0].time + spacing * logical;
+                            }
+                        }
+                    } catch {}
+                    if (time == null) {
+                        if (param.time == null) return;
+                        time = param.time;
+                    }
+                    time = Math.floor(time);
                     const price = candleSeries.coordinateToPrice(param.point.y);
                     if (price == null) return;
-                    pendingAnchorsRef.current.push({ time: param.time, price });
+                    pendingAnchorsRef.current.push({ time, price });
                     setActiveTool(prev => prev ? { ...prev, collected: pendingAnchorsRef.current.length } : prev);
                     if (pendingAnchorsRef.current.length >= tool.requiredAnchors) {
                         const registry = window.LightweightChartsDrawing && window.LightweightChartsDrawing.getToolRegistry && window.LightweightChartsDrawing.getToolRegistry();
@@ -3860,6 +3911,33 @@
                     }
                 };
                 chart.subscribeClick(onClick);
+
+                // ─── Touch → mouse polyfill so the drawing manager's mouse-only
+                //     anchor-drag handlers also respond to finger drags on mobile. ───
+                const container = containerRef.current;
+                const dispatchMouse = (type, t) => {
+                    const ev = new MouseEvent(type, {
+                        bubbles: true, cancelable: true, view: window,
+                        clientX: t.clientX, clientY: t.clientY,
+                        button: 0,
+                    });
+                    container.dispatchEvent(ev);
+                };
+                const onTouchStart = (e) => {
+                    if (e.touches.length !== 1) return;
+                    dispatchMouse('mousedown', e.touches[0]);
+                };
+                const onTouchMove = (e) => {
+                    if (e.touches.length !== 1) return;
+                    dispatchMouse('mousemove', e.touches[0]);
+                };
+                const onTouchEnd = (e) => {
+                    const t = e.changedTouches[0];
+                    if (t) dispatchMouse('mouseup', t);
+                };
+                container.addEventListener('touchstart', onTouchStart, { passive: true });
+                container.addEventListener('touchmove', onTouchMove, { passive: true });
+                container.addEventListener('touchend', onTouchEnd, { passive: true });
 
                 const onKey = (e) => {
                     if (e.key === 'Escape') {
@@ -3886,6 +3964,9 @@
 
                 return () => {
                     window.removeEventListener('keydown', onKey);
+                    container.removeEventListener('touchstart', onTouchStart);
+                    container.removeEventListener('touchmove', onTouchMove);
+                    container.removeEventListener('touchend', onTouchEnd);
                     try { chart.unsubscribeClick(onClick); } catch {}
                     try { drawingManagerRef.current && drawingManagerRef.current.detach(); } catch {}
                     try { chart.remove(); } catch {}
@@ -3894,6 +3975,7 @@
                     drawingManagerRef.current = null;
                     markersPluginRef.current = null;
                     emaSeriesRef.current = [];
+                    ma200SeriesRef.current = null;
                     rsiSeriesRef.current = null;
                     macdRefs.current = { dif: null, dea: null, hist: null };
                 };
@@ -3908,7 +3990,7 @@
                 try { chart.timeScale().fitContent(); } catch {}
             }, [candleData]);
 
-            // ─── EMA Ribbon (6 lines on main pane) ───
+            // ─── EMA Ribbon (6 lines on main pane) — palette flips bull / bear ───
             useEffect(() => {
                 const chart = chartRef.current;
                 if (!chart) return;
@@ -3916,15 +3998,20 @@
                 emaSeriesRef.current = [];
                 if (!showEMA || candleData.length === 0) return;
                 const closes = candleData.map(d => d.close);
+                const emas = EMA_PERIODS.map(p => computeEMA(closes, p));
+                const lastFast = emas[0][emas[0].length - 1];
+                const lastSlow = emas[EMA_PERIODS.length - 1][emas[EMA_PERIODS.length - 1].length - 1];
+                const bull = lastFast != null && lastSlow != null && lastFast >= lastSlow;
+                const palette = bull ? EMA_BULL_PALETTE : EMA_BEAR_PALETTE;
                 EMA_PERIODS.forEach((period, idx) => {
-                    const ema = computeEMA(closes, period);
+                    const ema = emas[idx];
                     const data = [];
                     for (let i = 0; i < ema.length; i++) {
                         if (ema[i] != null) data.push({ time: candleData[i].time, value: ema[i] });
                     }
                     if (!data.length) return;
                     const s = chart.addSeries(window.LightweightCharts.LineSeries, {
-                        color: EMA_COLORS[idx],
+                        color: palette[idx],
                         lineWidth: (idx === 0 || idx === EMA_PERIODS.length - 1) ? 2 : 1,
                         priceLineVisible: false,
                         lastValueVisible: false,
@@ -3935,7 +4022,38 @@
                 });
             }, [showEMA, candleData]);
 
-            // ─── RSI (pane 1) ───
+            // ─── 200-period SMA on main pane (price > MA = bull → green, else red) ───
+            useEffect(() => {
+                const chart = chartRef.current;
+                if (!chart) return;
+                if (ma200SeriesRef.current) { try { chart.removeSeries(ma200SeriesRef.current); } catch {} ma200SeriesRef.current = null; }
+                if (!showMA200 || candleData.length < 50) return;
+                const period = 200;
+                const closes = candleData.map(d => d.close);
+                if (closes.length < period) return;
+                const data = [];
+                let sum = 0;
+                for (let i = 0; i < closes.length; i++) {
+                    sum += closes[i];
+                    if (i >= period) sum -= closes[i - period];
+                    if (i >= period - 1) data.push({ time: candleData[i].time, value: sum / period });
+                }
+                if (!data.length) return;
+                const lastPrice = closes[closes.length - 1];
+                const lastMa = data[data.length - 1].value;
+                const bull = lastPrice >= lastMa;
+                const s = chart.addSeries(window.LightweightCharts.LineSeries, {
+                    color: bull ? UP_COLOR : DOWN_COLOR,
+                    lineWidth: 2,
+                    priceLineVisible: false,
+                    lastValueVisible: true,
+                    title: 'MA200',
+                }, 0);
+                s.setData(data);
+                ma200SeriesRef.current = s;
+            }, [showMA200, candleData]);
+
+            // ─── RSI (pane 1) with 70 / 50 / 30 reference lines ───
             useEffect(() => {
                 const chart = chartRef.current;
                 if (!chart) return;
@@ -3966,14 +4084,16 @@
                     avgLoss = (avgLoss * (period - 1) + loss) / period;
                     pushRsi(i);
                 }
+                const latest = out.length ? out[out.length - 1].value : 50;
                 const s = chart.addSeries(window.LightweightCharts.LineSeries, {
-                    color: '#a78bfa', lineWidth: 1.5,
+                    color: latest >= 50 ? UP_COLOR : DOWN_COLOR,
+                    lineWidth: 1.5,
                     priceLineVisible: false, lastValueVisible: true, title: 'RSI(14)',
                 }, 1);
                 s.setData(out);
-                // 70 / 30 reference lines via series.createPriceLine
                 try { s.createPriceLine({ price: 70, color: 'rgba(255,91,110,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
-                try { s.createPriceLine({ price: 30, color: 'rgba(60,224,168,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
+                try { s.createPriceLine({ price: 50, color: 'rgba(255,255,255,0.18)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
+                try { s.createPriceLine({ price: 30, color: 'rgba(0,214,143,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
                 rsiSeriesRef.current = s;
             }, [showRSI, candleData]);
 
@@ -3992,7 +4112,7 @@
                 const deaData = [];
                 for (let i = 0; i < closes.length; i++) {
                     const t = candleData[i].time;
-                    if (macd.histogram[i] != null) histData.push({ time: t, value: macd.histogram[i], color: macd.histogram[i] >= 0 ? 'rgba(60,224,168,0.7)' : 'rgba(255,91,110,0.7)' });
+                    if (macd.histogram[i] != null) histData.push({ time: t, value: macd.histogram[i], color: macd.histogram[i] >= 0 ? 'rgba(0,214,143,0.75)' : 'rgba(255,91,110,0.75)' });
                     if (macd.dif[i] != null) difData.push({ time: t, value: macd.dif[i] });
                     if (macd.dea[i] != null) deaData.push({ time: t, value: macd.dea[i] });
                 }
@@ -4030,13 +4150,99 @@
                     markers.push({
                         time: bar.time,
                         position: 'belowBar',
-                        color: v <= 25 ? '#ff5b6e' : '#f59e0b',
+                        color: v <= 25 ? DOWN_COLOR : '#f59e0b',
                         shape: 'circle',
                         size: v <= 25 ? 1 : 0.7,
                     });
                 });
                 try { plugin.setMarkers(markers); } catch {}
             }, [candleData, fngByDate, fngHistory, showFearSignal, signalSource]);
+
+            // ─── Aggregate every signal we display into the summary panel ───
+            const signalSummary = useMemo(() => {
+                const out = [];
+                if (candleData.length === 0) return out;
+                const closes = candleData.map(d => d.close);
+                const lastPrice = closes[closes.length - 1];
+
+                // FNG (only crypto / US carry a real FNG)
+                if (signalSource === 'fng' && fngHistory.length) {
+                    const last = fngHistory[fngHistory.length - 1];
+                    const cls = fngClassify(last.fng);
+                    if (cls) out.push({ key: 'fng', name: 'FNG', tone: cls.tone, label: `${last.fng} · ${cls.label}` });
+                }
+
+                // Composite — same logic as the watchlist (RSI + 1Y position)
+                const rsi = computeRSI(closes, 14);
+                if (showComposite && rsi != null) {
+                    const high = Math.max(...closes);
+                    const low = Math.min(...closes);
+                    const pos = high - low > 0 ? (lastPrice - low) / (high - low) : 0.5;
+                    const comp = getCompositeSignal(rsi, pos);
+                    const tone = /加碼/.test(comp.label) ? 'bull' : /賣出/.test(comp.label) ? 'bear' : 'neutral';
+                    out.push({ key: 'composite', name: '綜合', tone, label: `${comp.emoji || ''} ${comp.label}`.trim() });
+                }
+
+                // EMA Ribbon (fast 20 vs slow 50)
+                if (showEMA) {
+                    const f = computeEMA(closes, EMA_PERIODS[0]);
+                    const s = computeEMA(closes, EMA_PERIODS[EMA_PERIODS.length - 1]);
+                    const lf = f[f.length - 1], ls = s[s.length - 1];
+                    if (lf != null && ls != null) {
+                        const bull = lf >= ls;
+                        out.push({ key: 'ema', name: 'EMA', tone: bull ? 'bull' : 'bear', label: bull ? '多頭排列' : '空頭排列' });
+                    }
+                }
+
+                // RSI bucket
+                if (showRSI && rsi != null) {
+                    let tone, label;
+                    if (rsi >= 70) { tone = 'bear'; label = `${Math.round(rsi)} 超買`; }
+                    else if (rsi <= 30) { tone = 'bull'; label = `${Math.round(rsi)} 超賣`; }
+                    else if (rsi >= 50) { tone = 'bull'; label = `${Math.round(rsi)} 偏多`; }
+                    else { tone = 'bear'; label = `${Math.round(rsi)} 偏空`; }
+                    out.push({ key: 'rsi', name: 'RSI', tone, label });
+                }
+
+                // MACD: above signal line + positive histogram = bull
+                if (showMACD) {
+                    const m = computeMACD(closes);
+                    const lDif = m.dif[m.dif.length - 1];
+                    const lDea = m.dea[m.dea.length - 1];
+                    const lHist = m.histogram[m.histogram.length - 1];
+                    if (lDif != null && lDea != null && lHist != null) {
+                        const above = lDif > lDea;
+                        const positive = lHist > 0;
+                        const tone = above && positive ? 'bull' : (!above && !positive ? 'bear' : 'neutral');
+                        const label = tone === 'bull' ? '多' : tone === 'bear' ? '空' : '震盪';
+                        out.push({ key: 'macd', name: 'MACD', tone, label });
+                    }
+                }
+
+                // 200MA
+                if (showMA200 && closes.length >= 200) {
+                    let sum = 0;
+                    for (let i = closes.length - 200; i < closes.length; i++) sum += closes[i];
+                    const ma200 = sum / 200;
+                    const bull = lastPrice >= ma200;
+                    out.push({ key: 'ma200', name: 'MA200', tone: bull ? 'bull' : 'bear', label: bull ? '價格站上' : '價格跌破' });
+                }
+
+                return out;
+            }, [candleData, fngHistory, signalSource, showEMA, showRSI, showMACD, showMA200, showComposite]);
+
+            // Overall verdict — straight count of bull vs bear (neutral ignored)
+            const overallTone = useMemo(() => {
+                let b = 0, s = 0;
+                for (const it of signalSummary) {
+                    if (it.tone === 'bull') b++;
+                    else if (it.tone === 'bear') s++;
+                }
+                if (b === 0 && s === 0) return { tone: 'neutral', label: '--' };
+                if (b > s) return { tone: 'bull', label: '偏多' };
+                if (s > b) return { tone: 'bear', label: '偏空' };
+                return { tone: 'neutral', label: '中性' };
+            }, [signalSummary]);
 
             // ─── Tool picker handlers ───
             const pickTool = (tool) => {
@@ -4072,7 +4278,7 @@
             };
             const resetZoom = () => { try { chartRef.current && chartRef.current.timeScale().fitContent(); } catch {} };
 
-            // ─── Compact eye-toggle button ───
+            // ─── UI atoms ───
             const EyeToggle = ({ label, checked, onChange, color }) => (
                 <button
                     onClick={() => onChange(!checked)}
@@ -4094,7 +4300,6 @@
                 >{label}</button>
             );
 
-            // Tool category icon mapping (uses inline SVG for crispness)
             const CategoryIcon = ({ k }) => {
                 const stroke = 'currentColor';
                 const common = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke, strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' };
@@ -4107,6 +4312,13 @@
                 if (k === 'shape') return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="1"/></svg>;
                 if (k === 'annotation') return <svg {...common}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
                 return null;
+            };
+
+            // tone → pill colors
+            const tonePill = (tone) => {
+                if (tone === 'bull') return { bg: 'rgba(0,214,143,0.15)', color: UP_COLOR, border: 'rgba(0,214,143,0.4)' };
+                if (tone === 'bear') return { bg: 'rgba(255,91,110,0.15)', color: DOWN_COLOR, border: 'rgba(255,91,110,0.4)' };
+                return { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-2)', border: 'var(--line)' };
             };
 
             // ─── Layout ───
@@ -4137,6 +4349,12 @@
                                 )}
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
+                                <button onClick={() => setShowSignalPanel(!showSignalPanel)}
+                                    className="h-8 px-2 rounded-md text-[10px] mono hover:bg-white/[0.08] hidden sm:inline-block"
+                                    style={{ color: showSignalPanel ? 'var(--brand-1)' : 'var(--text-2)', border: '1px solid ' + (showSignalPanel ? 'var(--brand-1)' : 'var(--line)') }}
+                                    title="切換信號面板">
+                                    📊 信號
+                                </button>
                                 <button onClick={resetZoom}
                                     className="h-8 px-2 rounded-md text-[10px] mono hover:bg-white/[0.08]"
                                     style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }} title="重置縮放">⤾ 重置</button>
@@ -4172,11 +4390,13 @@
                             <div className="w-px h-6 shrink-0" style={{ background: 'var(--line)' }}></div>
 
                             {signalSource === 'fng' && (
-                                <EyeToggle label="FNG 信號" checked={showFearSignal} onChange={setShowFearSignal} color="#ff5b6e" />
+                                <EyeToggle label="FNG 信號" checked={showFearSignal} onChange={setShowFearSignal} color={DOWN_COLOR} />
                             )}
                             <EyeToggle label="EMA Ribbon" checked={showEMA} onChange={setShowEMA} color="#3b82f6" />
+                            <EyeToggle label="MA200" checked={showMA200} onChange={setShowMA200} color="#f97316" />
                             <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
                             <EyeToggle label="MACD" checked={showMACD} onChange={setShowMACD} color="#fbbf24" />
+                            <EyeToggle label="綜合信號" checked={showComposite} onChange={setShowComposite} color={UP_COLOR} />
                         </div>
                     </div>
 
@@ -4198,25 +4418,6 @@
                                     >
                                         <CategoryIcon k={cat.key} />
                                     </button>
-                                    {openCategory === cat.key && (
-                                        <div
-                                            className="absolute left-full top-0 ml-1 rounded-lg shadow-2xl z-30 p-1 min-w-[180px] max-h-[60vh] overflow-y-auto"
-                                            style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}
-                                        >
-                                            <div className="text-[10px] uppercase tracking-wider px-2 py-1 mb-0.5" style={{ color: 'var(--text-3)' }}>{cat.label}</div>
-                                            {cat.tools.map(tool => (
-                                                <button
-                                                    key={tool.type}
-                                                    onClick={() => pickTool(tool)}
-                                                    className="block w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-white/[0.06]"
-                                                    style={{ color: 'var(--text)' }}
-                                                >
-                                                    {tool.name}
-                                                    <span className="ml-2 text-[10px]" style={{ color: 'var(--text-3)' }}>{tool.a}點</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
                                 </div>
                             ))}
 
@@ -4226,7 +4427,7 @@
                                 onClick={deleteSelected}
                                 disabled={!hasSelection}
                                 className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-white/[0.08] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                                style={{ color: hasSelection ? '#ff7d8c' : 'var(--text-3)' }}
+                                style={{ color: hasSelection ? DOWN_COLOR : 'var(--text-3)' }}
                                 title="刪除選取的標註（或按 Delete 鍵）"
                             >
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -4245,13 +4446,95 @@
                             </button>
                         </div>
 
+                        {/* Tool-category popup. Positioned absolute next to the sidebar but clamped
+                            to the viewport so it never spills off a narrow phone screen. */}
+                        {openCategory && (() => {
+                            const cat = DRAWING_TOOL_CATEGORIES.find(c => c.key === openCategory);
+                            if (!cat) return null;
+                            return (
+                                <>
+                                    {/* Backdrop catches outside taps on mobile */}
+                                    <div className="fixed inset-0 z-[115] md:hidden" onClick={() => setOpenCategory(null)}></div>
+                                    <div
+                                        className="fixed z-[116] rounded-lg shadow-2xl p-1 max-h-[60vh] overflow-y-auto"
+                                        style={{
+                                            background: 'var(--surface)',
+                                            border: '1px solid var(--line)',
+                                            top: 'calc(env(safe-area-inset-top, 0px) + 120px)',
+                                            left: 56,
+                                            width: 'min(220px, calc(100vw - 72px))',
+                                        }}
+                                    >
+                                        <div className="text-[10px] uppercase tracking-wider px-2 py-1 mb-0.5 flex items-center justify-between" style={{ color: 'var(--text-3)' }}>
+                                            <span>{cat.label}（{cat.tools.length}）</span>
+                                            <button onClick={() => setOpenCategory(null)} className="md:hidden text-[11px] hover:text-white">✕</button>
+                                        </div>
+                                        {cat.tools.map(tool => (
+                                            <button
+                                                key={tool.type}
+                                                onClick={() => pickTool(tool)}
+                                                className="block w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-white/[0.06]"
+                                                style={{ color: 'var(--text)' }}
+                                            >
+                                                {tool.name}
+                                                <span className="ml-2 text-[10px]" style={{ color: 'var(--text-3)' }}>{tool.a} 點</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </>
+                            );
+                        })()}
+
                         {/* Chart container */}
                         <div className="flex-1 min-w-0 p-1 md:p-2 relative">
                             <div ref={containerRef} className="w-full h-full" style={{ minHeight: '400px' }}></div>
+
+                            {/* Signal summary panel — top-right, semi-transparent, collapsible */}
+                            {showSignalPanel && signalSummary.length > 0 && (
+                                <div
+                                    className="absolute top-2 right-2 rounded-lg p-2 z-20 backdrop-blur"
+                                    style={{
+                                        background: 'rgba(18,20,28,0.85)',
+                                        border: '1px solid var(--line)',
+                                        width: 'min(180px, calc(100vw - 80px))',
+                                        maxHeight: 'calc(100% - 16px)',
+                                        overflowY: 'auto',
+                                    }}
+                                >
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <span className="text-[10px] font-bold tracking-wider uppercase" style={{ color: 'var(--text-3)' }}>信號總覽</span>
+                                        <button onClick={() => setShowSignalPanel(false)} className="w-5 h-5 rounded hover:bg-white/[0.08] text-[11px]" style={{ color: 'var(--text-3)' }} title="收起">−</button>
+                                    </div>
+                                    <div className="flex items-center justify-between mb-1.5 px-1.5 py-1 rounded" style={{ background: tonePill(overallTone.tone).bg, border: '1px solid ' + tonePill(overallTone.tone).border }}>
+                                        <span className="text-[10px] font-bold" style={{ color: tonePill(overallTone.tone).color }}>綜合判斷</span>
+                                        <span className="text-[11px] font-extrabold" style={{ color: tonePill(overallTone.tone).color }}>{overallTone.label}</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                        {signalSummary.map(it => {
+                                            const p = tonePill(it.tone);
+                                            return (
+                                                <div key={it.key} className="flex items-center justify-between text-[10px] gap-2">
+                                                    <span style={{ color: 'var(--text-3)' }}>{it.name}</span>
+                                                    <span className="px-1.5 py-0.5 rounded font-bold truncate" style={{ background: p.bg, color: p.color, border: '1px solid ' + p.border, maxWidth: 110 }}>{it.label}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                            {!showSignalPanel && (
+                                <button
+                                    onClick={() => setShowSignalPanel(true)}
+                                    className="absolute top-2 right-2 px-2 py-1 rounded-lg text-[10px] font-bold z-20 backdrop-blur hover:bg-white/[0.08]"
+                                    style={{ background: 'rgba(18,20,28,0.85)', border: '1px solid var(--line)', color: 'var(--text-2)' }}
+                                    title="展開信號面板"
+                                >📊 信號</button>
+                            )}
+
                             {activeTool && (
-                                <div className="md:hidden absolute top-2 left-2 right-2 px-3 py-2 rounded-lg flex items-center justify-between text-[11px] z-20" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--brand-1)', border: '1px solid var(--brand-1)' }}>
-                                    <span>繪製：{activeTool.name}（{activeTool.collected ?? 0}/{activeTool.requiredAnchors}）</span>
-                                    <button onClick={cancelTool} className="hover:underline">取消</button>
+                                <div className="md:hidden absolute top-2 left-2 right-[150px] px-3 py-2 rounded-lg flex items-center justify-between text-[11px] z-20" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--brand-1)', border: '1px solid var(--brand-1)' }}>
+                                    <span className="truncate">繪製：{activeTool.name}（{activeTool.collected ?? 0}/{activeTool.requiredAnchors}）</span>
+                                    <button onClick={cancelTool} className="hover:underline ml-2 shrink-0">取消</button>
                                 </div>
                             )}
                         </div>
@@ -4266,11 +4549,11 @@
                                     <button onClick={() => setShowHelp(false)} className="w-7 h-7 rounded-full hover:bg-white/10" style={{ color: 'var(--text-2)' }}>✕</button>
                                 </div>
                                 <div className="text-[11px] leading-relaxed space-y-1.5" style={{ color: 'var(--text-2)' }}>
-                                    <p><strong className="text-white">圖表</strong>：基於 TradingView Lightweight Charts v5；滑鼠拖曳平移，滾輪縮放，拖曳價格軸/時間軸縮放單一方向。</p>
-                                    <p><strong className="text-white">畫線工具</strong>：左側工具列共 8 個分類、68 種工具（趨勢線、Fibonacci、Gann、叉形、形狀、標註…）。點分類圖示展開選單，挑選工具後在圖表上點擊指定數量的錨點即可完成。</p>
-                                    <p><strong className="text-white">選取 / 移動 / 刪除</strong>：點擊已完成的標註可選取（再拖曳錨點即可調整），按 Delete 或左側工具列垃圾桶圖示刪除。Esc 取消當前繪製。</p>
-                                    <p><strong className="text-white">指標</strong>：EMA Ribbon 為 20 / 26 / 32 / 38 / 44 / 50；RSI 與 MACD 分別在獨立子圖；可在工具列各自開關。</p>
-                                    <p><strong className="text-white">FNG 信號</strong>：加密 / 美股使用真實 Fear &amp; Greed 指數，於 K 棒下方標紅 / 橘點（≤ 25 紅、≤ 45 橘）。</p>
+                                    <p><strong className="text-white">圖表</strong>：基於 TradingView Lightweight Charts v5；滑鼠拖曳平移、滾輪縮放、雙指捏合縮放；拖曳價格軸 / 時間軸縮放單一方向。</p>
+                                    <p><strong className="text-white">畫線工具</strong>：左側工具列共 8 分類、68 種工具。點分類圖示打開選單，挑選工具後在圖表上任意位置點擊指定數量的錨點即完成（自由位置，不會吸到 K 棒）。</p>
+                                    <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊已完成的標註可選取，拖曳錨點微調；按 Delete 或左側垃圾桶刪除；Esc 取消當前繪製。手機可用單指拖曳錨點。</p>
+                                    <p><strong className="text-white">指標</strong>：EMA Ribbon 隨多空換綠 / 紅；MA200 隨價格上下換色；RSI 加 70/50/30 參考線；MACD 紅綠柱反映動能；綜合信號 = RSI + 1Y 高低位置（觀察清單一致邏輯）。</p>
+                                    <p><strong className="text-white">信號總覽</strong>：右上角面板綜合所有指標的多 / 空狀態，可隨時收起。</p>
                                 </div>
                             </div>
                         </div>
