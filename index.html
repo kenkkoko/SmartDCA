@@ -4005,9 +4005,12 @@
                 try { chart.timeScale().fitContent(); } catch {}
             }, [candleData]);
 
-            // ─── EMA Ribbon (6 lines on main pane) ───
-            // Matches Pine "BTC EMA Ribbon Reversal": all 6 lines share one semi-transparent
-            // color that flips green ↔ red whenever the fast (20) crosses the slow (55).
+            // ─── EMA Ribbon (6 lines on main pane) — per-segment color flip ───
+            // Each EMA line is split into bull / bear segments at every fast×slow
+            // crossover; each segment is its own LineSeries so the ribbon recolors
+            // exactly at the cross instead of being one flat color for the whole
+            // history. Segments overlap by one point at the boundary so the line
+            // doesn't visually break at the crossover bar.
             useEffect(() => {
                 const chart = chartRef.current;
                 if (!chart) return;
@@ -4018,26 +4021,45 @@
                 const emas = EMA_PERIODS.map(p => computeEMA(closes, p));
                 const fastArr = emas[0];
                 const slowArr = emas[EMA_PERIODS.length - 1];
-                const lastFast = fastArr[fastArr.length - 1];
-                const lastSlow = slowArr[slowArr.length - 1];
-                const bull = lastFast != null && lastSlow != null && lastFast >= lastSlow;
-                const ribbonColor = bull ? EMA_BULL_COLOR : EMA_BEAR_COLOR;
+
                 EMA_PERIODS.forEach((period, idx) => {
                     const ema = emas[idx];
-                    const data = [];
+                    const lineWidth = (idx === 0 || idx === EMA_PERIODS.length - 1) ? 2 : 1;
+                    let curBull = null;
+                    let curPoints = [];
+
+                    const flushSegment = () => {
+                        if (curPoints.length < 2 || curBull == null) return;
+                        const s = chart.addSeries(window.LightweightCharts.LineSeries, {
+                            color: curBull ? EMA_BULL_COLOR : EMA_BEAR_COLOR,
+                            lineWidth,
+                            priceLineVisible: false,
+                            lastValueVisible: false,
+                            crosshairMarkerVisible: false,
+                        }, 0);
+                        s.setData(curPoints);
+                        emaSeriesRef.current.push(s);
+                    };
+
                     for (let i = 0; i < ema.length; i++) {
-                        if (ema[i] != null) data.push({ time: candleData[i].time, value: ema[i] });
+                        if (ema[i] == null || fastArr[i] == null || slowArr[i] == null) continue;
+                        const bull = fastArr[i] >= slowArr[i];
+                        const point = { time: candleData[i].time, value: ema[i] };
+                        if (curBull == null) {
+                            curBull = bull;
+                            curPoints = [point];
+                        } else if (bull === curBull) {
+                            curPoints.push(point);
+                        } else {
+                            // Regime change: include the crossover point as the end of
+                            // this segment AND the start of the next so they meet visually.
+                            curPoints.push(point);
+                            flushSegment();
+                            curBull = bull;
+                            curPoints = [point];
+                        }
                     }
-                    if (!data.length) return;
-                    const s = chart.addSeries(window.LightweightCharts.LineSeries, {
-                        color: ribbonColor,
-                        lineWidth: (idx === 0 || idx === EMA_PERIODS.length - 1) ? 2 : 1,
-                        priceLineVisible: false,
-                        lastValueVisible: false,
-                        crosshairMarkerVisible: false,
-                    }, 0);
-                    s.setData(data);
-                    emaSeriesRef.current.push(s);
+                    flushSegment();
                 });
             }, [showEMA, candleData]);
 
@@ -4053,9 +4075,9 @@
                     const sPrev = slow[i - 1], sCur = slow[i];
                     if (fPrev == null || fCur == null || sPrev == null || sCur == null) continue;
                     if (fPrev <= sPrev && fCur > sCur) {
-                        out.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR, text: 'LONG' });
+                        out.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
                     } else if (fPrev >= sPrev && fCur < sCur) {
-                        out.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR, text: 'SHORT' });
+                        out.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
                     }
                 }
                 return out;
@@ -4127,9 +4149,8 @@
                     avgLoss = (avgLoss * (period - 1) + loss) / period;
                     pushRsi(i);
                 }
-                const latest = out.length ? out[out.length - 1].value : 50;
                 const s = chart.addSeries(LWC.LineSeries, {
-                    color: latest >= 50 ? UP_COLOR : DOWN_COLOR,
+                    color: '#a78bfa',  // purple — bull / bear is conveyed by the cross markers, not the line
                     lineWidth: 1.5,
                     priceLineVisible: false, lastValueVisible: true, title: 'RSI(14)',
                 }, 1);
@@ -4145,9 +4166,9 @@
                     for (let i = 1; i < out.length; i++) {
                         const prev = out[i - 1].value, cur = out[i].value;
                         if (prev <= 30 && cur > 30) {
-                            markers.push({ time: out[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR, text: 'LONG' });
+                            markers.push({ time: out[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
                         } else if (prev >= 70 && cur < 70) {
-                            markers.push({ time: out[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR, text: 'SHORT' });
+                            markers.push({ time: out[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
                         }
                     }
                     try { rsiMarkersRef.current = LWC.createSeriesMarkers(s, markers); } catch {}
@@ -4190,9 +4211,9 @@
                         const ePrev = macd.dea[i - 1], eCur = macd.dea[i];
                         if (dPrev == null || dCur == null || ePrev == null || eCur == null) continue;
                         if (dPrev <= ePrev && dCur > eCur) {
-                            markers.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR, text: 'LONG' });
+                            markers.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
                         } else if (dPrev >= ePrev && dCur < eCur) {
-                            markers.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR, text: 'SHORT' });
+                            markers.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
                         }
                     }
                     try { macdMarkersRef.current = LWC.createSeriesMarkers(macdRefs.current.dif, markers); } catch {}
@@ -4612,8 +4633,8 @@
                                     <p><strong className="text-white">圖表</strong>：基於 TradingView Lightweight Charts v5；滑鼠拖曳平移、滾輪縮放、雙指捏合縮放；拖曳價格軸 / 時間軸縮放單一方向。</p>
                                     <p><strong className="text-white">畫線工具</strong>：左側工具列共 8 分類、68 種工具。點分類圖示打開選單，挑選工具後在圖表上任意位置點擊指定數量的錨點即完成（自由位置，不會吸到 K 棒）。</p>
                                     <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊已完成的標註可選取，拖曳錨點微調；按 Delete 或左側垃圾桶刪除；Esc 取消當前繪製。手機可用單指拖曳錨點。</p>
-                                    <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20 / 27 / 34 / 41 / 48 / 55（fast=20、slow=55），整條依 fast×slow 多空換色；金叉於 K 棒下方標 LONG，死叉於上方標 SHORT。</p>
-                                    <p><strong className="text-white">RSI / MACD / MA200</strong>：RSI 加 70 / 50 / 30 線，RSI 上穿 30 = LONG、下穿 70 = SHORT；MACD DIF×DEA 金叉 = LONG、死叉 = SHORT；MA200 線色隨價格站上 / 跌破切換。</p>
+                                    <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20 / 27 / 34 / 41 / 48 / 55（fast=20、slow=55）。線段顏色逐段切換 — fast 站上 slow 該段顯綠、跌破則紅；K 棒下方綠 △ = 金叉（多），K 棒上方紅 ▽ = 死叉（空）。</p>
+                                    <p><strong className="text-white">RSI / MACD / MA200</strong>：RSI 紫線恆色，加 70 / 50 / 30 參考線，上穿 30 標 △、下穿 70 標 ▽；MACD DIF×DEA 金叉 △、死叉 ▽；MA200 線色隨價格站上 / 跌破切換。</p>
                                     <p><strong className="text-white">信號總覽</strong>：右上角面板獨立列出各指標的多 / 空狀態，不做綜合判斷；可隨時收起。</p>
                                 </div>
                             </div>
