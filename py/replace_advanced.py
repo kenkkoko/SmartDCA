@@ -165,6 +165,7 @@ NEW_BLOCK = r'''        // ─────────────────�
             const [activeTool, setActiveTool] = useState(null); // { type, name, requiredAnchors, collected }
             const [openCategory, setOpenCategory] = useState(null);
             const [hasSelection, setHasSelection] = useState(false);
+            const [hoverInfo, setHoverInfo] = useState(null); // { time, open, high, low, close, prevClose }
 
             const [showEMA, setShowEMA] = useLocalState('tech-show-ema', true);
             const [showMA200, setShowMA200] = useLocalState('tech-show-ma200', true);
@@ -324,7 +325,17 @@ NEW_BLOCK = r'''        // ─────────────────�
                         vertLines: { color: 'rgba(255,255,255,0.04)' },
                         horzLines: { color: 'rgba(255,255,255,0.04)' },
                     },
-                    timeScale: { borderColor: 'rgba(255,255,255,0.1)', timeVisible: true, secondsVisible: false, rightOffset: 6 },
+                    timeScale: {
+                        borderColor: 'rgba(255,255,255,0.1)',
+                        borderVisible: true,
+                        visible: true,
+                        timeVisible: true,
+                        secondsVisible: false,
+                        rightOffset: 6,
+                        barSpacing: 8,
+                        minBarSpacing: 0.5,
+                        tickMarkMaxCharacterLength: 10,
+                    },
                     rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
                     crosshair: { mode: 1 },
                     autoSize: true,
@@ -341,6 +352,30 @@ NEW_BLOCK = r'''        // ─────────────────�
                 if (typeof LWC.createSeriesMarkers === 'function') {
                     markersPluginRef.current = LWC.createSeriesMarkers(candleSeries, []);
                 }
+
+                // ─── Hover-info overlay: read OHLC out of the crosshair payload ───
+                chart.subscribeCrosshairMove((param) => {
+                    if (!param || param.time == null || !param.seriesData) {
+                        setHoverInfo(null);
+                        return;
+                    }
+                    const cur = param.seriesData.get(candleSeries);
+                    if (!cur || cur.open == null) {
+                        setHoverInfo(null);
+                        return;
+                    }
+                    const data = candleDataRef.current;
+                    let prev = null;
+                    if (param.logical != null && data.length > 1) {
+                        const idx = Math.round(param.logical);
+                        if (idx >= 1 && idx < data.length) prev = data[idx - 1];
+                    }
+                    setHoverInfo({
+                        time: param.time,
+                        open: cur.open, high: cur.high, low: cur.low, close: cur.close,
+                        prevClose: prev ? prev.close : null,
+                    });
+                });
 
                 if (window.LightweightChartsDrawing && window.LightweightChartsDrawing.DrawingManager) {
                     const manager = new window.LightweightChartsDrawing.DrawingManager();
@@ -484,6 +519,18 @@ NEW_BLOCK = r'''        // ─────────────────�
                 series.setData(candleData);
                 try { chart.timeScale().fitContent(); } catch {}
             }, [candleData]);
+
+            // Re-balance pane heights whenever the sub-pane mix changes (so the time
+            // axis under the MACD pane always has comfortable room to render).
+            useEffect(() => {
+                const chart = chartRef.current;
+                if (!chart || !chart.panes) return;
+                const panes = chart.panes();
+                const apply = (i, f) => { try { panes[i] && panes[i].setStretchFactor(f); } catch {} };
+                apply(0, 6);   // main candle pane gets the bulk
+                apply(1, 2);   // RSI
+                apply(2, 2);   // MACD
+            }, [showRSI, showMACD, candleData]);
 
             // ─── EMA Ribbon (6 lines on main pane) — per-segment color flip ───
             // Each EMA line is split into bull / bear segments at every fast×slow
@@ -1053,6 +1100,34 @@ NEW_BLOCK = r'''        // ─────────────────�
                         {/* Chart container */}
                         <div className="flex-1 min-w-0 p-1 md:p-2 relative">
                             <div ref={containerRef} className="w-full h-full" style={{ minHeight: '400px' }}></div>
+
+                            {/* OHLC hover overlay — top-left, compact. Driven by crosshair. */}
+                            {hoverInfo && (() => {
+                                const fmtPrice = (v) => v == null ? '—' : (Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : v.toFixed(Math.abs(v) >= 1 ? 2 : 4));
+                                const change = (hoverInfo.prevClose != null) ? hoverInfo.close - hoverInfo.prevClose : null;
+                                const changePct = (change != null && hoverInfo.prevClose) ? (change / hoverInfo.prevClose) * 100 : null;
+                                const changeColor = change == null ? 'var(--text-3)' : (change >= 0 ? UP_COLOR : DOWN_COLOR);
+                                const d = new Date(hoverInfo.time * 1000);
+                                const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+                                const isUp = hoverInfo.close >= hoverInfo.open;
+                                return (
+                                    <div className="absolute top-2 left-2 z-20 px-2 py-1.5 rounded-md backdrop-blur pointer-events-none mono"
+                                        style={{ background: 'rgba(18,20,28,0.85)', border: '1px solid var(--line)', fontSize: 10, lineHeight: 1.35, color: 'var(--text-2)' }}>
+                                        <div className="font-bold" style={{ color: 'var(--text)' }}>{dateStr}</div>
+                                        <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
+                                            <span>開 <span style={{ color: 'var(--text)' }}>{fmtPrice(hoverInfo.open)}</span></span>
+                                            <span>高 <span style={{ color: UP_COLOR }}>{fmtPrice(hoverInfo.high)}</span></span>
+                                            <span>低 <span style={{ color: DOWN_COLOR }}>{fmtPrice(hoverInfo.low)}</span></span>
+                                            <span>收 <span style={{ color: isUp ? UP_COLOR : DOWN_COLOR }}>{fmtPrice(hoverInfo.close)}</span></span>
+                                        </div>
+                                        {change != null && (
+                                            <div className="mt-0.5" style={{ color: changeColor }}>
+                                                {change >= 0 ? '+' : ''}{fmtPrice(change)} ({changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%)
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
 
                             {/* Signal summary panel — top-right, semi-transparent, collapsible */}
                             {showSignalPanel && signalSummary.length > 0 && (
