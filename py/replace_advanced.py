@@ -935,7 +935,7 @@ NEW_BLOCK = r'''        // ─────────────────�
 
             // ─── Layout ───
             return (
-                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh' }}>
+                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
                     {/* Top bar */}
                     <div className="shrink-0 flex flex-col gap-2 px-3 md:px-4 pt-3 pb-2" style={{ borderBottom: '1px solid var(--line)' }}>
                         {/* Row 1: title + status + help/reset/close */}
@@ -1097,9 +1097,11 @@ NEW_BLOCK = r'''        // ─────────────────�
                             );
                         })()}
 
-                        {/* Chart container */}
-                        <div className="flex-1 min-w-0 p-1 md:p-2 relative">
-                            <div ref={containerRef} className="w-full h-full" style={{ minHeight: '400px' }}></div>
+                        {/* Chart container — absolute inset so the chart canvas can NEVER
+                            overflow its parent and clip the bottom time axis. The min-height
+                            lives on the parent so a tiny viewport still gets a usable chart. */}
+                        <div className="flex-1 min-w-0 min-h-0 relative" style={{ minHeight: '280px' }}>
+                            <div ref={containerRef} className="absolute inset-1 md:inset-2"></div>
 
                             {/* OHLC hover overlay — top-left, compact. Driven by crosshair. */}
                             {hoverInfo && (() => {
