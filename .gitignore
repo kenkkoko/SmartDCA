@@ -13,3 +13,6 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# Supabase CLI local cache
+supabase/.temp/
