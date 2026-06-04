@@ -4,8 +4,8 @@
 // =========================================================
 window.__LOCAL_CONFIG__ = {
   // dev Supabase 專案
-  SUPABASE_URL: 'https://sycndjfizoihpckjdmto.supabase.co',
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5Y25kamZpem9paHBja2pkbXRvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1NjEwNjMsImV4cCI6MjA5NDEzNzA2M30.o-N64nUd4KWKGWpZcNIwPOtMURTPFyD3CCIS8PLJxgI',
+  SUPABASE_URL: 'https://cimoqkrzuubulinlxako.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpbW9xa3J6dXVidWxpbmx4YWtvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU2OTc1MjYsImV4cCI6MjA4MTI3MzUyNn0.cqhl31h2CLUR3iUfbUbP_QJwH-VQGc5wQ_m62UfIIQE',
 
   // 是否啟用論壇(本地測試時設 true)
   FORUM_ENABLED: true,
