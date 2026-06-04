@@ -1,5 +1,4 @@
 # Local dev config (contains dev Supabase keys — never commit)
-local-config.js
 
 # Python
 __pycache__/
