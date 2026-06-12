@@ -499,6 +499,54 @@
             ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
             : null;
 
+        // --- Demo 展示模式(履歷用連結 ?demo=kai2026)---
+        // 自動登入唯讀展示帳號(Premium),讓訪客免註冊即可體驗完整付費功能
+        // (含需伺服器端驗證會員身分的 AI 摘要與加密行情)。
+        // 唯讀:攔截所有資料表寫入與圖片上傳,UI 照常更新但不寫進資料庫,
+        // 避免訪客操作污染展示帳號 / 正式論壇。
+        const DEMO = new URLSearchParams(location.search).get('demo') === 'kai2026';
+        window.__DEMO__ = DEMO;
+        if (DEMO && supabase) {
+            const DEMO_EMAIL = 'test416@gmail.com';
+            const DEMO_PASSWORD = 'test4166';
+            // 唯讀:攔截資料表寫入(select 等讀取不受影響)
+            const fakeRes = () => {
+                const p = Promise.resolve({ data: [], error: null });
+                ['select','eq','neq','gt','gte','lt','lte','like','ilike','is','in','contains','order','limit','range','match','single','maybeSingle'].forEach(m => { p[m] = () => p; });
+                return p;
+            };
+            const _from = supabase.from.bind(supabase);
+            supabase.from = (t) => {
+                const qb = _from(t);
+                ['insert','update','upsert','delete'].forEach(m => { qb[m] = fakeRes; });
+                return qb;
+            };
+            if (supabase.storage) {
+                const _sf = supabase.storage.from.bind(supabase.storage);
+                supabase.storage.from = (b) => {
+                    const so = _sf(b);
+                    so.upload = async () => ({ data: null, error: { message: 'Demo 展示模式為唯讀,無法上傳。' } });
+                    so.remove = async () => ({ data: null, error: null });
+                    return so;
+                };
+            }
+            // 自動登入展示帳號(取得真實 Premium session 才能通過 edge function 驗證)
+            supabase.auth.getSession().then(({ data: { session } }) => {
+                if (!session || (session.user && session.user.email !== DEMO_EMAIL)) {
+                    supabase.auth.signInWithPassword({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
+                }
+            });
+            // 展示橫幅
+            const _showDemoTag = () => {
+                if (!document.body) { setTimeout(_showDemoTag, 50); return; }
+                const tag = document.createElement('div');
+                tag.textContent = '👀 展示模式 Demo · 已解鎖所有 Premium 功能(唯讀)';
+                tag.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:99999;background:rgba(20,20,24,.88);color:#fff;font-size:12px;font-weight:500;padding:7px 16px;border-radius:999px;border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.4);pointer-events:none;white-space:nowrap';
+                document.body.appendChild(tag);
+            };
+            _showDemoTag();
+        }
+
         // --- 內建 Icons (取代外部 lucide-react 依賴) ---
         const IconBase = ({ children, size = 24, className = "" }) => (
             <svg
@@ -5702,6 +5750,7 @@
         // ─────────────────────────────────────────────
         const PortfolioDashboard = ({ supabase, user, watchlist, onUpdateWatchlist, isPremium }) => {
             const [subTab, setSubTab] = useState('holdings'); // 'holdings' | 'watchlist'
+            const [ccyView, setCcyView] = useState('USD'); // 投組顯示幣別:預設 USD,有多幣別時可切換(例如 TWD)
             const [transactions, setTransactions] = useState([]);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
@@ -5894,55 +5943,75 @@
                     {/* Holdings sub-view */}
                     {subTab !== 'holdings' ? null : <>
 
-                    {/* Portfolio value chart (per currency) */}
-                    {Object.keys(summary).map(ccy => (
-                        <PortfolioValueChart
-                            key={ccy}
-                            transactions={transactions}
-                            holdings={holdings}
-                            prices={prices}
-                            currency={ccy}
-                        />
-                    ))}
-
-                    {/* Summary cards (one per currency) */}
-                    {Object.entries(summary).map(([ccy, s]) => {
+                    {/* Portfolio value chart + summary(單一幣別檢視:預設 USD,持有多種計價幣別時可切換) */}
+                    {(() => {
+                        const ccyList = Object.keys(summary);
+                        if (ccyList.length === 0) return null;
+                        const activeCcy = ccyList.includes(ccyView) ? ccyView : (ccyList.includes('USD') ? 'USD' : ccyList[0]);
+                        const s = summary[activeCcy];
                         const pl = s.marketValue - s.cost;
                         const plPct = s.cost > 0 ? (pl / s.cost) * 100 : 0;
                         const isUp = pl >= 0;
-                        const sym = ccy === 'TWD' ? 'NT$' : '$';
+                        const sym = activeCcy === 'TWD' ? 'NT$' : '$';
                         return (
-                            <div key={ccy} className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
-                                    <p className="label">{ccy} · 總市值</p>
-                                    <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
-                                        {sym}{s.marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                    </p>
+                            <>
+                                {/* 幣別切換:僅在同時持有多種計價幣別時顯示(例如 USD / TWD) */}
+                                {ccyList.length > 1 && (
+                                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
+                                        {ccyList.map(ccy => (
+                                            <button
+                                                key={ccy}
+                                                onClick={() => setCcyView(ccy)}
+                                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${activeCcy === ccy ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                                style={activeCcy === ccy ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                                            >
+                                                {ccy}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Portfolio value chart(選中幣別) */}
+                                <PortfolioValueChart
+                                    transactions={transactions}
+                                    holdings={holdings}
+                                    prices={prices}
+                                    currency={activeCcy}
+                                />
+
+                                {/* Summary cards(選中幣別) */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                        <p className="label">{activeCcy} · 總市值</p>
+                                        <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                            {sym}{s.marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                        <p className="label">總成本</p>
+                                        <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                            {sym}{s.cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                        <p className="label">未實現損益</p>
+                                        <p className="text-xl md:text-2xl font-extrabold mt-1 num" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                            {isUp ? '+' : ''}{sym}{pl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                        </p>
+                                        <p className="text-xs mono mt-0.5" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                            {isUp ? '+' : ''}{plPct.toFixed(2)}%
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                        <p className="label">累計配息</p>
+                                        <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                            {sym}{s.dividends.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
-                                    <p className="label">總成本</p>
-                                    <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
-                                        {sym}{s.cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                    </p>
-                                </div>
-                                <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
-                                    <p className="label">未實現損益</p>
-                                    <p className="text-xl md:text-2xl font-extrabold mt-1 num" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
-                                        {isUp ? '+' : ''}{sym}{pl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                    </p>
-                                    <p className="text-xs mono mt-0.5" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
-                                        {isUp ? '+' : ''}{plPct.toFixed(2)}%
-                                    </p>
-                                </div>
-                                <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
-                                    <p className="label">累計配息</p>
-                                    <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
-                                        {sym}{s.dividends.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                    </p>
-                                </div>
-                            </div>
+                            </>
                         );
-                    })}
+                    })()}
 
                     {/* Empty state */}
                     {holdings.length === 0 && transactions.length === 0 && (
