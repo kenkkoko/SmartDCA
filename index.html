@@ -531,11 +531,19 @@
                 };
             }
             // 自動登入展示帳號(取得真實 Premium session 才能通過 edge function 驗證)
-            supabase.auth.getSession().then(({ data: { session } }) => {
-                if (!session || (session.user && session.user.email !== DEMO_EMAIL)) {
-                    supabase.auth.signInWithPassword({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
-                }
-            });
+            // 強健寫法:不依賴 getSession 成功;若已是展示帳號則略過,否則清掉可能殘留的
+            // 過期 token 後再登入(避免訪客瀏覽器留有舊 token 導致 refresh 失敗、卡住不登入)。
+            (async () => {
+                let session = null;
+                try { session = (await supabase.auth.getSession()).data.session; } catch (_) {}
+                if (session && session.user && session.user.email === DEMO_EMAIL) return; // 已登入展示帳號
+                const login = () => supabase.auth.signInWithPassword({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
+                try {
+                    if (session) { try { await supabase.auth.signOut(); } catch (_) {} } // 清掉非展示帳號 / 殘留 session
+                    let { error } = await login();
+                    if (error) { try { await supabase.auth.signOut(); } catch (_) {} await login(); } // 殘留壞 token 干擾 → 清掉重試
+                } catch (e) { console.warn('[demo] auto-login failed:', e && e.message); }
+            })();
             // 展示橫幅
             const _showDemoTag = () => {
                 if (!document.body) { setTimeout(_showDemoTag, 50); return; }
