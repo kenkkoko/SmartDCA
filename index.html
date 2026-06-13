@@ -763,6 +763,12 @@
 
             const handleLogout = async () => {
                 if (!supabase) return;
+                if (window.__DEMO__) {
+                    // 展示模式:「離開展示」→ 導回正式站(去掉 ?demo 參數)。
+                    // 展示帳號是 persistSession:false 的記憶體 session,離開即消失、不殘留。
+                    window.location.href = window.location.origin + window.location.pathname;
+                    return;
+                }
                 await supabase.auth.signOut();
                 setUser(null);
                 window.location.reload(); // Reload to clear states
@@ -866,7 +872,7 @@
                                     style={{ color: '#ff7d8c', borderTop: '1px solid var(--line)' }}
                                 >
                                     <LogOut size={14} />
-                                    <span className="flex-1">登出</span>
+                                    <span className="flex-1">{window.__DEMO__ ? '離開展示' : '登出'}</span>
                                 </button>
                             </div>
                         )}
