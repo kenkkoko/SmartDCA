@@ -495,17 +495,19 @@
         const SUPABASE_URL = LOCAL_CFG?.SUPABASE_URL || '__SUPABASE_URL_PLACEHOLDER__';
         const SUPABASE_ANON_KEY = LOCAL_CFG?.SUPABASE_ANON_KEY || '__SUPABASE_ANON_KEY_PLACEHOLDER__';
         const FORUM_ENABLED = LOCAL_CFG?.FORUM_ENABLED ?? true;
-        const supabase = (typeof window.supabase !== 'undefined' && !SUPABASE_URL.includes('PLACEHOLDER'))
-            ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-            : null;
-
-        // --- Demo 展示模式(履歷用連結 ?demo=kai2026)---
-        // 自動登入唯讀展示帳號(Premium),讓訪客免註冊即可體驗完整付費功能
-        // (含需伺服器端驗證會員身分的 AI 摘要與加密行情)。
-        // 唯讀:攔截所有資料表寫入與圖片上傳,UI 照常更新但不寫進資料庫,
-        // 避免訪客操作污染展示帳號 / 正式論壇。
+        // --- Demo 展示模式偵測(作品集 / 履歷用連結 ?demo=kai2026)---
+        // 只有從這個特殊連結進來才啟用 demo;正式網址(無此參數)完全不受影響、不顯示任何 demo 元素。
         const DEMO = new URLSearchParams(location.search).get('demo') === 'kai2026';
         window.__DEMO__ = DEMO;
+        const supabase = (typeof window.supabase !== 'undefined' && !SUPABASE_URL.includes('PLACEHOLDER'))
+            // demo 模式用「純記憶體 session」(persistSession:false):展示帳號的登入完全不寫進
+            // localStorage,因此不污染正式站的登入狀態 —— 離開 demo、改用正式網址時仍是使用者自己的帳號。
+            ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
+                DEMO ? { auth: { persistSession: false, autoRefreshToken: true } } : undefined)
+            : null;
+
+        // --- Demo 展示模式:自動登入唯讀展示帳號(Premium),讓訪客免註冊即可體驗完整付費功能
+        //     (含需伺服器端驗證會員身分的 AI 摘要與加密行情);唯讀攔截避免訪客操作污染資料。---
         if (DEMO && supabase) {
             const DEMO_EMAIL = 'test416@gmail.com';
             const DEMO_PASSWORD = 'test4166';
@@ -530,19 +532,13 @@
                     return so;
                 };
             }
-            // 自動登入展示帳號(取得真實 Premium session 才能通過 edge function 驗證)
-            // 強健寫法:不依賴 getSession 成功;若已是展示帳號則略過,否則清掉可能殘留的
-            // 過期 token 後再登入(避免訪客瀏覽器留有舊 token 導致 refresh 失敗、卡住不登入)。
+            // 自動登入展示帳號:persistSession:false 已確保是乾淨的記憶體 session
+            // (不會撿到訪客 localStorage 裡的舊 token),所以直接登入即可,不需處理殘留。
             (async () => {
-                let session = null;
-                try { session = (await supabase.auth.getSession()).data.session; } catch (_) {}
-                if (session && session.user && session.user.email === DEMO_EMAIL) return; // 已登入展示帳號
-                const login = () => supabase.auth.signInWithPassword({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
                 try {
-                    if (session) { try { await supabase.auth.signOut(); } catch (_) {} } // 清掉非展示帳號 / 殘留 session
-                    let { error } = await login();
-                    if (error) { try { await supabase.auth.signOut(); } catch (_) {} await login(); } // 殘留壞 token 干擾 → 清掉重試
-                } catch (e) { console.warn('[demo] auto-login failed:', e && e.message); }
+                    const { error } = await supabase.auth.signInWithPassword({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
+                    if (error) console.warn('[demo] auto-login failed:', error.message);
+                } catch (e) { console.warn('[demo] auto-login error:', e && e.message); }
             })();
             // 展示橫幅
             const _showDemoTag = () => {
