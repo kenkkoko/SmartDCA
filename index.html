@@ -35,7 +35,10 @@
 
         <!-- 引入 Babel 用於解析 JSX -->
        
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Pin to Babel 7: Babel 8 defaults preset-react to the automatic JSX runtime,
+         which emits `import ... from "react/jsx-runtime"`. That import is illegal in a
+         classic <script type="text/babel"> and blanks the whole app. -->
+    <script src="https://unpkg.com/@babel/standalone@7.27.6/babel.min.js"></script>
 
         <!-- 引入 Chart.js (確保使用 UMD 版本) -->
        
