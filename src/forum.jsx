@@ -1,3 +1,4 @@
+import React from 'react';
 // =========================================================
 // SmartDCA Forum — 技術分析論壇 (Visual Refresh)
 // 透過 <script type="text/babel" src="forum.js"> 載入

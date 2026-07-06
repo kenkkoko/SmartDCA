@@ -1,0 +1,7104 @@
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { createClient } from '@supabase/supabase-js';
+
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // ─────────────────────────────────────────────
+        // Register Service Worker on page load (required for PWA install)
+        // ─────────────────────────────────────────────
+        if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('[SW] registered:', reg.scope))
+                    .catch(err => console.warn('[SW] registration failed:', err));
+            });
+        }
+
+
+        // ─────────────────────────────────────────────
+        // Chart.js palette + global defaults (NEW visual system)
+        // ─────────────────────────────────────────────
+        const CHART = {
+            line:       '#3b82f6',
+            fillTop:    'rgba(59, 130, 246, 0.28)',
+            fillBot:    'rgba(59, 130, 246, 0)',
+            brand1:     '#3b82f6',
+            brand2:     '#8b5cf6',
+            up:         '#00d68f',
+            down:       '#ff5b6e',
+            fear:       '#ff5b6e',
+            fearLight:  '#f59e0b',
+            grid:       'rgba(255,255,255,0.04)',
+            tick:       '#6b7080',
+            text:       '#b8bcc8',
+            tooltipBg:  'rgba(7,8,12,0.92)',
+            border:     'rgba(255,255,255,0.06)',
+        };
+        const makePriceGradient = (context) => {
+            const ctx = context.chart.ctx;
+            const g = ctx.createLinearGradient(0, 0, 0, 400);
+            g.addColorStop(0, CHART.fillTop);
+            g.addColorStop(1, CHART.fillBot);
+            return g;
+        };
+        if (typeof window.Chart !== 'undefined') {
+            const C = window.Chart;
+            C.defaults.color = CHART.tick;
+            C.defaults.borderColor = CHART.grid;
+            C.defaults.font.family = "'Manrope', ui-sans-serif, system-ui, -apple-system, sans-serif";
+            C.defaults.font.size = 11;
+            C.defaults.font.weight = '500';
+            C.defaults.plugins.tooltip.backgroundColor = CHART.tooltipBg;
+            C.defaults.plugins.tooltip.titleColor = '#ffffff';
+            C.defaults.plugins.tooltip.bodyColor = CHART.text;
+            C.defaults.plugins.tooltip.borderColor = 'rgba(255,255,255,0.08)';
+            C.defaults.plugins.tooltip.borderWidth = 1;
+            C.defaults.plugins.tooltip.padding = 12;
+            C.defaults.plugins.tooltip.cornerRadius = 12;
+            C.defaults.plugins.tooltip.displayColors = false;
+            C.defaults.plugins.tooltip.titleFont = { family: "'Manrope', sans-serif", size: 12, weight: '700' };
+            C.defaults.plugins.tooltip.bodyFont = { family: "'JetBrains Mono', ui-monospace, monospace", size: 11 };
+            C.defaults.plugins.title.color = CHART.text;
+            C.defaults.plugins.title.font = { family: "'Manrope', sans-serif", size: 12, weight: '600' };
+            C.defaults.plugins.title.padding = { bottom: 12 };
+            C.defaults.plugins.legend.labels.color = CHART.text;
+            C.defaults.elements.line.tension = 0.4;
+            C.defaults.elements.line.borderWidth = 2;
+            C.defaults.elements.point.hoverRadius = 5;
+            C.defaults.elements.point.hoverBorderWidth = 2;
+            C.defaults.elements.point.hoverBackgroundColor = '#ffffff';
+        }
+
+
+        // --- Supabase Configuration ---
+        // Local dev: reads from local-config.js (gitignored).
+        // Production: placeholders are sed-replaced by GitHub Actions.
+        const LOCAL_CFG = window.__LOCAL_CONFIG__ || null;
+        const SUPABASE_URL = LOCAL_CFG?.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL || '__SUPABASE_URL_PLACEHOLDER__';
+        const SUPABASE_ANON_KEY = LOCAL_CFG?.SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || '__SUPABASE_ANON_KEY_PLACEHOLDER__';
+        const FORUM_ENABLED = LOCAL_CFG?.FORUM_ENABLED ?? true;
+        // --- Demo 展示模式偵測(作品集 / 履歷用連結 ?demo=kai2026)---
+        // 只有從這個特殊連結進來才啟用 demo;正式網址(無此參數)完全不受影響、不顯示任何 demo 元素。
+        const DEMO = new URLSearchParams(location.search).get('demo') === 'kai2026';
+        window.__DEMO__ = DEMO;
+        const supabase = (!SUPABASE_URL.includes('PLACEHOLDER'))
+            // demo 模式用「純記憶體 session」(persistSession:false):展示帳號的登入完全不寫進
+            // localStorage,因此不污染正式站的登入狀態 —— 離開 demo、改用正式網址時仍是使用者自己的帳號。
+            ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
+                DEMO ? { auth: { persistSession: false, autoRefreshToken: true } } : undefined)
+            : null;
+
+        // --- Demo 展示模式:自動登入唯讀展示帳號(Premium),讓訪客免註冊即可體驗完整付費功能
+        //     (含需伺服器端驗證會員身分的 AI 摘要與加密行情);唯讀攔截避免訪客操作污染資料。---
+        if (DEMO && supabase) {
+            const DEMO_EMAIL = 'test416@gmail.com';
+            const DEMO_PASSWORD = 'test4166';
+            // 唯讀:攔截資料表寫入(select 等讀取不受影響)
+            const fakeRes = () => {
+                const p = Promise.resolve({ data: [], error: null });
+                ['select','eq','neq','gt','gte','lt','lte','like','ilike','is','in','contains','order','limit','range','match','single','maybeSingle'].forEach(m => { p[m] = () => p; });
+                return p;
+            };
+            const _from = supabase.from.bind(supabase);
+            supabase.from = (t) => {
+                const qb = _from(t);
+                ['insert','update','upsert','delete'].forEach(m => { qb[m] = fakeRes; });
+                return qb;
+            };
+            if (supabase.storage) {
+                const _sf = supabase.storage.from.bind(supabase.storage);
+                supabase.storage.from = (b) => {
+                    const so = _sf(b);
+                    so.upload = async () => ({ data: null, error: { message: 'Demo 展示模式為唯讀,無法上傳。' } });
+                    so.remove = async () => ({ data: null, error: null });
+                    return so;
+                };
+            }
+            // 自動登入展示帳號:persistSession:false 已確保是乾淨的記憶體 session
+            // (不會撿到訪客 localStorage 裡的舊 token),所以直接登入即可,不需處理殘留。
+            (async () => {
+                try {
+                    const { error } = await supabase.auth.signInWithPassword({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
+                    if (error) console.warn('[demo] auto-login failed:', error.message);
+                } catch (e) { console.warn('[demo] auto-login error:', e && e.message); }
+            })();
+            // 展示橫幅
+            const _showDemoTag = () => {
+                if (!document.body) { setTimeout(_showDemoTag, 50); return; }
+                const tag = document.createElement('div');
+                tag.textContent = '👀 展示模式 Demo · 已解鎖所有 Premium 功能(唯讀)';
+                tag.style.cssText = 'position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);z-index:99999;background:rgba(20,20,24,.88);color:#fff;font-size:12px;font-weight:500;padding:7px 16px;border-radius:999px;border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.4);pointer-events:none;white-space:nowrap';
+                document.body.appendChild(tag);
+            };
+            _showDemoTag();
+        }
+
+        // --- 內建 Icons (取代外部 lucide-react 依賴) ---
+        const IconBase = ({ children, size = 24, className = "" }) => (
+            <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width={size}
+                height={size}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={className}
+            >
+                {children}
+            </svg>
+        );
+
+        const Icons = {
+            Bell: (props) => (
+                <IconBase {...props}>
+                    <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+                    <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+                </IconBase>
+            ),
+            TrendingUp: (props) => (
+                <IconBase {...props}>
+                    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+                    <polyline points="17 6 23 6 23 12" />
+                </IconBase>
+            ),
+            AlertTriangle: (props) => (
+                <IconBase {...props}>
+                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                </IconBase>
+            ),
+            Info: (props) => (
+                <IconBase {...props}>
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="16" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                </IconBase>
+            ),
+            RefreshCw: (props) => (
+                <IconBase {...props}>
+                    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                    <path d="M21 3v5h-5" />
+                    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                    <path d="M8 16H3v5" />
+                </IconBase>
+            ),
+            Smartphone: (props) => (
+                <IconBase {...props}>
+                    <rect width="14" height="20" x="5" y="2" rx="2" ry="2" />
+                    <path d="M12 18h.01" />
+                </IconBase>
+            ),
+            ArrowUp: (props) => (
+                <IconBase {...props}>
+                    <line x1="12" y1="19" x2="12" y2="5" />
+                    <polyline points="5 12 12 5 19 12" />
+                </IconBase>
+            ),
+            ArrowDown: (props) => (
+                <IconBase {...props}>
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <polyline points="19 12 12 19 5 12" />
+                </IconBase>
+            ),
+            Newspaper: (props) => (
+                <IconBase {...props}>
+                    <path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2" />
+                    <path d="M18 14h-8" />
+                    <path d="M15 18h-5" />
+                    <path d="M10 6h8v4h-8V6Z" />
+                </IconBase>
+            ),
+            Sparkles: (props) => (
+                <IconBase {...props}>
+                    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+                </IconBase>
+            ),
+            ExternalLink: (props) => (
+                <IconBase {...props}>
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                </IconBase>
+            ),
+            Bot: (props) => (
+                <IconBase {...props}>
+                    <path d="M12 8V4H8" />
+                    <rect width="16" height="12" x="4" y="8" rx="2" />
+                    <path d="M2 14h2" />
+                    <path d="M20 14h2" />
+                    <path d="M15 13v2" />
+                    <path d="M9 13v2" />
+                </IconBase>
+            ),
+            Globe: (props) => (
+                <IconBase {...props}>
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="2" y1="12" x2="22" y2="12" />
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                </IconBase>
+            ),
+            Activity: (props) => (
+                <IconBase {...props}>
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                </IconBase>
+            ),
+            BellRing: (props) => (
+                <IconBase {...props}>
+                    <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+                    <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+                    <path d="M4 2C2.8 3.7 2 5.7 2 8" />
+                    <path d="M22 8c0-2.3-.8-4.3-2-6" />
+                </IconBase>
+            ),
+            BellOff: (props) => (
+                <IconBase {...props}>
+                    <path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5" />
+                    <path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7" />
+                    <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+                    <path d="M2 2l20 20" />
+                </IconBase>
+            ),
+            LogOut: (props) => (
+                <IconBase {...props}>
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                </IconBase>
+            ),
+            User: (props) => (
+                <IconBase {...props}>
+                    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                </IconBase>
+            ),
+            Lock: (props) => (
+                <IconBase {...props}>
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </IconBase>
+            )
+        };
+
+        const { Bell, TrendingUp, AlertTriangle, Info, RefreshCw, Smartphone, ArrowUp, ArrowDown, Newspaper, Sparkles, ExternalLink, Bot, Globe, Activity, BellRing, BellOff, LogOut, User, Lock } = Icons;
+
+        // --- Auth Component ---
+        const AuthComponent = ({ user, setUser, isPremium, onOpenSettings, userProfile }) => {
+            const [localLoading, setLocalLoading] = useState(false);
+            const [showLoginModal, setShowLoginModal] = useState(false);
+            const [showMenu, setShowMenu] = useState(false);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [isSignUp, setIsSignUp] = useState(false);
+            const [confirmPassword, setConfirmPassword] = useState('');
+            const [msg, setMsg] = useState(null);
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                if (!supabase) {
+                    alert("請先設定 Supabase URL 和 Key!");
+                    return;
+                }
+                if (isSignUp && password !== confirmPassword) {
+                    setMsg('密碼不一致，請重新確認。');
+                    return;
+                }
+                setLocalLoading(true);
+                setMsg(null);
+                try {
+                    const { data, error } = isSignUp
+                        ? await supabase.auth.signUp({ email, password })
+                        : await supabase.auth.signInWithPassword({ email, password });
+
+                    if (error) throw error;
+
+                    if (isSignUp && !data.session) {
+                        setMsg("註冊成功！請檢查信箱驗證信。");
+                    } else if (data.session) {
+                        setUser(data.user);
+                        setShowLoginModal(false);
+                    }
+                } catch (error) {
+                    setMsg(error.message);
+                } finally {
+                    setLocalLoading(false);
+                }
+            };
+
+            const handleGoogleLogin = async () => {
+                if (!supabase) return;
+                try {
+                    const { data, error } = await supabase.auth.signInWithOAuth({
+                        provider: 'google',
+                        options: {
+                            redirectTo: window.location.href.split('#')[0] // Ensure we redirect to the clean URL
+                        }
+                    });
+                    if (error) throw error;
+                } catch (error) {
+                    setMsg(error.message);
+                }
+            };
+
+            const handleLogout = async () => {
+                if (!supabase) return;
+                if (window.__DEMO__) {
+                    // 展示模式:「離開展示」→ 導回正式站(去掉 ?demo 參數)。
+                    // 展示帳號是 persistSession:false 的記憶體 session,離開即消失、不殘留。
+                    window.location.href = window.location.origin + window.location.pathname;
+                    return;
+                }
+                await supabase.auth.signOut();
+                setUser(null);
+                window.location.reload(); // Reload to clear states
+            };
+
+            if (user) {
+                const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture;
+                const initial = (user.email || 'U').charAt(0).toUpperCase();
+                const displayName = (userProfile && userProfile.display_name) ? userProfile.display_name : user.email.split('@')[0];
+                return (
+                    <div className="relative">
+                        <button
+                            onClick={() => setShowMenu(v => !v)}
+                            className="glass rounded-full pl-1 pr-2 py-1 flex items-center gap-2 hover:bg-white/[0.08] transition-colors cursor-pointer"
+                            title="開啟選單"
+                        >
+                            {avatarUrl ? (
+                                <img src={avatarUrl} alt="User Avatar" className="w-7 h-7 rounded-full ring-soft" />
+                            ) : (
+                                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold pill-grad" style={{ color: 'var(--brand-ink)' }}>{initial}</div>
+                            )}
+                            <span className="text-xs font-semibold hidden md:block" style={{ color: 'var(--text-2)' }}>{displayName}</span>
+                            {/* PRO badge inside pill */}
+                            {isPremium && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md ml-1" style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff' }}>
+                                    PRO
+                                </span>
+                            )}
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-3)' }}>
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                        </button>
+
+                        {/* Backdrop to catch outside clicks */}
+                        {showMenu && (
+                            <div onClick={() => setShowMenu(false)} className="fixed inset-0 z-[90]"></div>
+                        )}
+
+                        {/* Dropdown menu */}
+                        {showMenu && (
+                            <div className="absolute right-0 mt-2 w-56 glass-strong rounded-2xl shadow-2xl overflow-hidden z-[95] animate-in fade-in zoom-in-95">
+                                {/* User info header */}
+                                <div className="p-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--line)', background: 'rgba(255,255,255,0.02)' }}>
+                                    {avatarUrl ? (
+                                        <img src={avatarUrl} alt="" className="w-9 h-9 rounded-full ring-soft" />
+                                    ) : (
+                                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold pill-grad" style={{ color: 'var(--brand-ink)' }}>{initial}</div>
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-bold text-white truncate">{displayName}</p>
+                                        <p className="text-[10px] mono truncate" style={{ color: 'var(--text-3)' }}>{user.email}</p>
+                                    </div>
+                                </div>
+
+                                {/* Subscription action */}
+                                {!isPremium && (
+                                    <button
+                                        onClick={() => {
+                                            setShowMenu(false);
+                                            const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
+                                            window.open(checkoutUrl, '_blank');
+                                        }}
+                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-white/[0.05]"
+                                        style={{ color: 'var(--text)' }}
+                                    >
+                                        <Sparkles size={14} style={{ color: '#fbbf24' }} />
+                                        <span className="flex-1">升級 Pro</span>
+                                        <span className="text-[10px] mono px-1.5 py-0.5 rounded" style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff' }}>VIP</span>
+                                    </button>
+                                )}
+                                {isPremium && (
+                                    <button
+                                        onClick={() => { setShowMenu(false); window.open(LEMON_PORTAL_URL, '_blank'); }}
+                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-white/[0.05]"
+                                        style={{ color: 'var(--text)' }}
+                                    >
+                                        <Sparkles size={14} style={{ color: '#fbbf24' }} />
+                                        <span className="flex-1">管理訂閱</span>
+                                    </button>
+                                )}
+
+                                {/* Settings */}
+                                {onOpenSettings && (
+                                    <button
+                                        onClick={() => { setShowMenu(false); onOpenSettings(); }}
+                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-white/[0.05]"
+                                        style={{ color: 'var(--text)' }}
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <circle cx="12" cy="12" r="3"></circle>
+                                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                                        </svg>
+                                        <span className="flex-1">設定</span>
+                                    </button>
+                                )}
+
+                                {/* Logout */}
+                                <button
+                                    onClick={() => { setShowMenu(false); handleLogout(); }}
+                                    className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-red-500/10"
+                                    style={{ color: '#ff7d8c', borderTop: '1px solid var(--line)' }}
+                                >
+                                    <LogOut size={14} />
+                                    <span className="flex-1">{window.__DEMO__ ? '離開展示' : '登出'}</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                );
+            }
+
+            return (
+                <>
+                    <button
+                        onClick={() => setShowLoginModal(true)}
+                        className="flex items-center gap-2 px-4 py-2 pill-grad text-white rounded-full text-xs font-bold transition-all glow-brand"
+                    >
+                        <User size={14} /> 登入
+                    </button>
+
+                    {showLoginModal && (
+                        <div className="fixed inset-0 flex items-center justify-center z-[100] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
+                            <div className="glass-strong p-7 rounded-3xl shadow-2xl max-w-sm w-full relative">
+                                <button
+                                    onClick={() => setShowLoginModal(false)}
+                                    className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                                    style={{ color: 'var(--text-3)' }}
+                                >
+                                    ✕
+                                </button>
+
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="relative w-10 h-10 rounded-xl overflow-hidden ring-soft" style={{ background: '#0a0c12' }}>
+                                        <div className="absolute -inset-2 rounded-full opacity-40 blur-lg pill-grad"></div>
+                                        <img src="./app-icon.png" alt="" className="relative w-full h-full object-cover" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-extrabold text-white tracking-tight">
+                                            {isSignUp ? '建立帳號' : '歡迎回來'}
+                                        </h3>
+                                        <p className="label mt-0.5">Smart DCA</p>
+                                    </div>
+                                </div>
+
+                                <form onSubmit={handleLogin} className="space-y-3">
+                                    <div>
+                                        <label className="label block mb-1.5">Email</label>
+                                        <input
+                                            type="email"
+                                            required
+                                            value={email}
+                                            onChange={e => setEmail(e.target.value)}
+                                            className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+                                            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}
+                                            onFocus={e => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+                                            onBlur={e => e.target.style.borderColor = 'var(--line)'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="label block mb-1.5">Password</label>
+                                        <input
+                                            type="password"
+                                            required
+                                            minLength={6}
+                                            value={password}
+                                            onChange={e => setPassword(e.target.value)}
+                                            className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+                                            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}
+                                            onFocus={e => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+                                            onBlur={e => e.target.style.borderColor = 'var(--line)'}
+                                        />
+                                    </div>
+                                    {isSignUp && (
+                                        <div>
+                                            <label className="label block mb-1.5">Confirm Password</label>
+                                            <input
+                                                type="password"
+                                                required
+                                                minLength={6}
+                                                value={confirmPassword}
+                                                onChange={e => setConfirmPassword(e.target.value)}
+                                                className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+                                                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}
+                                                onFocus={e => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+                                                onBlur={e => e.target.style.borderColor = 'var(--line)'}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {msg && (
+                                        <div className="text-xs text-center px-3 py-2 rounded-lg" style={{ background: 'rgba(255,91,110,0.08)', color: '#ff7d8c', border: '1px solid rgba(255,91,110,0.2)' }}>
+                                            {msg}
+                                        </div>
+                                    )}
+
+                                    <button
+                                        type="submit"
+                                        disabled={localLoading}
+                                        className="w-full py-2.5 pill-grad text-white rounded-xl text-sm font-bold transition-all glow-brand disabled:opacity-50"
+                                    >
+                                        {localLoading ? '處理中...' : (isSignUp ? '註冊' : '登入')}
+                                    </button>
+                                </form>
+
+                                <div className="my-4 flex items-center gap-3">
+                                    <div className="h-px flex-1" style={{ background: 'var(--line)' }}></div>
+                                    <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>OR</span>
+                                    <div className="h-px flex-1" style={{ background: 'var(--line)' }}></div>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={handleGoogleLogin}
+                                    className="w-full py-2.5 bg-white text-slate-900 rounded-xl text-sm font-bold hover:bg-slate-100 transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <svg className="w-4 h-4" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" /><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" /><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" /><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" /></svg>
+                                    使用 Google 繼續
+                                </button>
+
+                                <div className="mt-5 text-center">
+                                    <button
+                                        onClick={() => { setIsSignUp(!isSignUp); setMsg(null); setConfirmPassword(''); }}
+                                        className="text-xs underline transition-colors"
+                                        style={{ color: 'var(--text-3)' }}
+                                    >
+                                        {isSignUp ? '已有帳號？登入' : '沒有帳號？立即註冊'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </>
+            );
+        };
+
+        // --- 恐懼貪婪指數儀表板元件 ---
+        console.log("SmartDCA Version: 1.1 (Debug Mode)");
+
+        // API Key Placeholder for GitHub Actions Injection
+        // API Key Placeholder for GitHub Actions Injection
+        // Helper: Format Price (8 decimals for < 1, 2 for >= 1)
+        const formatPrice = (price) => {
+            if (price === null || price === undefined) return 'N/A';
+            if (price < 1) return price.toLocaleString(undefined, { maximumFractionDigits: 8 });
+            return price.toLocaleString(undefined, { maximumFractionDigits: 2 });
+        };
+
+        // --- Gemini API Helper (via Supabase Edge Function) ---
+        const fetchGeminiAdvice = async (prompt) => {
+            if (!supabase || SUPABASE_URL.includes('PLACEHOLDER')) {
+                return 'WARNING: AI not available (Supabase not configured)';
+            }
+            try {
+                const sessionRes = await supabase.auth.getSession();
+                const token = (sessionRes.data && sessionRes.data.session && sessionRes.data.session.access_token) || SUPABASE_ANON_KEY;
+                const hdrs = { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + token };
+                const userKey = (typeof window !== 'undefined' && window.__USER_GEMINI_KEY) || undefined;
+                const res = await fetch(SUPABASE_URL + '/functions/v1/gemini-proxy', {
+                    method: 'POST',
+                    headers: hdrs,
+                    body: JSON.stringify({ prompt, apiKey: userKey })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Proxy error');
+                return data.candidates[0].content.parts[0].text;
+            } catch (err) {
+                console.error('Gemini Proxy Error:', err);
+                return 'WARNING: AI request failed, please try again.';
+            }
+                };
+
+        // --- AI Advice Component ---
+        const AIAdviceBlock = ({ marketData, assetName, priceStats, isLocked }) => {
+            const [advice, setAdvice] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [started, setStarted] = useState(false);
+
+            const handleAnalyze = () => {
+                if (!marketData) return;
+                setStarted(true);
+                setLoading(true);
+                const priceInfo = priceStats ? `
+                資產數據:
+                - 當前價格: $${formatPrice(priceStats.current)}
+                - 近一年最高: $${formatPrice(priceStats.high)}
+                - 近一年最低: $${formatPrice(priceStats.low)}
+                ` : '';
+
+                const prompt = `
+                你是一位專業的投資顧問。根據以下 ${assetName} 的市場數據，提供一個簡短的 DCA (平均成本法) 操作建議 (50字以內)。
+                **核心任務：**
+                1. 分析當前的 FNG/RSI 數值所代表的市場情緒強度。
+                2. 根據情緒強度，結合資產名稱和當前價格，**相較於最近一年的價格波動 (參考最高/最低價)**，判斷現在的價格是否具有吸引力？並分析歷史高點與當前價格相差幾%。
+                3. 根據以下行動邏輯，生成一段富有洞察力和鼓勵性的建議。
+                **行動邏輯：**
+                - 極度恐懼 (<= 25): 立即建議「強力分批買入」或「執行最大額度投入」。
+                - 恐懼 (26 - 44): 建議「小額分批買入」，鼓勵保持紀律。
+                - 中立 (45 - 55): 建議「維持觀望，不買也不賣」。
+                - 貪婪 (56 - 74) 極度貪婪 (>= 75):: 建議「停止買入，開始小額分批賣出 (止盈)」。
+
+                市場數據:
+                ${marketData}
+                ${priceInfo}
+
+                建議風格: 理性、穩健、鼓勵分批進場。請用繁體中文回答。
+                `;
+                fetchGeminiAdvice(prompt).then(text => {
+                    setAdvice(text);
+                    setLoading(false);
+                });
+            };
+
+            if (!started) return (
+                <div className="mt-4">
+                    <button
+                        onClick={isLocked ? () => { } : handleAnalyze}
+                        disabled={isLocked}
+                        className={`w-full relative overflow-hidden rounded-2xl p-4 flex items-center justify-between transition-all ${
+                            isLocked ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.01] glow-brand'
+                        }`}
+                        style={{
+                            background: isLocked
+                                ? 'rgba(255,255,255,0.03)'
+                                : 'linear-gradient(135deg, #1a1730 0%, #1a2540 50%, #2b1b3a 100%)',
+                            border: isLocked ? '1px solid var(--line)' : '1px solid rgba(139,92,246,0.4)'
+                        }}
+                    >
+                        <div className="absolute inset-0 dotgrid opacity-40 pointer-events-none"></div>
+                        <div className="relative flex items-center gap-3 min-w-0">
+                            <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: isLocked ? 'rgba(255,255,255,0.06)' : 'linear-gradient(135deg,#3b82f6,#8b5cf6)' }}>
+                                {isLocked ? <Lock size={20} className="text-slate-400" /> : <Bot size={22} className="text-white" />}
+                            </div>
+                            <div className="text-left min-w-0">
+                                <div className="text-sm font-bold text-white flex items-center gap-2">
+                                    AI 投資顧問
+                                    {isLocked
+                                        ? <span className="chip chip-warn">PRO</span>
+                                        : <span className="chip" style={{ background: 'rgba(139,92,246,0.18)', color: '#c4b5fd' }}>GEMINI</span>
+                                    }
+                                </div>
+                                <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-2)' }}>
+                                    {isLocked ? '升級 Pro 解鎖 Gemini 深度分析' : '根據情緒指數 + 價格走勢產出個人化建議'}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="relative shrink-0 ml-3">
+                            {isLocked
+                                ? <span className="text-xs font-bold px-3 py-1.5 rounded-full" style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff' }}>升級</span>
+                                : <span className="text-xs font-bold px-3 py-1.5 rounded-full pill-grad text-white">分析 →</span>
+                            }
+                        </div>
+                    </button>
+                </div>
+            );
+
+            if (loading) return (
+                <div className="mt-4 p-4 rounded-2xl flex items-center gap-3 text-sm" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.2)', color: 'var(--text-2)' }}>
+                    <RefreshCw className="animate-spin" size={16} style={{ color: '#a78bfa' }} />
+                    <span>AI 正在分析市場數據...</span>
+                    <span className="flex gap-1 ml-auto">
+                        <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#a78bfa' }}></span>
+                        <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#a78bfa', animationDelay: '0.2s' }}></span>
+                        <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#a78bfa', animationDelay: '0.4s' }}></span>
+                    </span>
+                </div>
+            );
+
+            if (!advice) return null;
+
+            return (
+                <div className="mt-4 rounded-2xl relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #14141c 0%, #1a1730 100%)', border: '1px solid rgba(139,92,246,0.3)' }}>
+                    <div className="absolute inset-0 dotgrid opacity-30 pointer-events-none"></div>
+                    <div className="absolute top-0 left-0 w-1 h-full pill-grad"></div>
+                    <div className="relative p-5">
+                        <div className="flex justify-between items-start mb-3">
+                            <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-lg flex items-center justify-center pill-grad">
+                                    <Bot size={14} className="text-white" />
+                                </div>
+                                <h4 className="font-bold text-white text-sm">AI 投資顧問建議</h4>
+                                <span className="chip" style={{ background: 'rgba(139,92,246,0.18)', color: '#c4b5fd' }}>GEMINI</span>
+                            </div>
+                            <button onClick={() => { setAdvice(null); setStarted(false); }} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors" style={{ color: 'var(--text-3)' }}>
+                                <RefreshCw size={14} />
+                            </button>
+                        </div>
+
+                        {priceStats && (
+                            <div className="grid grid-cols-3 gap-2 mb-4 pb-4 border-b" style={{ borderColor: 'var(--line)' }}>
+                                <div>
+                                    <div className="label mb-1">當前</div>
+                                    <div className="text-sm font-bold text-white num">${formatPrice(priceStats.current)}</div>
+                                </div>
+                                <div>
+                                    <div className="label mb-1">1Y 高</div>
+                                    <div className="text-sm font-bold num" style={{ color: '#3ce0a8' }}>${formatPrice(priceStats.high)}</div>
+                                </div>
+                                <div>
+                                    <div className="label mb-1">1Y 低</div>
+                                    <div className="text-sm font-bold num" style={{ color: '#ff7d8c' }}>${formatPrice(priceStats.low)}</div>
+                                </div>
+                            </div>
+                        )}
+
+                        <p className="text-sm leading-relaxed" style={{ color: 'var(--text-2)' }}>
+                            {advice}
+                        </p>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- AI News Analysis Component ---
+        const NewsAIAnalysis = ({ newsItems, isLocked }) => {
+            const [summary, setSummary] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [started, setStarted] = useState(false);
+
+            const handleAnalyze = () => {
+                if (!newsItems || newsItems.length === 0) return;
+                setStarted(true);
+                setLoading(true);
+                const titles = newsItems.map(n => n.title).join("\n");
+                const prompt = `
+                 請閱讀以下今日財經新聞標題，並總結成一段 50 字以內的「今日市場重點」。
+
+                 **核心任務：**
+                 1. 總結**至少兩到三個**不同的市場主題 (如：宏觀經濟影響、新技術發展、主要資產價格)。
+                 2. 避免將單一資產的價格突破作為唯一的總結重點。
+
+                 新聞標題:
+                 ${titles}
+
+                 請用繁體中文回答，語氣專業客觀。
+                 `;
+                fetchGeminiAdvice(prompt).then(text => {
+                    setSummary(text);
+                    setLoading(false);
+                });
+            };
+
+            if (!started) return (
+                <div className="mb-6 text-center">
+                    <button
+                        onClick={handleAnalyze}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold flex items-center gap-2 mx-auto transition-all shadow-lg shadow-blue-500/20"
+                    >
+                        <Newspaper size={16} />
+                        AI 分析今日新聞重點
+                    </button>
+                </div>
+            );
+
+            if (isLocked) return (
+                <div className="mb-6 text-center">
+                    <button
+                        disabled
+                        className="px-4 py-2 bg-slate-700 text-slate-400 rounded-lg text-sm font-bold flex items-center gap-2 mx-auto transition-all shadow-lg border border-slate-600 cursor-not-allowed"
+                    >
+                        <Lock size={16} />
+                        AI 分析今日新聞重點
+                    </button>
+                    <p className="text-xs text-amber-500 mt-2 font-bold">升級 Premium 解鎖 AI 新聞摘要</p>
+                </div>
+            );
+
+            if (loading) return (
+                <div className="mb-6 p-4 bg-slate-800/50 rounded-xl border border-slate-700 animate-pulse flex items-center gap-2 text-slate-400 text-sm">
+                    <RefreshCw className="animate-spin" size={16} />
+                    ✨ AI 正在閱讀今日新聞並生成總結...
+                </div>
+            );
+
+            if (!summary) return null;
+
+            return (
+                <div className="mb-6 p-4 bg-gradient-to-r from-slate-800 to-slate-900 rounded-xl border border-blue-500/30 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                    <div className="flex justify-between items-start mb-2">
+                        <h4 className="text-blue-400 font-bold text-sm flex items-center gap-2">
+                            <span className="text-lg">📰</span> AI 今日新聞重點
+                        </h4>
+                        <button onClick={() => { setSummary(null); setStarted(false); }} className="text-slate-600 hover:text-slate-400"><RefreshCw size={14} /></button>
+                    </div>
+                    <p className="text-slate-300 text-sm leading-relaxed">
+                        {summary}
+                    </p>
+                </div>
+            );
+        };
+
+        const FearGreedGauge = ({ fngValue, classification }) => {
+            // FNG 0..100 → 角度 180..0 (左→右)
+            const v = Math.min(100, Math.max(0, fngValue ?? 50));
+            const angleFromRight = (v / 100) * 180;
+            const indicatorAngleDeg = 180 - angleFromRight;
+
+            const size = 220;
+            const cx = 110;
+            const cy = 130;
+            const r = 88;
+            const strokeWidth = 16;
+
+            const polar = (deg) => {
+                const rad = deg * Math.PI / 180;
+                return { x: cx + r * Math.cos(rad), y: cy - r * Math.sin(rad) };
+            };
+            const pStart = polar(180);
+            const pEnd = polar(0);
+
+            const trackPath = `M ${pStart.x} ${pStart.y} A ${r} ${r} 0 0 1 ${pEnd.x} ${pEnd.y}`;
+            const arcLength = Math.PI * r;
+            const dashOffset = arcLength * (1 - v / 100);
+
+            const indicator = polar(indicatorAngleDeg);
+
+            const zoneColor =
+                v <= 25 ? '#ff5b6e' :
+                v <= 44 ? '#f59e0b' :
+                v <= 55 ? '#facc15' :
+                v <= 74 ? '#84d76a' :
+                          '#00d68f';
+
+            return (
+                <div className="relative w-full max-w-[260px] mx-auto flex flex-col items-center">
+                    <svg viewBox={`0 0 ${size} 160`} className="w-full h-auto">
+                        <defs>
+                            <linearGradient id="fng-grad" x1="0" x2="1" y1="0" y2="0">
+                                <stop offset="0%" stopColor="#ff5b6e" />
+                                <stop offset="30%" stopColor="#f59e0b" />
+                                <stop offset="50%" stopColor="#facc15" />
+                                <stop offset="75%" stopColor="#84d76a" />
+                                <stop offset="100%" stopColor="#00d68f" />
+                            </linearGradient>
+                            <filter id="fng-glow" x="-20%" y="-20%" width="140%" height="140%">
+                                <feGaussianBlur stdDeviation="3" result="b" />
+                                <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                            </filter>
+                        </defs>
+
+                        <path d={trackPath} stroke="rgba(255,255,255,0.06)" strokeWidth={strokeWidth} fill="none" strokeLinecap="round" />
+
+                        <path
+                            d={trackPath}
+                            stroke="url(#fng-grad)"
+                            strokeWidth={strokeWidth}
+                            fill="none"
+                            strokeLinecap="round"
+                            strokeDasharray={arcLength}
+                            strokeDashoffset={dashOffset}
+                            filter="url(#fng-glow)"
+                            style={{ transition: 'stroke-dashoffset 1s cubic-bezier(0.16,1,0.3,1)' }}
+                        />
+
+                        <circle cx={indicator.x} cy={indicator.y} r="9" fill="#fff" style={{ transition: 'all 1s cubic-bezier(0.16,1,0.3,1)' }} />
+                        <circle cx={indicator.x} cy={indicator.y} r="4" fill={zoneColor} style={{ transition: 'all 1s cubic-bezier(0.16,1,0.3,1)' }} />
+                    </svg>
+
+                    <div className="absolute" style={{ top: '52%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
+                        <div className="num font-extrabold leading-none" style={{ fontSize: '44px', color: '#fff' }}>{fngValue ?? '--'}</div>
+                        <div className="text-xs font-bold mt-1" style={{ color: zoneColor }}>{classification ?? ''}</div>
+                    </div>
+
+                    <div className="w-full grid grid-cols-5 gap-1 mt-2 text-[10px] mono" style={{ color: 'var(--text-3)' }}>
+                        <div className="text-center">極度恐懼</div>
+                        <div className="text-center">恐懼</div>
+                        <div className="text-center">中立</div>
+                        <div className="text-center">貪婪</div>
+                        <div className="text-center">極度貪婪</div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 新聞摘要元件 ---
+        const NewsSummary = ({ news }) => {
+            const topNews = news.slice(0, 3);
+            return (
+                <div className="rounded-2xl p-5 mb-4 relative overflow-hidden ring-soft" style={{ background: 'linear-gradient(135deg, #14141c 0%, #181b25 100%)' }}>
+                    <div className="absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none opacity-30" style={{ background: 'radial-gradient(circle, #3b82f6, transparent)' }}></div>
+                    <div className="relative">
+                        <div className="flex items-center gap-2 mb-4">
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center pill-grad">
+                                <Sparkles size={16} className="text-white" />
+                            </div>
+                            <div>
+                                <div className="label">今日重點</div>
+                                <h3 className="text-base font-bold text-white">市場頭條</h3>
+                            </div>
+                        </div>
+                        <div className="space-y-2.5">
+                            {topNews.map((item, index) => (
+                                <a key={index} href={item.link} target="_blank" rel="noopener noreferrer" className="flex gap-3 items-start group p-2 rounded-xl hover:bg-white/[0.03] transition-colors">
+                                    <span className="mono text-xs font-bold w-6 shrink-0" style={{ color: 'var(--text-3)' }}>0{index + 1}</span>
+                                    <span className="text-sm leading-snug line-clamp-2 group-hover:text-white transition-colors" style={{ color: 'var(--text-2)' }}>
+                                        {item.title}
+                                    </span>
+                                </a>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 新聞列表元件 ---
+        const NewsSection = ({ news, loading, error }) => {
+            if (loading) {
+                return (
+                    <div className="flex justify-center items-center py-12">
+                        <RefreshCw className="animate-spin" size={24} style={{ color: 'var(--text-3)' }} />
+                    </div>
+                );
+            }
+            if (error) {
+                return (
+                    <div className="text-center py-8 text-sm" style={{ color: '#ff7d8c' }}>
+                        無法載入新聞: {error}
+                    </div>
+                );
+            }
+
+            const displayNews = news.slice(0, 6);
+
+            return (
+                <div className="rounded-2xl overflow-hidden ring-soft divide-y" style={{ background: 'var(--surface)', borderColor: 'var(--line)' }}>
+                    {displayNews.map((item, index) => (
+                        <a
+                            key={index}
+                            href={item.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="group flex items-stretch hover:bg-white/[0.03] transition-colors"
+                            style={{ borderColor: 'var(--line)' }}
+                        >
+                            <div className="w-1 shrink-0" style={{ background: index === 0 ? 'linear-gradient(180deg,#3b82f6,#8b5cf6)' : 'rgba(255,255,255,0.06)' }}></div>
+                            <div className="p-4 flex flex-col justify-between flex-1 min-w-0">
+                                <h4 className="font-semibold text-sm sm:text-base line-clamp-2 leading-snug text-white group-hover:text-grad transition-colors">
+                                    {item.title}
+                                </h4>
+                                <div className="flex items-center justify-between text-xs mt-2" style={{ color: 'var(--text-3)' }}>
+                                    <span className="mono">{new Date(item.pubDate).toLocaleDateString()}</span>
+                                    <span className="flex items-center gap-1 group-hover:text-white transition-colors">
+                                        閱讀 <ExternalLink size={11} />
+                                    </span>
+                                </div>
+                            </div>
+                            {item.thumbnail && (
+                                <div className="w-24 sm:w-32 shrink-0 relative overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                                    <img
+                                        src={item.thumbnail}
+                                        alt={item.title}
+                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                        onError={(e) => { e.currentTarget.parentElement.style.display = 'none'; }}
+                                    />
+                                </div>
+                            )}
+                        </a>
+                    ))}
+                </div>
+            );
+        };
+
+
+        // --- Crosshair Plugin ---
+        const crosshairPlugin = {
+            id: 'crosshair',
+            afterDatasetsDraw: (chart) => {
+                // Check if tooltip is active
+                if (chart.tooltip?._active?.length) {
+                    const activePoint = chart.tooltip._active[0];
+                    const ctx = chart.ctx;
+                    const x = activePoint.element.x;
+                    const y = activePoint.element.y;
+                    const topY = chart.scales.y.top;
+                    const bottomY = chart.scales.y.bottom;
+                    const leftX = chart.scales.x.left;
+                    const rightX = chart.scales.x.right;
+
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.setLineDash([5, 5]);
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = 'rgba(76, 194, 255, 0.45)';
+
+                    // Vertical Line
+                    ctx.moveTo(x, topY);
+                    ctx.lineTo(x, bottomY);
+
+                    // Horizontal Line
+                    ctx.moveTo(leftX, y);
+                    ctx.lineTo(rightX, y);
+
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        };
+
+        // --- 自定義 Chart 元件 ---
+
+        // ─────────────────────────────────────────────
+        // Dot-grid background plugin (under the line)
+        // ─────────────────────────────────────────────
+        const dotGridPlugin = {
+            id: 'dotGrid',
+            beforeDatasetsDraw: (chart) => {
+                const { ctx, chartArea } = chart;
+                if (!chartArea) return;
+                const { left, top, right, bottom } = chartArea;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(left, top, chartArea.width, chartArea.height);
+                ctx.clip();
+                const step = 10;
+                const dotRadius = 0.7;
+                ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
+                for (let x = left; x <= right; x += step) {
+                    for (let y = top; y <= bottom; y += step) {
+                        ctx.beginPath();
+                        ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+                ctx.restore();
+            }
+        };
+
+        // ─────────────────────────────────────────────
+        // Line glow plugin (neon shadow under the line)
+        // ─────────────────────────────────────────────
+        const lineGlowPlugin = {
+            id: 'lineGlow',
+            beforeDatasetDraw: (chart, args) => {
+                const { ctx } = chart;
+                const dataset = chart.data.datasets[args.index];
+                if (dataset.type && dataset.type !== 'line') return;
+                ctx.save();
+                ctx.shadowColor = 'rgba(59, 130, 246, 0.55)';
+                ctx.shadowBlur = 6;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+            },
+            afterDatasetDraw: (chart) => {
+                chart.ctx.restore();
+            }
+        };
+
+        const ChartComponent = ({ data, options, type = 'line' }) => {
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+
+            useEffect(() => {
+                if (!chartRef.current) return;
+                if (chartInstance.current) {
+                    chartInstance.current.destroy();
+                }
+                const ctx = chartRef.current.getContext('2d');
+                chartInstance.current = new Chart(ctx, {
+                    type: type,
+                    data: data,
+                    options: options,
+                    plugins: [crosshairPlugin, dotGridPlugin, lineGlowPlugin]
+                });
+                return () => {
+                    if (chartInstance.current) {
+                        chartInstance.current.destroy();
+                    }
+                };
+            }, [data, options, type]);
+
+            return <canvas ref={chartRef} />;
+        };
+
+        // --- Sentiment Scarcity Bar Component ---
+        const SentimentScarcityBar = ({ data, title = "過去 365 天買入機會分佈" }) => {
+            if (!data || data.length === 0) return null;
+
+            const total = data.length;
+            const extremeFearCount = data.filter(v => v <= 25).length;
+            const fearCount = data.filter(v => v > 25 && v <= 44).length;
+            const otherCount = total - extremeFearCount - fearCount;
+
+            const extremeFearPercent = (extremeFearCount / total) * 100;
+            const fearPercent = (fearCount / total) * 100;
+            const otherPercent = (otherCount / total) * 100;
+
+            return (
+                <div className="mt-4 mb-1">
+                    <div className="flex justify-between items-end mb-1">
+                        <h4 className="text-xs font-bold text-slate-400">{title}</h4>
+                        <div className="text-[10px] text-slate-500">
+                            <span className="text-red-400 font-bold">{extremeFearCount}天</span> 極度恐懼 •
+                            <span className="text-orange-400 font-bold ml-1">{fearCount}天</span> 恐懼
+                        </div>
+                    </div>
+                    <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden flex relative">
+                        {/* Extreme Fear Segment */}
+                        <div
+                            style={{ width: `${extremeFearPercent}%` }}
+                            className="h-full bg-red-500 hover:bg-red-400 transition-colors relative group"
+                        >
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap border border-slate-700 z-10">
+                                極度恐懼: {extremeFearCount} 天 ({extremeFearPercent.toFixed(1)}%)
+                            </div>
+                        </div>
+                        {/* Fear Segment */}
+                        <div
+                            style={{ width: `${fearPercent}%` }}
+                            className="h-full bg-orange-500 hover:bg-orange-400 transition-colors relative group"
+                        >
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap border border-slate-700 z-10">
+                                恐懼: {fearCount} 天 ({fearPercent.toFixed(1)}%)
+                            </div>
+                        </div>
+                        {/* Other Segment */}
+                        <div
+                            style={{ width: `${otherPercent}%` }}
+                            className="h-full bg-blue-500/30 hover:bg-blue-500/40 transition-colors relative group"
+                        >
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap border border-slate-700 z-10">
+                                其他: {otherCount} 天 ({otherPercent.toFixed(1)}%)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Index Price Card Component (Shared) ---
+        const IndexPriceCard = ({ name, symbol, logo, data, active = false, editMode = false, onClick, currency = '$' }) => {
+            const handleClick = () => { if (!editMode && onClick) onClick(); };
+            return (
+                <div
+                    onClick={handleClick}
+                    className={`${editMode || !onClick ? '' : 'cursor-pointer'} flex flex-col p-2.5 md:p-4 rounded-xl border transition-all h-full ${active ? 'bg-slate-800 border-blue-500 shadow-lg' : 'bg-slate-900/50 border-slate-800'}`}
+                >
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                            {logo
+                                ? <img src={logo} className="w-5 h-5 md:w-6 md:h-6 shrink-0" alt={name} onError={(e) => { e.target.style.display = 'none'; }} />
+                                : <div className="w-5 h-5 md:w-6 md:h-6 shrink-0 rounded-full bg-slate-700 flex items-center justify-center text-[10px] md:text-xs text-slate-300">{name.slice(0, 1)}</div>
+                            }
+                            <span className="font-bold text-white text-sm md:text-base truncate">{name}</span>
+                        </div>
+                    </div>
+                    <div className="text-base md:text-xl font-mono text-white truncate">{data ? `${currency}${formatPrice(data.price)}` : '...'}</div>
+                    {data && <div className={`text-[11px] md:text-xs ${data.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>{data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%</div>}
+                </div>
+            );
+        };
+
+        // --- 股票代號搜尋元件 ---
+        // --- 股票代號搜尋元件 ---
+        const SymbolSearch = ({ symbol, onSearch, placeholder = "輸入代號 (e.g. AAPL)", transformInput = (s) => s.toUpperCase(), isLocked = false }) => {
+            const [input, setInput] = useState(symbol);
+
+            // 當外部 symbol 改變時，更新內部 input
+            useEffect(() => {
+                setInput(symbol);
+            }, [symbol]);
+
+            return (
+                <div className="flex gap-2 mb-4 relative">
+                    <div className="relative flex-1">
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(transformInput(e.target.value))}
+                            onKeyDown={(e) => !isLocked && e.key === 'Enter' && onSearch(input)}
+                            disabled={isLocked}
+                            className={`w-full bg-slate-800 text-white px-4 py-2 rounded-lg border focus:border-blue-500 outline-none font-mono ${isLocked ? 'border-slate-700 opacity-50 cursor-not-allowed' : 'border-slate-700'}`}
+                            placeholder={placeholder}
+                        />
+                        {isLocked && (
+                            <div className="absolute inset-0 flex items-center justify-end pr-4 pointer-events-none">
+                                <Lock size={16} className="text-slate-500" />
+                            </div>
+                        )}
+                    </div>
+                    <button
+                        onClick={() => !isLocked && onSearch(input)}
+                        disabled={isLocked}
+                        className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${isLocked ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
+                    >
+                        {isLocked ? '鎖定' : <><RefreshCw size={16} /> 搜尋</>}
+                    </button>
+
+                    {isLocked && (
+                        <button
+                            onClick={() => {
+                                const emailParam = symbol ? `&checkout[custom][symbol]=${symbol}` : '';
+                                // Note: We need email here. SymbolSearch consumes 'symbol' and 'onSearch'. 
+                                // It receives 'isLocked'. It doesn't receive user email.
+                                // We need to update SymbolSearch props.
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold rounded-lg hover:from-amber-400 hover:to-amber-500 transition-all shadow-lg shadow-amber-900/20 whitespace-nowrap"
+                        >
+                            <Sparkles size={16} /> 升級 Pro
+                        </button>
+                    )}
+                </div>
+            );
+        };
+
+        // --- 時間範圍選擇器 ---
+        const TimeRangeSelector = ({ range, onRangeChange }) => {
+            const ranges = ['1M', '6M', '1Y', 'ALL'];
+            return (
+                <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700">
+                    {ranges.map(r => (
+                        <button
+                            key={r}
+                            onClick={() => onRangeChange(r)}
+                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${range === r
+                                ? 'bg-blue-600 text-white shadow-md'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                                }`}
+                        >
+                            {r}
+                        </button>
+                    ))}
+                </div>
+            );
+        };
+
+
+        // Lemon Squeezy Configuration
+        const LEMON_CHECKOUT_URL = 'https://smartdca.lemonsqueezy.com/buy/931e6d89-3193-4216-8c9b-a2d88c6e4acc';
+        const LEMON_PORTAL_URL = 'https://smartdca.lemonsqueezy.com/billing';
+
+        // ─────────────────────────────────────────────
+        // useEditableCards — manage a user-editable, draggable card list (persisted to localStorage)
+        // Each card is { id, symbol, name }. id is the stable key, symbol is the API ticker, name is what the user sees.
+        // ─────────────────────────────────────────────
+        const useEditableCards = (storageKey, defaults) => {
+            const [cards, setCards] = useState(() => {
+                try {
+                    const raw = localStorage.getItem(storageKey);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                    }
+                } catch {}
+                return defaults;
+            });
+            useEffect(() => {
+                try { localStorage.setItem(storageKey, JSON.stringify(cards)); } catch {}
+            }, [storageKey, cards]);
+
+            const addCard = (card) => setCards(prev => prev.some(c => c.id === card.id) ? prev : [...prev, card]);
+            const removeCard = (id) => setCards(prev => prev.filter(c => c.id !== id));
+            const moveCard = (from, to) => setCards(prev => {
+                if (from === to || from < 0 || to < 0 || from >= prev.length || to >= prev.length) return prev;
+                const next = [...prev];
+                const [it] = next.splice(from, 1);
+                next.splice(to, 0, it);
+                return next;
+            });
+            const resetCards = () => setCards(defaults);
+            return { cards, setCards, addCard, removeCard, moveCard, resetCards };
+        };
+
+        // ─────────────────────────────────────────────
+        // EditableCardGrid — wraps a row of price cards with drag-to-reorder, ✕ remove, and + add buttons.
+        // children is expected to be a flat list of card-shaped React nodes, one per item in `cards`, in the same order.
+        // ─────────────────────────────────────────────
+        const EditableCardGrid = ({ cards, editMode, onToggleEdit, onMove, onRemove, onAdd, onReset, addLabel = '+ 新增', title, children, mobileRow = false }) => {
+            const dragIdx = useRef(null);
+            const [dragOverIdx, setDragOverIdx] = useState(null);
+            const childArr = React.Children.toArray(children);
+
+            return (
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <p className="label">{title}</p>
+                        <div className="flex items-center gap-1.5">
+                            {editMode && onReset && (
+                                <button
+                                    onClick={() => { if (confirm('還原為預設清單？')) onReset(); }}
+                                    className="px-2 py-1 rounded-md text-[10px] font-bold hover:bg-white/[0.08]"
+                                    style={{ color: 'var(--text-3)', border: '1px solid var(--line)' }}
+                                >還原預設</button>
+                            )}
+                            <button
+                                onClick={onToggleEdit}
+                                className="px-2.5 py-1 rounded-md text-[11px] font-bold hover:bg-white/[0.08] transition-all"
+                                style={{ color: editMode ? 'var(--brand-1)' : 'var(--text-2)', border: '1px solid ' + (editMode ? 'var(--brand-1)' : 'var(--line)') }}
+                            >{editMode ? '完成' : '編輯'}</button>
+                        </div>
+                    </div>
+                    <div className={`flex gap-2 md:gap-4 flex-wrap ${mobileRow ? 'flex-row' : 'flex-col md:flex-row'}`}>
+                        {childArr.map((child, i) => (
+                            <div
+                                key={(cards[i] && cards[i].id) || i}
+                                draggable={editMode}
+                                onDragStart={() => { dragIdx.current = i; }}
+                                onDragEnd={() => { dragIdx.current = null; setDragOverIdx(null); }}
+                                onDragOver={(e) => { if (editMode) { e.preventDefault(); setDragOverIdx(i); } }}
+                                onDragLeave={() => setDragOverIdx(prev => prev === i ? null : prev)}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    const from = dragIdx.current;
+                                    if (editMode && from !== null && from !== i) onMove(from, i);
+                                    dragIdx.current = null;
+                                    setDragOverIdx(null);
+                                }}
+                                className={`relative flex-1 ${mobileRow ? 'basis-0 min-w-[96px]' : 'min-w-0'} md:min-w-[180px] transition-transform ${editMode ? 'cursor-move' : ''} ${dragOverIdx === i && dragIdx.current !== null && dragIdx.current !== i ? 'ring-2 ring-cyan-400 scale-[1.02]' : ''}`}
+                            >
+                                {editMode && (
+                                    <>
+                                        <span
+                                            className="absolute top-2 left-2 z-10 text-sm select-none px-1.5 py-0.5 rounded"
+                                            style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-2)' }}
+                                            title="拖曳排序"
+                                        >⋮⋮</span>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onRemove(cards[i].id); }}
+                                            className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-500/30"
+                                            style={{ background: 'rgba(0,0,0,0.5)', color: '#ff7d8c' }}
+                                            title="移除"
+                                        >✕</button>
+                                    </>
+                                )}
+                                {child}
+                            </div>
+                        ))}
+                        {editMode && (
+                            <button
+                                onClick={onAdd}
+                                className={`flex-1 ${mobileRow ? 'basis-0 min-w-[96px]' : 'min-w-0'} md:min-w-[180px] rounded-xl p-4 text-sm font-semibold transition-all hover:bg-white/[0.04] flex items-center justify-center gap-2`}
+                                style={{ border: '2px dashed var(--line)', color: 'var(--text-3)', minHeight: '110px' }}
+                            >{addLabel}</button>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 美股儀表板元件 ---
+        const StockDashboard = ({ notificationsEnabled, toggleNotifications, userInfo = { isPremium: false, watchlist: [] }, onUpdateWatchlist }) => {
+            const [showAdvanced, setShowAdvanced] = useState(false);
+            const [selectedSymbol, setSelectedSymbol] = useState('SPY');
+            const [timeRange, setTimeRange] = useState('1Y');
+            const [stockData, setStockData] = useState(null);
+            const [fullStockData, setFullStockData] = useState(null);
+            const [fngData, setFngData] = useState(null);
+            const [fngHistory, setFngHistory] = useState([]);
+            const [stockNews, setStockNews] = useState([]);
+            const [indices, setIndices] = useState({});
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            // Editable card list — symbol = Yahoo ticker, id is stable key, name is shown to the user
+            const usDefaults = [
+                { id: 'spy', symbol: 'SPY', name: 'S&P 500 ETF' },
+                { id: 'qqq', symbol: 'QQQ', name: 'NASDAQ 100 ETF' },
+                { id: 'gld', symbol: 'GLD', name: 'Gold ETF' },
+            ];
+            const usCards = useEditableCards('us-dashboard-cards', usDefaults);
+            const [usEditMode, setUsEditMode] = useState(false);
+
+            const fetchStockData = async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                    // 1. 獲取真實 CNN Fear & Greed Index (透過 CORS Proxy)
+                    const proxyUrl = 'https://cors.hellokai07.com/?' + encodeURIComponent('https://production.dataviz.cnn.io/index/fearandgreed/graphdata');
+                    let fngMap = new Map();
+                    try {
+                        const fngResponse = await fetch(proxyUrl);
+                        if (!fngResponse.ok) throw new Error('無法獲取 CNN 數據');
+                        const fngJson = await fngResponse.json();
+
+                        if (fngJson.fear_and_greed) {
+                            let score = Math.round(fngJson.fear_and_greed.score);
+                            let rating = fngJson.fear_and_greed.rating;
+                            let lastUpdated = fngJson.fear_and_greed.timestamp;
+                            const ratingMap = { "Extreme Fear": "極度恐懼", "extreme fear": "極度恐懼", "Fear": "恐懼", "fear": "恐懼", "Neutral": "中立", "neutral": "中立", "Greed": "貪婪", "greed": "貪婪", "Extreme Greed": "極度貪婪", "extreme greed": "極度貪婪" };
+                            rating = ratingMap[rating] || rating;
+                            setFngData({ value: score, classification: rating, lastUpdated: lastUpdated });
+                        }
+
+                        if (fngJson.fear_and_greed_historical && fngJson.fear_and_greed_historical.data) {
+                            const history = fngJson.fear_and_greed_historical.data.map(item => {
+                                const dateStr = new Date(item.x).toISOString().split('T')[0];
+                                const val = Math.round(item.y);
+                                fngMap.set(dateStr, val);
+                                return { x: item.x, y: val };
+                            });
+                            setFngHistory(history);
+                        }
+                    } catch (e) {
+                        console.error("FNG Fetch Error:", e);
+                    }
+
+                    // 2. 獲取美股歷史數據 (Yahoo Finance)
+                    // 強制獲取 1 年 (1y) 數據，因為圖表需要至少一年來顯示交互
+                    const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${selectedSymbol}?interval=1d&range=1y`;
+                    const historyRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yahooUrl));
+
+                    if (!historyRes.ok) throw new Error("Yahoo Finance API Error");
+                    const historyJson = await historyRes.json();
+
+                    if (!historyJson.chart || !historyJson.chart.result || historyJson.chart.result.length === 0) {
+                        throw new Error("查無此股票代號或無數據");
+                    }
+
+                    const result = historyJson.chart.result[0];
+                    const timestamps = result.timestamp;
+                    const closeQuotes = result.indicators.quote[0].close;
+
+                    if (!timestamps || !closeQuotes) throw new Error("數據格式錯誤");
+
+                    const prices = timestamps.map((t, i) => {
+                        const price = closeQuotes[i];
+                        if (price === null || price === undefined) return null;
+                        const date = new Date(t * 1000).toISOString().split('T')[0];
+                        // FNG Mapping Logic: Fallback to previous known value if missing for a specific day to avoid gaps
+                        let fngVal = fngMap.get(date);
+                        if (fngVal === undefined) fngVal = 50; // Default Neutral
+
+                        return {
+                            date: date,
+                            price: price,
+                            fng: fngVal
+                        };
+                    }).filter(item => item !== null).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                    if (prices.length === 0) throw new Error("無有效股價數據");
+
+                    setFullStockData(prices);
+                    // Initial set based on current TimeRange (triggered by useEffect dependency or shared state update)
+                    // We will let the useEffect([timeRange, fullStockData]) handle the updating of 'stockData'
+
+                    // 3. 獲取大盤概況
+                    const fetchYahooPrice = async (symbol) => {
+                        try {
+                            const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
+                            const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
+                            const data = await res.json();
+                            const meta = data.chart.result[0].meta;
+                            const price = meta.regularMarketPrice;
+                            const prevClose = meta.chartPreviousClose || meta.previousClose || price;
+                            return { price, prevClose, change: price - prevClose, changePercent: ((price - prevClose) / prevClose) * 100 };
+                        } catch (e) { return null; }
+                    };
+
+                    // Drive cards from user-editable list
+                    Promise.all(usCards.cards.map(c => fetchYahooPrice(c.symbol)))
+                        .then(results => {
+                            const map = {};
+                            usCards.cards.forEach((c, i) => { map[c.id] = results[i]; });
+                            setIndices(map);
+                        })
+                        .catch(e => console.error("Indices Fetch Error:", e));
+
+                    // 4. 獲取新聞
+                    const rssUrl = 'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664';
+                    fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`)
+                        .then(r => r.json())
+                        .then(d => { if (d.status === 'ok') setStockNews(d.items); })
+                        .catch(e => console.error("News Error:", e));
+
+                } catch (e) {
+                    console.error("Global Stock Error:", e);
+                    setError(e.message || "數據載入失敗");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                fetchStockData();
+            }, [selectedSymbol]);
+
+            // Re-fetch just the card prices when the user edits the card list (avoids re-fetching FNG/history)
+            useEffect(() => {
+                const fetchOne = async (symbol) => {
+                    try {
+                        const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
+                        const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
+                        const data = await res.json();
+                        const meta = data.chart.result[0].meta;
+                        const price = meta.regularMarketPrice;
+                        const prevClose = meta.chartPreviousClose || meta.previousClose || price;
+                        return { price, prevClose, change: price - prevClose, changePercent: ((price - prevClose) / prevClose) * 100 };
+                    } catch (e) { return null; }
+                };
+                Promise.all(usCards.cards.map(c => fetchOne(c.symbol)))
+                    .then(results => {
+                        const map = {};
+                        usCards.cards.forEach((c, i) => { map[c.id] = results[i]; });
+                        setIndices(map);
+                    });
+            }, [usCards.cards]);
+
+            // Filter Data based on Time Range (Local Filtering)
+            useEffect(() => {
+                if (!fullStockData || fullStockData.length === 0) return;
+
+                const now = new Date();
+                let filterDate = new Date();
+                let isAll = false;
+
+                if (timeRange === '1M') filterDate.setMonth(now.getMonth() - 1);
+                else if (timeRange === '6M') filterDate.setMonth(now.getMonth() - 6);
+                else if (timeRange === '1Y') isAll = true;
+                else if (timeRange === 'ALL') isAll = true;
+
+                const filtered = fullStockData.filter(d => isAll || new Date(d.date) >= filterDate);
+                setStockData(filtered);
+            }, [timeRange, fullStockData]);
+
+            // handle Watchlist Toggle
+            const toggleWatchlist = () => {
+                if (!onUpdateWatchlist) return;
+                const currentList = userInfo.watchlist || [];
+                // Check if symbol exists (simple check, assume stock symbols are unique enough or use prefix in real app)
+                // For this app, let's just store the symbol string "SPY", "BTC" etc.
+                const exists = currentList.includes(selectedSymbol);
+                let newList;
+                if (exists) {
+                    newList = currentList.filter(s => s !== selectedSymbol);
+                } else {
+                    newList = [...currentList, selectedSymbol];
+                }
+                onUpdateWatchlist(newList);
+            };
+
+            const isWatchlisted = (userInfo.watchlist || []).includes(selectedSymbol);
+
+            const getSuggestion = (score) => {
+                const val = parseInt(score);
+                if (val <= 25) return {
+                    title: "極度恐懼 (Extreme Fear)",
+                    action: "強力買入",
+                    desc: "市場極度恐慌，股價可能被低估，是長期投資的買入良機。",
+                    bg: "bg-red-900/30",
+                    border: "border-red-500",
+                    text: "text-red-400"
+                };
+                if (val <= 45) return {
+                    title: "恐懼 (Fear)",
+                    action: "分批買入",
+                    desc: "市場情緒低迷，投資者趨於保守，適合執行 DCA 策略。",
+                    bg: "bg-orange-900/30",
+                    border: "border-orange-500",
+                    text: "text-orange-400"
+                };
+                if (val <= 55) return {
+                    title: "中立 (Neutral)",
+                    action: "持有/觀望",
+                    desc: "市場缺乏明確方向，建議保持現有部位，觀察後續變化。",
+                    bg: "bg-gray-800",
+                    border: "border-gray-600",
+                    text: "text-gray-400"
+                };
+                if (val <= 75) return {
+                    title: "貪婪 (Greed)",
+                    action: "停止買入",
+                    desc: "市場情緒樂觀，風險逐漸升高，不建議追高。",
+                    bg: "bg-green-900/30",
+                    border: "border-green-500",
+                    text: "text-green-400"
+                };
+                return {
+                    title: "極度貪婪 (Extreme Greed)",
+                    action: "考慮止盈",
+                    desc: "市場極度樂觀，隨時可能回調，建議分批獲利了結。",
+                    bg: "bg-blue-900/30",
+                    border: "border-blue-500",
+                    text: "text-blue-400"
+                };
+            };
+            const suggestion = fngData ? getSuggestion(fngData.value) : null;
+
+            // Stock Price vs FNG Chart (Mixed Chart)
+            const StockFNGChart = ({ data, symbol }) => {
+                if (!data || data.length === 0) return null;
+
+                const chartData = {
+                    labels: data.map(d => d.date),
+                    datasets: [
+                        {
+                            label: `${symbol} 價格`,
+                            data: data.map(d => d.price),
+                            borderColor: CHART.line,
+                            backgroundColor: makePriceGradient,
+                            yAxisID: 'y',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4,
+                            pointBackgroundColor: data.map(d => {
+                                if (d.fng <= 25) return CHART.fear;
+                                if (d.fng <= 44) return CHART.fearLight;
+                                return 'rgba(0,0,0,0)';
+                            }),
+                            pointBorderColor: data.map(d => {
+                                if (d.fng <= 25) return CHART.fear;
+                                if (d.fng <= 44) return CHART.fearLight;
+                                return 'rgba(0,0,0,0)';
+                            }),
+                            pointRadius: data.map(d => {
+                                if (d.fng <= 25) return 3;
+                                if (d.fng <= 44) return 2;
+                                return 0;
+                            }),
+                            pointHoverRadius: 4,
+                        }
+                    ]
+                };
+
+                const options = {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            callbacks: {
+                                label: (context) => {
+                                    const idx = context.dataIndex;
+                                    const d = data[idx];
+                                    return [
+                                        `價格: $${d.price.toLocaleString()}`,
+                                        `市場 FNG: ${d.fng}`,
+                                        d.fng <= 40 ? '🔴 建議 DCA 買入點' : '⚪ 觀望'
+                                    ];
+                                }
+                            }
+                        },
+                        title: { display: true, text: `${symbol} 價格走勢與市場恐懼指數 (紅/橘點代表市場恐懼)`, color: '#94a3b8' }
+                    },
+                    scales: {
+                        y: { type: 'linear', display: true, position: 'left', grid: { color: CHART.grid }, ticks: { color: CHART.tick } },
+                        x: { ticks: { color: CHART.tick, maxTicksLimit: 8 }, grid: { display: false } }
+                    }
+                };
+                return <ChartComponent data={chartData} options={options} />;
+            };
+
+            return (
+                <div className="space-y-6">
+                    <SymbolSearch
+                        symbol={selectedSymbol}
+                        onSearch={setSelectedSymbol}
+                        isLocked={!userInfo.isPremium}
+                        userEmail={userInfo.email}
+                    />
+
+                    <EditableCardGrid
+                        title="美股指數 / ETF"
+                        mobileRow
+                        cards={usCards.cards}
+                        editMode={usEditMode}
+                        onToggleEdit={() => setUsEditMode(!usEditMode)}
+                        onMove={usCards.moveCard}
+                        onRemove={usCards.removeCard}
+                        onReset={usCards.resetCards}
+                        onAdd={() => {
+                            const sym = (prompt('輸入美股代號（例如 AAPL、TSLA、VOO）：') || '').trim().toUpperCase();
+                            if (!sym) return;
+                            const name = (prompt('顯示名稱（可留空）：') || '').trim() || sym;
+                            usCards.addCard({ id: sym.toLowerCase(), symbol: sym, name });
+                        }}
+                    >
+                        {usCards.cards.map(c => (
+                            <IndexPriceCard
+                                key={c.id}
+                                name={c.name}
+                                symbol={c.symbol}
+                                logo={c.logo}
+                                data={indices[c.id]}
+                                active={selectedSymbol === c.symbol}
+                                editMode={usEditMode}
+                                onClick={() => setSelectedSymbol(c.symbol)}
+                                currency="$"
+                            />
+                        ))}
+                    </EditableCardGrid>
+
+                    <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl flex flex-col items-center text-center">
+                        <h2 className="text-xl font-bold text-slate-200 mb-2">美股恐懼與貪婪指數</h2>
+                        {loading ? (
+                            <div className="py-12"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>
+                        ) : error ? (
+                            <div className="flex flex-col items-center gap-2 py-8">
+                                <AlertTriangle className="text-red-400" size={32} />
+                                <div className="text-red-400">{error}</div>
+                                <button onClick={fetchStockData} className="mt-2 px-4 py-1 bg-slate-800 rounded text-sm hover:bg-slate-700">重試</button>
+                            </div>
+                        ) : (
+                            <div className="w-full flex flex-col items-center">
+                                {fngData && <FearGreedGauge fngValue={fngData.value} classification={fngData.classification} />}
+                                {fngHistory && fngHistory.length > 0 && (
+                                    <div className="w-full max-w-2xl mt-4 px-4">
+                                        <SentimentScarcityBar data={fngHistory.map(d => d.y)} title="過去 365 天美股買入機會分佈" />
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {suggestion && (
+                        <div className={`p-6 rounded-2xl border ${suggestion.border} ${suggestion.bg} relative overflow-hidden transition-all duration-500`}>
+                            <div className="relative z-10 flex flex-col md:flex-row justify-between items-center w-full max-w-lg mx-auto mt-0">
+                                <div className="flex flex-col items-start text-left mb-4 md:mb-0">
+                                    <div className="text-sm uppercase tracking-wider opacity-70 mb-1">DCA 策略建議</div>
+                                    <span className={`text-2xl font-bold ${suggestion.text}`}>{suggestion.title}</span>
+                                    <p className="mt-2 text-slate-300 max-w-lg text-sm">{suggestion.desc}</p>
+                                </div>
+                                <div className="flex flex-col items-center md:items-end gap-2 min-w-[140px] text-center md:text-right">
+                                    <div className="text-sm text-slate-400">當前操作</div>
+                                    <div className={`text-xl font-bold ${suggestion.text} border-2 border-current px-4 py-1 rounded-lg whitespace-nowrap`}>{suggestion.action}</div>
+                                </div>
+                            </div>
+                            {fngData && (
+                                <AIAdviceBlock
+                                    assetName={`美股 (${selectedSymbol})`}
+                                    marketData={`資產: ${selectedSymbol}\n恐懼貪婪指數: ${fngData.value} (${fngData.classification})`}
+                                    priceStats={stockData && stockData.length > 0 ? {
+                                        current: stockData[stockData.length - 1].price,
+                                        high: Math.max(...stockData.map(d => d.price)),
+                                        low: Math.min(...stockData.map(d => d.price))
+                                    } : null}
+                                    isLocked={!userInfo.isPremium}
+                                />
+                            )}
+                        </div>
+                    )}
+
+                    {!loading && !error && stockData && stockData.length > 0 && (
+                        <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-lg font-semibold flex items-center gap-2">
+                                    <TrendingUp size={18} className="text-slate-400" />
+                                    {selectedSymbol} 股價與恐懼指數走勢
+                                    {onUpdateWatchlist && (
+                                        <button onClick={toggleWatchlist} className="ml-2 hover:scale-110 transition-transform">
+                                            {isWatchlisted
+                                                ? <span className="text-yellow-400 text-xl">★</span>
+                                                : <span className="text-slate-600 text-xl hover:text-yellow-400">☆</span>
+                                            }
+                                        </button>
+                                    )}
+                                </h2>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <button
+                                        onClick={() => setShowAdvanced(true)}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold glass hover:bg-white/[0.08] transition-colors"
+                                        style={{ color: 'var(--brand-1)' }}
+                                        title="進階技術分析"
+                                    >
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                                        </svg>
+                                        進階分析
+                                    </button>
+                                    <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
+                                </div>
+                            </div>
+                            <div className="h-[300px] sm:h-[350px] w-full relative">
+                                <StockFNGChart data={stockData} symbol={selectedSymbol} />
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="mt-8">
+                        <div className="flex items-center gap-2 mb-6">
+                            <Newspaper className="text-blue-500" />
+                            <h2 className="text-xl font-bold text-slate-200">美股財經頭條 (CNBC)</h2>
+                        </div>
+                        {!loading && !error && stockNews.length > 0 && (
+                            <>
+                                <NewsAIAnalysis newsItems={stockNews} isLocked={!userInfo.isPremium} />
+                                <NewsSummary news={stockNews} />
+                            </>
+                        )}
+                        <NewsSection news={stockNews} loading={loading} error={error} />
+                    </div>
+
+                    <div className="text-center text-slate-600 text-xs mt-8 pb-4">
+                        資料來源: CNN Business, Yahoo Finance, CNBC
+                    </div>
+                    {showAdvanced && (
+                        <TechnicalChartModal
+                            symbol={selectedSymbol}
+                            type="US"
+                            onClose={() => setShowAdvanced(false)}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        // --- RSI 計算與分類工具 ---
+        const calculateRSI = (prices, period = 14) => {
+            if (prices.length < period + 1) return [];
+            let gains = 0;
+            let losses = 0;
+            for (let i = 1; i <= period; i++) {
+                const change = prices[i] - prices[i - 1];
+                if (change > 0) gains += change;
+                else losses -= change;
+            }
+            let avgGain = gains / period;
+            let avgLoss = losses / period;
+            const rsiArray = [];
+            // Initial RSI
+            let rs = avgGain / avgLoss;
+            let rsi = 100 - (100 / (1 + rs));
+            rsiArray.push({ index: period, rsi, price: prices[period] });
+
+            // Smoothed RSI
+            for (let i = period + 1; i < prices.length; i++) {
+                const change = prices[i] - prices[i - 1];
+                let gain = change > 0 ? change : 0;
+                let loss = change < 0 ? -change : 0;
+                avgGain = ((avgGain * (period - 1)) + gain) / period;
+                avgLoss = ((avgLoss * (period - 1)) + loss) / period;
+                rs = avgGain / avgLoss;
+                rsi = 100 - (100 / (1 + rs));
+                rsiArray.push({ index: i, rsi, price: prices[i] });
+            }
+            return rsiArray;
+        };
+
+        const getRsiClassification = (rsi) => {
+            if (rsi <= 25) return "極度恐懼";
+            if (rsi <= 40) return "恐懼";
+            if (rsi <= 60) return "中立";
+            if (rsi <= 75) return "貪婪";
+            return "極度貪婪";
+        };
+
+        // --- 臺股儀表板元件 ---
+        const TaiwanDashboard = ({ userInfo = { isPremium: false, watchlist: [] }, onUpdateWatchlist }) => {
+            const [showAdvanced, setShowAdvanced] = useState(false);
+            const [selectedSymbol, setSelectedSymbol] = useState('0050');
+            const [timeRange, setTimeRange] = useState('1Y');
+            const [rsiData, setRsiData] = useState(null);
+            const [indices, setIndices] = useState({});
+            const [news, setNews] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [dataSource, setDataSource] = useState('Yahoo');
+            // Editable card list (Yahoo tickers — TW codes need .TW suffix unless it's an index like ^TWII)
+            const twDefaults = [
+                { id: 'tsmc', symbol: '2330.TW', name: '台積電 (2330)' },
+                { id: 'tw50', symbol: '0050.TW', name: '元大台灣50 (0050)' },
+                { id: 'tw56', symbol: '0056.TW', name: '元大高股息 (0056)' },
+            ];
+            const twCards = useEditableCards('tw-dashboard-cards', twDefaults);
+            const [twEditMode, setTwEditMode] = useState(false);
+
+            const getSuggestion = (rsi) => {
+                if (rsi <= 25) return {
+                    title: "極度恐懼 (Extreme Fear)",
+                    action: "強力買入",
+                    desc: "RSI 顯示市場極度超賣，為歷史低點，建議強力買入。",
+                    bg: "bg-red-900/30",
+                    border: "border-red-500",
+                    text: "text-red-400"
+                };
+                if (rsi <= 40) return {
+                    title: "恐懼 (Fear)",
+                    action: "分批買入",
+                    desc: "RSI 處於低檔，市場情緒保守，適合執行 DCA 策略。",
+                    bg: "bg-orange-900/30",
+                    border: "border-orange-50",
+                    text: "text-orange-400"
+                };
+                if (rsi <= 60) return {
+                    title: "中立 (Neutral)",
+                    action: "持有/觀望",
+                    desc: "RSI 處於中性區間，建議觀望或持有。",
+                    bg: "bg-gray-800",
+                    border: "border-gray-600",
+                    text: "text-gray-400"
+                };
+                if (rsi <= 75) return {
+                    title: "貪婪 (Greed)",
+                    action: "停止買入",
+                    desc: "RSI 顯示市場過熱，不宜追高。",
+                    bg: "bg-green-900/30",
+                    border: "border-green-500",
+                    text: "text-green-400"
+                };
+                return {
+                    title: "極度貪婪 (Extreme Greed)",
+                    action: "考慮止盈",
+                    desc: "RSI 顯示市場極度超買，隨時可能回調。",
+                    bg: "bg-blue-900/30",
+                    border: "border-blue-500",
+                    text: "text-blue-400"
+                };
+            };
+
+            const fetchData = async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                    // Helper: Yahoo Price Fetcher (per-card try/catch so one failure doesn't drop the whole row)
+                    const fetchYahooPrice = async (ticker) => {
+                        try {
+                            const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+                            const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
+                            if (!res.ok) return null;
+                            const data = await res.json();
+                            const meta = data?.chart?.result?.[0]?.meta;
+                            if (!meta) return null;
+                            const price = meta.regularMarketPrice;
+                            const prevClose = meta.chartPreviousClose || meta.previousClose || price;
+                            if (price == null) return null;
+                            return { price, prevClose, change: price - prevClose, changePercent: prevClose ? ((price - prevClose) / prevClose) * 100 : 0 };
+                        } catch (e) { return null; }
+                    };
+
+                    // 1. Fetch Headline Indices (Parallel) — driven by user-editable card list
+                    Promise.all(twCards.cards.map(c => fetchYahooPrice(c.symbol)))
+                        .then(results => {
+                            const map = {};
+                            twCards.cards.forEach((c, i) => { map[c.id] = results[i]; });
+                            setIndices(map);
+                        })
+                        .catch(e => console.error("Indices Error:", e));
+
+                    // 2. Fetch Selected Symbol Data
+                    // Strategy: Try Fugle for Real-time Quote (if allowed key), Yahoo for History (RSI).
+
+                    // Prepare tickers
+                    const yahooSymbol = selectedSymbol.includes('.') ? selectedSymbol : `${selectedSymbol}.TW`;
+
+                    // A. Fetch History (Yahoo) - Needed for RSI & Chart
+                    let range = '1y';
+                    if (timeRange === '1M') range = '1mo';
+                    else if (timeRange === '6M') range = '6mo';
+                    else if (timeRange === '1Y') range = '1y';
+                    else if (timeRange === 'ALL') range = 'max';
+
+                    const historyUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=${range}`;
+                    const historyRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(historyUrl));
+                    const historyJson = await historyRes.json();
+
+                    if (!historyJson.chart || !historyJson.chart.result) throw new Error("無效的股票代號 (Yahoo)");
+
+                    const timestamps = historyJson.chart.result[0].timestamp;
+                    const closes = historyJson.chart.result[0].indicators.quote[0].close;
+
+                    // Filter Nulls
+                    const cleanData = timestamps.map((t, i) => ({ t, c: closes[i] })).filter(d => d.c !== null);
+                    const cleanCloses = cleanData.map(d => d.c);
+                    const cleanTimestamps = cleanData.map(d => d.t);
+
+                    if (cleanCloses.length < 15) throw new Error("歷史數據不足");
+
+                    const rsiValues = calculateRSI(cleanCloses);
+                    const currentRSI = rsiValues[rsiValues.length - 1];
+                    const currentPriceFromYahoo = cleanCloses[cleanCloses.length - 1];
+
+                    // B. Try Fugle Realtime Quote (skip if key is still placeholder)
+                    let fuglePrice = null;
+                    let fugleSource = false;
+                    const fugleToken = "__FUGLE_KEY__";
+                    if (!fugleToken.includes("FUGLE_KEY")) {
+                        try {
+                            const fugleUrl = `https://api.fugle.tw/realtime/v0.3/intraday/quote?symbolId=${selectedSymbol}&apiToken=${fugleToken}`;
+                            const fRes = await fetch(fugleUrl);
+                            if (fRes.ok) {
+                                const fData = await fRes.json();
+                                if (fData.data && fData.data.quote && fData.data.quote.trade) {
+                                    fuglePrice = fData.data.quote.trade.price;
+                                    fugleSource = true;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn("Fugle Fetch Failed:", e);
+                        }
+                    }
+
+                    setDataSource(fugleSource ? 'Fugle API' : 'Yahoo Finance');
+
+                    // Merge Data
+                    // If Fugle has newer price, update the last history point or display separately?
+                    // For simplicity, we trust Yahoo for the history chart, but could overlay real-time price.
+
+                    setRsiData({
+                        value: Math.round(currentRSI.rsi),
+                        classification: getRsiClassification(currentRSI.rsi),
+                        price: fuglePrice || currentPriceFromYahoo,
+                        history: rsiValues.map((d, i) => ({
+                            x: cleanTimestamps[d.index] * 1000,
+                            y: d.price,
+                            rsi: d.rsi
+                        }))
+                    });
+
+
+                    // 3. 獲取臺股新聞 — 用 rss2json（跟美股 / 加密同一個 service，比 DOMParser+CORS proxy 穩）
+                    try {
+                        const rssUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(`${selectedSymbol} 股票新聞`) + '&hl=zh-TW&gl=TW&ceid=TW:zh-Hant';
+                        const newsResponse = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
+                        const newsJson = await newsResponse.json();
+                        if (newsJson.status === 'ok' && Array.isArray(newsJson.items)) {
+                            const newsItems = newsJson.items.slice(0, 6).map(item => {
+                                // rss2json sometimes returns thumbnail/enclosure; fall back to parsing description
+                                let thumbnail = item.thumbnail || item.enclosure?.link || '';
+                                if (!thumbnail && item.description) {
+                                    const m = item.description.match(/src="([^"]+)"/);
+                                    if (m) thumbnail = m[1];
+                                }
+                                return {
+                                    title: item.title || '',
+                                    link: item.link || '',
+                                    pubDate: item.pubDate || '',
+                                    thumbnail,
+                                };
+                            });
+                            setNews(newsItems);
+                        } else {
+                            console.warn('TW news rss2json failed:', newsJson?.message);
+                            setNews([]);
+                        }
+                    } catch (newsErr) {
+                        console.warn('TW news fetch error:', newsErr);
+                        setNews([]);
+                    }
+
+                } catch (e) {
+                    console.error("Taiwan data error:", e);
+                    setError(`無法獲取 ${selectedSymbol} 數據: ${e.message}`);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                fetchData();
+            }, [selectedSymbol, timeRange]);
+
+            // Refetch just the card prices when the user edits the card list
+            useEffect(() => {
+                const fetchOne = async (ticker) => {
+                    try {
+                        const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+                        const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
+                        const data = await res.json();
+                        const meta = data.chart.result[0].meta;
+                        const price = meta.regularMarketPrice;
+                        const prevClose = meta.chartPreviousClose || meta.previousClose || price;
+                        return { price, prevClose, change: price - prevClose, changePercent: ((price - prevClose) / prevClose) * 100 };
+                    } catch (e) { return null; }
+                };
+                Promise.all(twCards.cards.map(c => fetchOne(c.symbol)))
+                    .then(results => {
+                        const map = {};
+                        twCards.cards.forEach((c, i) => { map[c.id] = results[i]; });
+                        setIndices(map);
+                    });
+            }, [twCards.cards]);
+
+            // Watchlist Logic
+            const toggleWatchlist = () => {
+                if (!onUpdateWatchlist) return;
+                const currentList = userInfo.watchlist || [];
+                const exists = currentList.includes(selectedSymbol);
+                let newList;
+                if (exists) {
+                    newList = currentList.filter(s => s !== selectedSymbol);
+                } else {
+                    newList = [...currentList, selectedSymbol];
+                }
+                onUpdateWatchlist(newList);
+            };
+
+            const isWatchlisted = (userInfo.watchlist || []).includes(selectedSymbol);
+
+            if (loading) return <div className="flex justify-center items-center h-64"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>;
+            if (error) return (
+                <div className="bg-red-900/20 border border-red-500/50 text-red-200 p-6 rounded-xl flex items-center gap-4">
+                    <AlertTriangle size={24} className="shrink-0" />
+                    <div>
+                        <h3 className="font-bold text-lg">臺股數據載入失敗</h3>
+                        <p className="text-sm opacity-90 my-2">{error}</p>
+                        <button onClick={fetchData} className="px-4 py-2 bg-red-800 hover:bg-red-700 rounded text-sm transition-colors mt-2">
+                            重試連線
+                        </button>
+                    </div>
+                </div>
+            );
+
+            const suggestion = rsiData ? getSuggestion(rsiData.value) : null;
+
+            // Chart Config
+            const chartData = {
+                labels: rsiData.history.map(d => new Date(d.x).toLocaleDateString()),
+                datasets: [{
+                    label: `${selectedSymbol} 股價`,
+                    data: rsiData.history.map(d => d.y),
+                    borderColor: CHART.line,
+                    backgroundColor: makePriceGradient,
+                    borderWidth: 2,
+                    pointRadius: rsiData.history.map(d => d.rsi <= 25 ? 3 : (d.rsi <= 44 ? 2 : 0)),
+                    pointBackgroundColor: rsiData.history.map(d => d.rsi <= 25 ? CHART.fear : (d.rsi <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')), // 點填充色
+                    pointBorderColor: rsiData.history.map(d => d.rsi <= 25 ? CHART.fear : (d.rsi <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')),
+                    pointHoverRadius: 4,
+                    fill: true,
+                    tension: 0.4
+                }]
+            };
+
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                const idx = context.dataIndex;
+                                const d = rsiData.history[idx];
+                                const rsi = d?.rsi?.toFixed(1) || 'N/A';
+                                return [
+                                    `價格: ${formatPrice(context.parsed.y)}`,
+                                    `市場 RSI: ${rsi}`,
+                                    (d && d.rsi <= 44) ? '🔴 建議 DCA 買入點' : '⚪ 觀望'
+                                ];
+                            }
+                        }
+                    },
+                    title: { display: true, text: `${selectedSymbol} 歷史走勢 (紅/橘點為 RSI 買入訊號)`, color: CHART.text }
+                },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 6, color: CHART.tick }, grid: { display: false } },
+                    y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick } }
+                }
+            };
+
+            return (
+                <div className="space-y-6">
+                    {/* 大盤指數卡片 */}
+                    <SymbolSearch
+                        symbol={selectedSymbol}
+                        onSearch={setSelectedSymbol}
+                        placeholder="輸入代號 (e.g. 2330)"
+                        isLocked={!userInfo.isPremium}
+                        userEmail={userInfo.email}
+                    />
+
+                    <EditableCardGrid
+                        title="台股指數 / ETF"
+                        mobileRow
+                        cards={twCards.cards}
+                        editMode={twEditMode}
+                        onToggleEdit={() => setTwEditMode(!twEditMode)}
+                        onMove={twCards.moveCard}
+                        onRemove={twCards.removeCard}
+                        onReset={twCards.resetCards}
+                        onAdd={() => {
+                            let sym = (prompt('輸入台股代號（例如 2330、0056；指數請含 ^，例如 ^TWII）：') || '').trim();
+                            if (!sym) return;
+                            // Auto-append .TW for plain numeric codes
+                            if (/^\d+$/.test(sym)) sym = sym + '.TW';
+                            const name = (prompt('顯示名稱（可留空）：') || '').trim() || sym;
+                            twCards.addCard({ id: sym.toLowerCase().replace(/\W+/g, '_'), symbol: sym, name });
+                        }}
+                    >
+                        {twCards.cards.map(c => (
+                            <IndexPriceCard
+                                key={c.id}
+                                name={c.name}
+                                symbol={c.symbol}
+                                logo={c.logo}
+                                data={indices[c.id]}
+                                active={selectedSymbol === c.symbol}
+                                editMode={twEditMode}
+                                onClick={() => setSelectedSymbol(c.symbol)}
+                                currency=""
+                            />
+                        ))}
+                    </EditableCardGrid>
+
+                    {/* 標題區 */}
+                    <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl flex flex-col items-center text-center">
+                        <h2 className="text-xl font-bold text-slate-200 mb-2">臺股情緒指標 (基於 {selectedSymbol} RSI)</h2>
+                        <p className="text-xs text-slate-500 mb-4 max-w-md">
+                            此指標並非恐懼貪婪指數。數值由『{selectedSymbol}』的 14 日 RSI 強弱指標計算得出。RSI 低於 30 代表市場超賣 (恐懼)，高於 70 代表市場超買 (貪婪)。
+                            <span className="block mt-1 text-slate-600">數據來源: {dataSource}</span>
+                        </p>
+                        <div className="w-full flex flex-col items-center">
+                            {rsiData && (
+                                <FearGreedGauge
+                                    fngValue={rsiData.value}
+                                    classification={rsiData.classification}
+                                />
+                            )}
+                            {/* Sentiment Scarcity Bar */}
+                            {rsiData && rsiData.history && (
+                                <div className="w-full max-w-2xl mt-4 px-4">
+                                    <SentimentScarcityBar
+                                        data={rsiData.history.map(d => d.rsi)}
+                                        title="過去 1 年臺股買入機會分佈 (RSI)"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* 策略建議區 */}
+                    {suggestion && (
+                        <div className={`p-6 rounded-2xl border ${suggestion.border} ${suggestion.bg} relative overflow-hidden transition-all duration-500`}>
+                            <div className="relative z-10 flex flex-col md:flex-row justify-between items-center w-full max-w-lg mx-auto mt-0">
+                                <div className="flex flex-col items-start text-left mb-4 md:mb-0">
+                                    <div className="text-sm uppercase tracking-wider opacity-70 mb-1">臺股 DCA 策略</div>
+                                    <span className={`text-2xl font-bold ${suggestion.text}`}>
+                                        {suggestion.title}
+                                    </span>
+                                    <p className="mt-2 text-slate-300 max-w-lg text-sm">
+                                        {suggestion.desc}
+                                    </p>
+                                </div>
+                                <div className="flex flex-col items-center md:items-end gap-2 min-w-[140px] text-center md:text-right">
+                                    <div className="text-sm text-slate-400">當前操作</div>
+                                    <div className={`text-xl font-bold ${suggestion.text} border-2 border-current px-4 py-1 rounded-lg whitespace-nowrap`}>
+                                        {suggestion.action}
+                                    </div>
+                                </div>
+                            </div>
+                            {/* AI Advice Integration */}
+                            {rsiData && (
+                                <AIAdviceBlock
+                                    assetName={`台股 (${selectedSymbol})`}
+                                    marketData={`RSI(14): ${rsiData.value} (${rsiData.classification})`}
+                                    priceStats={{
+                                        current: rsiData.price,
+                                        high: Math.max(...rsiData.history.map(d => d.y)),
+                                        low: Math.min(...rsiData.history.map(d => d.y))
+                                    }}
+                                    isLocked={!userInfo.isPremium}
+                                />
+                            )}
+                        </div>
+                    )}
+
+                    {/* 歷史走勢圖 */}
+                    {rsiData && (
+                        <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-lg font-semibold flex items-center gap-2">
+                                    <TrendingUp size={18} className="text-slate-400" />
+                                    {selectedSymbol} 歷史走勢與買入訊號
+                                    {onUpdateWatchlist && (
+                                        <button onClick={toggleWatchlist} className="ml-2 hover:scale-110 transition-transform">
+                                            {isWatchlisted
+                                                ? <span className="text-yellow-400 text-xl">★</span>
+                                                : <span className="text-slate-600 text-xl hover:text-yellow-400">☆</span>
+                                            }
+                                        </button>
+                                    )}
+                                </h2>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <button
+                                        onClick={() => setShowAdvanced(true)}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold glass hover:bg-white/[0.08] transition-colors"
+                                        style={{ color: 'var(--brand-1)' }}
+                                        title="進階技術分析"
+                                    >
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                                        </svg>
+                                        進階分析
+                                    </button>
+                                    <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
+                                </div>
+                            </div>
+                            <div className="h-[350px] w-full relative">
+                                <ChartComponent data={chartData} options={chartOptions} />
+                            </div>
+                        </div>
+                    )
+                    }
+
+                    {/* 新聞區 */}
+                    <div className="mt-8">
+                        <div className="flex items-center gap-2 mb-6">
+                            <Newspaper className="text-blue-500" />
+                            <h2 className="text-xl font-bold text-slate-200">臺股財經頭條 (Google News)</h2>
+                        </div>
+
+                        {!loading && !error && news.length > 0 && (
+                            <>
+                                <NewsAIAnalysis newsItems={news} isLocked={!userInfo.isPremium} />
+                                <NewsSummary news={news} />
+                            </>
+                        )}
+
+                        <NewsSection news={news} loading={loading} error={error} />
+                    </div>
+
+                    <div className="text-center text-slate-600 text-xs mt-8 pb-4">
+                        資料來源: Yahoo Finance, Google News, Smart DCA Bot (0050 歷史數據運算)
+                    </div>
+                    {showAdvanced && (
+                        <TechnicalChartModal
+                            symbol={selectedSymbol.includes('.') ? selectedSymbol : selectedSymbol + '.TW'}
+                            type="TW"
+                            onClose={() => setShowAdvanced(false)}
+                        />
+                    )}
+                </div >
+            );
+        };
+
+
+
+
+        // --- 加密貨幣儀表板 (Updated to use CoinMarketCap) ---
+        const CryptoDashboard = ({ notificationsEnabled, toggleNotifications, userInfo = { isPremium: false, watchlist: [] }, onUpdateWatchlist }) => {
+            const [showAdvanced, setShowAdvanced] = useState(false);
+            const [selectedCoin, setSelectedCoin] = useState('bitcoin'); // slug or id
+            const [timeRange, setTimeRange] = useState('1Y');
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [historicalData, setHistoricalData] = useState([]);
+            const [fullHistoricalData, setFullHistoricalData] = useState([]);
+            const [currentFNG, setCurrentFNG] = useState(null);
+            const [lastUpdated, setLastUpdated] = useState(null);
+            const [prices, setPrices] = useState(null);
+            const [newsData, setNewsData] = useState([]);
+            const [newsLoading, setNewsLoading] = useState(true);
+            const [newsError, setNewsError] = useState(null);
+            // Editable card list — slug = CoinGecko id (also used by CMC proxy)
+            const cryptoDefaults = [
+                { id: 'bitcoin', symbol: 'bitcoin', name: 'BTC', logo: 'https://cryptologos.cc/logos/bitcoin-btc-logo.png' },
+                { id: 'ethereum', symbol: 'ethereum', name: 'ETH', logo: 'https://cryptologos.cc/logos/ethereum-eth-logo.png' },
+            ];
+            const cryptoCards = useEditableCards('crypto-dashboard-cards', cryptoDefaults);
+            const [cryptoEditMode, setCryptoEditMode] = useState(false);
+
+            // Fetch current prices from Binance (no key, CORS-friendly, same source as history)
+            const fetchCurrentPrices = async (slugs = ['bitcoin', 'ethereum']) => {
+                try {
+                    const results = await Promise.all(slugs.map(async (slug) => {
+                        const binSym = getBinanceSymbol(slug);
+                        if (!binSym) return [slug, null];
+                        try {
+                            const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${binSym}`);
+                            if (!res.ok) return [slug, null];
+                            const d = await res.json();
+                            return [slug, {
+                                usd: +d.lastPrice,
+                                usd_24h_change: +d.priceChangePercent,
+                                symbol: binSym.replace(/USDT$/, ''),
+                            }];
+                        } catch (e) { return [slug, null]; }
+                    }));
+                    const newPrices = {};
+                    for (const [slug, p] of results) if (p) newPrices[slug] = p;
+                    setPrices(newPrices);
+                } catch (e) {
+                    console.warn("Binance Price Fetch Error:", e);
+                }
+            };
+
+            const fetchData = async () => {
+                setLoading(true);
+                setError(null);
+
+                // Fetch Prices first — include all user cards plus selected coin
+                const slugs = cryptoCards.cards.map(c => c.symbol);
+                if (!slugs.includes(selectedCoin)) slugs.push(selectedCoin);
+                fetchCurrentPrices(slugs);
+
+                try {
+                    // 1. Fetch FNG (Alternative.me)
+                    const fngResponse = await fetch('https://api.alternative.me/fng/?limit=365');
+                    const fngJson = await fngResponse.json();
+
+                    // 2. Process FNG (must happen before history merge)
+                    const fngMap = new Map();
+                    fngJson.data.forEach(item => {
+                        const date = new Date(item.timestamp * 1000).toISOString().split('T')[0];
+                        let rating = item.value_classification;
+                        const ratingMap = {
+                            "Extreme Fear": "極度恐懼", "extreme fear": "極度恐懼",
+                            "Fear": "恐懼", "fear": "恐懼",
+                            "Neutral": "中立", "neutral": "中立",
+                            "Greed": "貪婪", "greed": "貪婪",
+                            "Extreme Greed": "極度貪婪", "extreme greed": "極度貪婪"
+                        };
+                        rating = ratingMap[rating] || rating;
+                        fngMap.set(date, { value: parseInt(item.value), classification: rating });
+                    });
+
+                    // Set Current FNG
+                    const currentItem = fngJson.data[0];
+                    let currentRating = currentItem.value_classification;
+                    const ratingMap = { "Extreme Fear": "極度恐懼", "extreme fear": "極度恐懼", "Fear": "恐懼", "fear": "恐懼", "Neutral": "中立", "neutral": "中立", "Greed": "貪婪", "greed": "貪婪", "Extreme Greed": "極度貪婪", "extreme greed": "極度貪婪" };
+                    setCurrentFNG({ ...currentItem, value_classification: ratingMap[currentRating] || currentRating });
+
+                    // 3. Fetch Historical Prices — Binance klines (single source, no key, real daily OHLC)
+                    const binSym = getBinanceSymbol(selectedCoin);
+                    if (!binSym) throw new Error(`不支援的幣種：${selectedCoin}（不在 Binance 上市）`);
+                    const days = 365;
+                    const limit = Math.min(1000, days + 5);
+                    const binResponse = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=${limit}`);
+                    if (!binResponse.ok) throw new Error(`Binance API Error (status ${binResponse.status})`);
+                    const klines = await binResponse.json();
+
+                    // Merge price + FNG by date
+                    const mergedData = klines.map(k => {
+                        const timestamp = k[0];
+                        const dateStr = new Date(timestamp).toISOString().split('T')[0];
+                        const fng = fngMap.get(dateStr) || { value: 50, classification: 'Neutral' };
+                        return {
+                            date: dateStr,
+                            timestamp,
+                            price: +k[4], // close
+                            open: +k[1],
+                            high: +k[2],
+                            low: +k[3],
+                            fng: fng.value,
+                            classification: fng.classification
+                        };
+                    });
+
+                    setFullHistoricalData(mergedData);
+                    setLastUpdated(new Date());
+
+                } catch (err) {
+                    console.error("Fetch Data Failed:", err);
+                    setError(err.message + " (可能需等待由API限制)");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const fetchNews = async () => {
+                setNewsLoading(true);
+                try {
+                    const rssUrl = 'https://news.google.com/rss/search?q=加密貨幣&hl=zh-TW&gl=TW&ceid=TW:zh-Hant';
+                    const response = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
+                    const data = await response.json();
+                    if (data.status === 'ok') setNewsData(data.items);
+                } catch (e) {
+                    setNewsError(e.message);
+                } finally {
+                    setNewsLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                fetchData();
+                fetchNews();
+            }, [selectedCoin]);
+
+            // Local Filtering Effect
+            useEffect(() => {
+                if (!fullHistoricalData || fullHistoricalData.length === 0) return;
+
+                const now = new Date();
+                let filterDate = new Date();
+                let isAll = false;
+
+                if (timeRange === '1M') filterDate.setMonth(now.getMonth() - 1);
+                else if (timeRange === '6M') filterDate.setMonth(now.getMonth() - 6);
+                else if (timeRange === '1Y') isAll = true;
+                else if (timeRange === 'ALL') isAll = true;
+
+                const filtered = fullHistoricalData.filter(d => isAll || new Date(d.date) >= filterDate);
+                setHistoricalData(filtered);
+
+            }, [timeRange, fullHistoricalData]);
+
+            // Refetch card prices when the user edits the crypto card list
+            useEffect(() => {
+                const slugs = cryptoCards.cards.map(c => c.symbol);
+                if (!slugs.includes(selectedCoin)) slugs.push(selectedCoin);
+                if (slugs.length > 0) fetchCurrentPrices(slugs);
+            }, [cryptoCards.cards]);
+
+            // Watchlist Logic
+            const toggleWatchlist = () => {
+                if (!onUpdateWatchlist) return;
+                const currentList = userInfo.watchlist || [];
+                const exists = currentList.includes(selectedCoin);
+                let newList;
+                if (exists) {
+                    newList = currentList.filter(s => s !== selectedCoin);
+                } else {
+                    newList = [...currentList, selectedCoin];
+                }
+                onUpdateWatchlist(newList);
+            };
+
+            const isWatchlisted = (userInfo.watchlist || []).includes(selectedCoin);
+
+
+            const chartData = useMemo(() => {
+                if (!historicalData.length) return null;
+                const labels = historicalData.map(d => d.date);
+                const prices = historicalData.map(d => d.price);
+
+                return {
+                    labels,
+                    datasets: [{
+                        label: `${selectedCoin.toUpperCase()} 價格 (USD)`,
+                        data: prices,
+                        borderColor: CHART.line,
+                        backgroundColor: makePriceGradient,
+                        borderWidth: 2,
+                        pointBackgroundColor: historicalData.map(d => d.fng <= 25 ? CHART.fear : (d.fng <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')),
+                        pointBorderColor: historicalData.map(d => d.fng <= 25 ? CHART.fear : (d.fng <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')),
+                        pointRadius: historicalData.map(d => d.fng <= 44 ? (d.fng <= 25 ? 3 : 2) : 0),
+                        pointHoverRadius: 4,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                };
+            }, [historicalData, selectedCoin]);
+
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                        callbacks: {
+                            label: (context) => {
+                                const index = context.dataIndex;
+                                const data = historicalData[index];
+                                return [`價格: $${formatPrice(data.price)}`, `恐懼貪婪指數: ${data.fng} (${data.classification})`, data.fng <= 40 ? '🔴 建議 DCA 買入點' : '⚪ 觀望'];
+                            }
+                        }
+                    },
+                    title: { display: true, text: `${selectedCoin.toUpperCase()} 歷史走勢 (紅點為恐懼買入訊號)`, color: '#94a3b8' }
+                },
+                scales: {
+                    x: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, maxTicksLimit: 8 } },
+                    y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, callback: (value) => `$${formatPrice(value)}` } }
+                }
+            };
+
+            const getSuggestion = () => {
+                if (!currentFNG) return { text: "載入中...", color: "text-gray-400" };
+                const val = parseInt(currentFNG.value);
+                if (val <= 25) return { title: "極度恐懼 (Extreme Fear)", action: "強力買入", desc: "市場極度恐慌，這是歷史上最佳的累積籌碼時機。", bg: "bg-red-900/30", border: "border-red-500", text: "text-red-400" };
+                if (val <= 44) return { title: "恐懼 (Fear)", action: "分批買入", desc: "市場情緒低迷，適合執行標準 DCA 策略。", bg: "bg-orange-900/30", border: "border-orange-500", text: "text-orange-400" };
+                if (val <= 55) return { title: "中立 (Neutral)", action: "持有觀望", desc: "市場方向不明，建議暫停大額買入，保持觀望。", bg: "bg-gray-800", border: "border-gray-600", text: "text-gray-400" };
+                if (val <= 74) return { title: "貪婪 (Greed)", action: "停止買入", desc: "市場情緒過熱，風險增加，不建議此時進行 DCA。", bg: "bg-green-900/30", border: "border-green-500", text: "text-green-400" };
+                return { title: `極度貪婪 (Extreme Greed)`, action: "止盈/減倉", desc: "市場極度過熱，強烈建議止盈或停止所有買入操作。", bg: "bg-blue-900/30", border: "border-blue-500", text: "text-blue-400" };
+            };
+            const suggestion = getSuggestion();
+
+            return (
+                <div className="space-y-6">
+                    <SymbolSearch
+                        symbol={selectedCoin}
+                        onSearch={setSelectedCoin}
+                        placeholder="輸入幣種 (e.g. solana)"
+                        transformInput={(s) => s.toLowerCase()}
+                        isLocked={!userInfo.isPremium}
+                        userEmail={userInfo.email}
+                    />
+                    <EditableCardGrid
+                        title="加密貨幣"
+                        mobileRow
+                        cards={cryptoCards.cards}
+                        editMode={cryptoEditMode}
+                        onToggleEdit={() => setCryptoEditMode(!cryptoEditMode)}
+                        onMove={cryptoCards.moveCard}
+                        onRemove={cryptoCards.removeCard}
+                        onReset={cryptoCards.resetCards}
+                        onAdd={() => {
+                            const slug = (prompt('輸入幣種 slug（CoinGecko id，例如 bitcoin、solana、dogecoin）：') || '').trim().toLowerCase();
+                            if (!slug) return;
+                            const name = (prompt('顯示名稱（如 BTC、SOL，可留空）：') || '').trim() || slug.toUpperCase();
+                            cryptoCards.addCard({ id: slug, symbol: slug, name, logo: '' });
+                        }}
+                    >
+                        {cryptoCards.cards.map(c => {
+                            const p = prices && prices[c.symbol];
+                            const active = selectedCoin === c.symbol;
+                            return (
+                                <div
+                                    key={c.id}
+                                    onClick={() => !cryptoEditMode && setSelectedCoin(c.symbol)}
+                                    className={`${cryptoEditMode ? '' : 'cursor-pointer'} flex flex-col p-2.5 md:p-4 rounded-xl border transition-all h-full ${active ? 'bg-slate-800 border-blue-500 shadow-lg' : 'bg-slate-900/50 border-slate-800'}`}
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            {c.logo
+                                                ? <img src={c.logo} className="w-5 h-5 md:w-6 md:h-6 shrink-0" alt={c.name} onError={(e) => { e.target.style.display = 'none'; }} />
+                                                : <div className="w-5 h-5 md:w-6 md:h-6 shrink-0 rounded-full bg-slate-700 flex items-center justify-center text-[10px] md:text-xs text-slate-300">{c.name.slice(0, 1)}</div>
+                                            }
+                                            <span className="font-bold text-white text-sm md:text-base truncate">{c.name}</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-base md:text-xl font-mono text-white truncate">{p ? `$${formatPrice(p.usd)}` : '...'}</div>
+                                    {p && <div className={`text-[11px] md:text-xs ${p.usd_24h_change >= 0 ? 'text-green-400' : 'text-red-400'}`}>{p.usd_24h_change.toFixed(2)}%</div>}
+                                </div>
+                            );
+                        })}
+                    </EditableCardGrid>
+
+                    {loading && !historicalData.length ? (
+                        <div className="h-64 flex flex-col items-center justify-center text-slate-500 gap-4"><RefreshCw className="animate-spin" size={32} /><p>正在同步 CoinMarketCap 數據...</p></div>
+                    ) : error ? (
+                        <div className="bg-red-900/20 border border-red-500/50 text-red-200 p-6 rounded-xl flex items-center gap-4"><AlertTriangle size={24} /><div><h3 className="font-bold text-lg">載入失敗</h3><p className="text-sm opacity-90 my-2">{error}</p><button onClick={fetchData} className="px-4 py-2 bg-red-800 rounded">重試</button></div></div>
+                    ) : (
+                        <>
+                            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 shadow-xl flex flex-col items-center">
+                                <h2 className="text-xl font-bold text-slate-200 mb-4">加密貨幣恐懼與貪婪指數</h2>
+                                <FearGreedGauge fngValue={currentFNG?.value} classification={suggestion.title.split(' ')[0]} />
+                                {historicalData.length > 0 && <div className="w-full max-w-2xl mt-4 px-4"><SentimentScarcityBar data={historicalData.map(d => d.fng)} title="過去 365 天機會分佈" /></div>}
+                            </div>
+                            <div className={`p-6 rounded-2xl border ${suggestion.border} ${suggestion.bg} relative overflow-hidden`}>
+                                <div className="relative z-10 flex flex-col md:flex-row justify-between w-full max-w-lg mx-auto">
+                                    <div className="flex flex-col"><div className="text-sm opacity-70">DCA 策略</div><span className={`text-2xl font-bold ${suggestion.text}`}>{suggestion.title}</span><p className="mt-2 text-slate-300 text-sm max-w-lg">{suggestion.desc}</p></div>
+                                    <div className="flex flex-col items-center md:items-end gap-2 text-center md:text-right"><div className="text-sm text-slate-400">當前操作</div><div className={`text-xl font-bold ${suggestion.text} border-2 border-current px-4 py-1 rounded-lg`}>{suggestion.action}</div></div>
+                                </div>
+                                {currentFNG && prices && historicalData.length > 0 && (
+                                    <div className="mt-4 border-t border-slate-700 pt-4">
+                                        <AIAdviceBlock
+                                            assetName={`加密貨幣 (${selectedCoin.toUpperCase()})`}
+                                            priceStats={{ current: prices[selectedCoin]?.usd, high: Math.max(...historicalData.map(d => d.price)), low: Math.min(...historicalData.map(d => d.price)) }}
+                                            marketData={`資產: ${selectedCoin.toUpperCase()}\n價格: $${formatPrice(prices[selectedCoin]?.usd)}\n恐懼貪婪指數: ${currentFNG.value} (${currentFNG.value_classification})`}
+                                            isLocked={!userInfo.isPremium}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-lg font-semibold flex items-center gap-2">
+                                        <TrendingUp size={18} className="text-slate-400" />
+                                        歷史走勢 ({selectedCoin.toUpperCase()})
+                                        {onUpdateWatchlist && (
+                                            <button onClick={toggleWatchlist} className="ml-2 hover:scale-110 transition-transform">
+                                                {isWatchlisted
+                                                    ? <span className="text-yellow-400 text-xl">★</span>
+                                                    : <span className="text-slate-600 text-xl hover:text-yellow-400">☆</span>
+                                                }
+                                            </button>
+                                        )}
+                                    </h2>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <button
+                                            onClick={() => setShowAdvanced(true)}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold glass hover:bg-white/[0.08] transition-colors"
+                                            style={{ color: 'var(--brand-1)' }}
+                                            title="進階技術分析"
+                                        >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                                            </svg>
+                                            進階分析
+                                        </button>
+                                        <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
+                                    </div>
+                                </div>
+                                <div className="h-[300px] sm:h-[350px] w-full relative">
+                                    {chartData && <ChartComponent data={chartData} options={chartOptions} />}
+                                </div>
+                            </div>
+                            <div className="mt-8">
+                                <div className="flex items-center gap-2 mb-6"><Newspaper className="text-blue-500" /><h2 className="text-xl font-bold text-slate-200">今日幣圈頭條</h2></div>
+                                {!newsLoading && !newsError && newsData.length > 0 && <><NewsAIAnalysis newsItems={newsData} isLocked={!userInfo.isPremium} /><NewsSummary news={newsData} /></>}
+                                <NewsSection news={newsData} loading={newsLoading} error={newsError} />
+                            </div>
+                            <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 mt-6"><h3 className="font-bold text-slate-200 mb-3 flex items-center gap-2"><Info size={18} />關於數據來源</h3><div className="text-sm text-slate-400 space-y-2"><p><strong>價格數據:</strong> CoinMarketCap (即時), CoinGecko (歷史)</p><p><strong>情緒指標:</strong> Alternative.me Crypto Fear & Greed Index</p></div></div>
+                        </>
+                    )}
+                    {showAdvanced && (
+                        <TechnicalChartModal
+                            symbol={selectedCoin.toLowerCase()}
+                            type="CRYPTO"
+                            onClose={() => setShowAdvanced(false)}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        // --- Shared Chart Components & Logic ---
+
+        // 1. Universal FNG Chart (Price + Colored Dots)
+        const UniversalFNGChart = ({ data, symbol, title }) => {
+            if (!data || data.length === 0) return null;
+
+            const chartData = {
+                labels: data.map(d => d.date),
+                datasets: [
+                    {
+                        label: `${symbol} 價格`,
+                        data: data.map(d => d.price),
+                        borderColor: CHART.line,
+                        backgroundColor: makePriceGradient,
+                        yAxisID: 'y',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: data.map(d => {
+                            // Logic adapted for general FNG (0-100) or RSI (0-100)
+                            // For FNG: Low is Fear (Buy) -> Red/Orange
+                            // For RSI: Low is Oversold (Buy) -> Red/Orange
+                            // So logic is consistent: Low Value = Buy Signal (Red/Orange)
+                            if (d.fng <= 25) return CHART.fear; // Red
+                            if (d.fng <= 45) return CHART.fearLight; // Orange
+                            return 'rgba(0,0,0,0)';
+                        }),
+                        pointBorderColor: data.map(d => {
+                            if (d.fng <= 25) return CHART.fear;
+                            if (d.fng <= 45) return CHART.fearLight;
+                            return 'rgba(0,0,0,0)';
+                        }),
+                        pointRadius: data.map(d => {
+                            if (d.fng <= 45) return 3;
+                            return 0;
+                        }),
+                        pointHoverRadius: 4,
+                    }
+                ]
+            };
+
+            const options = {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        callbacks: {
+                            label: (context) => {
+                                const idx = context.dataIndex;
+                                const d = data[idx];
+                                return [
+                                    `價格: $${d.price.toLocaleString()}`,
+                                    `指標: ${d.fng} (${d.classification || 'N/A'})`,
+                                    d.fng <= 40 ? '🔴 建議 DCA 買入點' : '⚪ 觀望'
+                                ];
+                            }
+                        }
+                    },
+                    title: { display: true, text: title || `${symbol} 趨勢圖 (紅/橘點為買入訊號)`, color: '#94a3b8' }
+                },
+                scales: {
+                    y: { type: 'linear', display: true, position: 'left', grid: { color: CHART.grid }, ticks: { color: CHART.tick } },
+                    x: { ticks: { color: CHART.tick, maxTicksLimit: 8 }, grid: { display: false } }
+                }
+            };
+            return <ChartComponent data={chartData} options={options} />;
+        };
+
+        // 2. Chart Modal
+        const ChartModal = ({ symbol, type, onClose }) => {
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [chartData, setChartData] = useState([]);
+            const [stats, setStats] = useState(null); // { currentFng, classification, etc }
+
+            useEffect(() => {
+                const loadData = async () => {
+                    setLoading(true);
+                    setError(null);
+                    try {
+                        let mergedData = [];
+                        let currentStats = {};
+
+                        if (type === 'US') {
+                            // Fetch CNN FNG + Yahoo
+                            const proxyUrl = 'https://cors.hellokai07.com/?' + encodeURIComponent('https://production.dataviz.cnn.io/index/fearandgreed/graphdata');
+                            const fngRes = await fetch(proxyUrl);
+                            const fngJson = await fngRes.json();
+                            const fngMap = new Map();
+                            if (fngJson.fear_and_greed_historical?.data) {
+                                fngJson.fear_and_greed_historical.data.forEach(item => {
+                                    fngMap.set(new Date(item.x).toISOString().split('T')[0], Math.round(item.y));
+                                });
+                            }
+
+                            // Yahoo
+                            const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1y`;
+                            const yfRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
+                            const yfJson = await yfRes.json();
+                            const result = yfJson.chart.result[0];
+                            const quotes = result.indicators.quote[0].close;
+                            const times = result.timestamp;
+
+                            mergedData = times.map((t, i) => {
+                                const date = new Date(t * 1000).toISOString().split('T')[0];
+                                const price = quotes[i];
+                                if (!price) return null;
+                                let fng = fngMap.get(date) || 50;
+                                return { date, price, fng, classification: fng <= 25 ? 'Extreme Fear' : fng <= 45 ? 'Fear' : 'Neutral' };
+                            }).filter(d => d);
+
+                            currentStats = {
+                                value: Math.round(fngJson.fear_and_greed.score),
+                                label: fngJson.fear_and_greed.rating
+                            };
+                        } else if (type === 'CRYPTO') {
+                            // Binance klines + Alt.me FNG
+                            const id = symbol.toLowerCase();
+                            const binSym = getBinanceSymbol(id);
+                            if (!binSym) throw new Error(`不支援的幣種：${symbol}（不在 Binance 上市）`);
+
+                            // FNG
+                            const fngRes = await fetch('https://api.alternative.me/fng/?limit=365');
+                            const fngJson = await fngRes.json();
+                            const fngMap = new Map();
+                            fngJson.data.forEach(item => fngMap.set(new Date(item.timestamp * 1000).toISOString().split('T')[0], parseInt(item.value)));
+
+                            // Binance (real daily OHLC)
+                            const binRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=370`);
+                            if (!binRes.ok) throw new Error(`Binance returned ${binRes.status}`);
+                            const klines = await binRes.json();
+
+                            mergedData = klines.map(k => {
+                                const date = new Date(k[0]).toISOString().split('T')[0];
+                                const fng = fngMap.get(date) || 50;
+                                return { date, price: +k[4], fng, classification: fng <= 25 ? 'Extreme Fear' : fng <= 45 ? 'Fear' : 'Neutral' };
+                            });
+                            const last = fngJson.data[0];
+                            currentStats = { value: last.value, label: last.value_classification };
+
+                        } else if (type === 'TW') {
+                            // Yahoo + RSI
+                            const yfSymbol = symbol.includes('.') ? symbol : `${symbol}.TW`;
+                            const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yfSymbol}?interval=1d&range=1y`;
+                            const yfRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yfUrl));
+                            const yfJson = await yfRes.json();
+                            const result = yfJson.chart.result[0];
+                            const quotes = result.indicators.quote[0].close;
+                            const times = result.timestamp;
+
+                            const cleanData = times.map((t, i) => ({ price: quotes[i], date: new Date(t * 1000).toISOString().split('T')[0] })).filter(d => d.price);
+
+                            // Calc RSI (Global Helper Logic)
+                            const rsiData = [];
+                            let period = 14;
+                            let gains = 0, losses = 0;
+                            // Note: simplified RSI calc for brevity inside modal
+                            for (let i = 1; i <= period; i++) {
+                                const chg = cleanData[i].price - cleanData[i - 1].price;
+                                if (chg > 0) gains += chg; else losses -= chg;
+                            }
+                            let avgGain = gains / period, avgLoss = losses / period;
+
+                            for (let i = period + 1; i < cleanData.length; i++) {
+                                const chg = cleanData[i].price - cleanData[i - 1].price;
+                                avgGain = ((avgGain * 13) + (chg > 0 ? chg : 0)) / 14;
+                                avgLoss = ((avgLoss * 13) + (chg < 0 ? -chg : 0)) / 14;
+                                let rs = avgGain / avgLoss;
+                                let rsi = 100 - (100 / (1 + rs));
+                                rsiData.push({ ...cleanData[i], fng: Math.round(rsi), classification: rsi <= 30 ? 'Oversold' : rsi >= 70 ? 'Overbought' : 'Neutral' });
+                            }
+                            mergedData = rsiData;
+                            if (mergedData.length > 0) {
+                                const last = mergedData[mergedData.length - 1];
+                                currentStats = { value: last.fng, label: last.classification };
+                            }
+                        }
+
+                        setChartData(mergedData);
+                        setStats(currentStats);
+                    } catch (e) {
+                        console.error(e);
+                        setError("無法載入圖表數據: " + e.message);
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+                loadData();
+            }, [symbol, type]);
+
+            return (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] backdrop-blur-sm p-4" onClick={onClose}>
+                    <div className="bg-slate-900 w-full max-w-3xl rounded-2xl border border-slate-700 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50 backdrop-blur">
+                            <div>
+                                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                                    <TrendingUp size={20} className="text-blue-500" />
+                                    {symbol} 趨勢分析
+                                </h3>
+                                <p className="text-xs text-slate-400">{type === 'TW' ? '價格 vs RSI (趨勢強弱)' : '價格 vs 恐懼貪婪指數'}</p>
+                            </div>
+                            <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-white">
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto">
+                            {loading ? (
+                                <div className="h-64 flex items-center justify-center text-slate-500 gap-2">
+                                    <RefreshCw className="animate-spin" /> 分析數據中...
+                                </div>
+                            ) : error ? (
+                                <div className="h-64 flex items-center justify-center text-red-400 gap-2">
+                                    <AlertTriangle /> {error}
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="h-[350px] w-full bg-slate-950/50 rounded-xl p-2">
+                                        <UniversalFNGChart
+                                            data={chartData}
+                                            symbol={symbol}
+                                            title={type === 'TW' ? `${symbol} 歷史走勢 (紅點=RSI超賣)` : undefined}
+                                        />
+                                    </div>
+
+                                    {stats && (
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                                                <div className="text-slate-400 text-xs mb-1">當前指標 ({type === 'TW' ? 'RSI' : 'FNG'})</div>
+                                                <div className="text-2xl font-bold text-white flex items-baseline gap-2">
+                                                    {stats.value}
+                                                    <span className="text-sm font-normal text-slate-400">/ 100</span>
+                                                </div>
+                                                <div className={`text-sm font-bold ${stats.value <= 40 ? 'text-red-400' : stats.value >= 75 ? 'text-green-400' : 'text-blue-400'}`}>
+                                                    {stats.label}
+                                                </div>
+                                            </div>
+                                            <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
+                                                <div className="text-slate-400 text-xs mb-1">AI 策略建議</div>
+                                                <div className="text-lg font-bold text-white">
+                                                    {stats.value <= 30 ? '🟢 強力買入區' : stats.value <= 50 ? '🟡 分批買入區 (DCA)' : '⚪ 觀望 / 止盈'}
+                                                </div>
+                                                <p className="text-xs text-slate-500 mt-1">
+                                                    {stats.value <= 50 ? '市場情緒低迷，適合執行 DCA 累積籌碼。' : '市場情緒樂觀，建議謹慎操作。'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Watchlist Dashboard Feature ---
+        // ─────────────────────────────────────────────
+        // Shared RSI helper (used by Watchlist + future Insights)
+        // ─────────────────────────────────────────────
+        const computeRSI = (closes, period = 14) => {
+            if (!closes || closes.length < period + 1) return null;
+            let gains = 0, losses = 0;
+            for (let i = 1; i <= period; i++) {
+                const d = closes[i] - closes[i - 1];
+                if (d > 0) gains += d; else losses -= d;
+            }
+            let avgGain = gains / period;
+            let avgLoss = losses / period;
+            // Smoothed RSI for the rest
+            for (let i = period + 1; i < closes.length; i++) {
+                const d = closes[i] - closes[i - 1];
+                const gain = d > 0 ? d : 0;
+                const loss = d < 0 ? -d : 0;
+                avgGain = (avgGain * (period - 1) + gain) / period;
+                avgLoss = (avgLoss * (period - 1) + loss) / period;
+            }
+            if (avgLoss === 0) return 100;
+            const rs = avgGain / avgLoss;
+            return 100 - 100 / (1 + rs);
+        };
+
+        // ─────────────────────────────────────────────
+        // EMA & MACD helpers (used by TechnicalChartModal)
+        // ─────────────────────────────────────────────
+        const computeEMA = (values, period) => {
+            if (!values || values.length < period) return values ? values.map(() => null) : [];
+            const k = 2 / (period + 1);
+            const out = new Array(values.length).fill(null);
+            // Seed with SMA at index period-1
+            let sum = 0;
+            for (let i = 0; i < period; i++) sum += values[i];
+            out[period - 1] = sum / period;
+            for (let i = period; i < values.length; i++) {
+                out[i] = values[i] * k + out[i - 1] * (1 - k);
+            }
+            return out;
+        };
+
+        const computeMACD = (closes, fast = 12, slow = 26, signal = 9) => {
+            const emaFast = computeEMA(closes, fast);
+            const emaSlow = computeEMA(closes, slow);
+            const dif = closes.map((_, i) =>
+                (emaFast[i] !== null && emaSlow[i] !== null) ? emaFast[i] - emaSlow[i] : null
+            );
+            // Compute DEA only on the valid range
+            const firstValid = dif.findIndex(v => v !== null);
+            const validDif = firstValid >= 0 ? dif.slice(firstValid) : [];
+            const deaValid = computeEMA(validDif.filter(v => v !== null), signal);
+            const dea = new Array(closes.length).fill(null);
+            for (let i = 0; i < deaValid.length; i++) {
+                dea[firstValid + i] = deaValid[i];
+            }
+            const histogram = dif.map((v, i) =>
+                (v !== null && dea[i] !== null) ? v - dea[i] : null
+            );
+            return { dif, dea, histogram };
+        };
+
+        // Composite signal: RSI + 1Y position
+        // RSI thresholds stay standard (30/70). 1Y position acts as amplifier to catch
+        // cases like "RSI 60 but price at 95% of 1Y high" → still a sell warning.
+        const getCompositeSignal = (rsi, position) => {
+            if (rsi === null || rsi === undefined) return { label: '—', emoji: '⚪', color: 'var(--text-3)', advice: '計算中' };
+            const pos = (position === null || position === undefined) ? 0.5 : position;
+
+            // 強力加碼: RSI 極度超賣 OR (RSI 超賣 且 接近 1Y 低)
+            if (rsi <= 25 || (rsi <= 30 && pos <= 0.10)) {
+                return { label: '強力加碼', emoji: '🔥', color: '#3ce0a8', advice: '極度超賣' };
+            }
+            // 加碼: RSI 超賣 OR (RSI 偏低 且 接近 1Y 低)
+            if (rsi <= 30 || (rsi <= 40 && pos <= 0.20)) {
+                return { label: '加碼', emoji: '🟢', color: '#84d76a', advice: '超賣' };
+            }
+            // 強力賣出: RSI 極度超買 OR (RSI 偏高 且 1Y 高點)
+            if (rsi >= 75 || (rsi >= 65 && pos >= 0.95)) {
+                return { label: '強力賣出', emoji: '🚨', color: '#ff5b6e', advice: '極度超買' };
+            }
+            // 賣出: RSI 超買 OR (RSI 偏高 且 接近 1Y 高)
+            if (rsi >= 70 || (rsi >= 60 && pos >= 0.90)) {
+                return { label: '賣出', emoji: '🔴', color: '#ff7d8c', advice: '超買' };
+            }
+            // 警示: RSI 接近超買 OR 純粹接近 1Y 高
+            if (rsi >= 65 || pos >= 0.85) {
+                return { label: '警示', emoji: '🟡', color: '#fbbf24', advice: '接近超買' };
+            }
+            // 觀望: RSI 中性偏強
+            if (rsi >= 50) {
+                return { label: '觀望', emoji: '⚪', color: 'var(--text-2)', advice: '中性偏強' };
+            }
+            // 持有: RSI 中性偏弱
+            return { label: '持有', emoji: '⚪', color: 'var(--text-2)', advice: '中性偏弱' };
+        };
+        // Backwards-compat alias
+        const getRsiSignal = getCompositeSignal;
+
+        // ─────────────────────────────────────────────
+        // useLocalState — persist a piece of state to localStorage so reload remembers it
+        // ─────────────────────────────────────────────
+        const useLocalState = (key, defaultValue) => {
+            const [v, setV] = useState(() => {
+                try {
+                    const raw = localStorage.getItem(key);
+                    return raw !== null ? JSON.parse(raw) : defaultValue;
+                } catch { return defaultValue; }
+            });
+            useEffect(() => {
+                try { localStorage.setItem(key, JSON.stringify(v)); } catch {}
+            }, [key, v]);
+            return [v, setV];
+        };
+
+        // CoinGecko slug → Binance USDT pair. Crypto data goes through Binance entirely
+        // (no key, CORS-friendly, real daily klines, single source = no merge artefacts).
+        const COIN_TO_BINANCE = {
+            bitcoin: 'BTCUSDT', ethereum: 'ETHUSDT', solana: 'SOLUSDT', binancecoin: 'BNBUSDT',
+            ripple: 'XRPUSDT', cardano: 'ADAUSDT', dogecoin: 'DOGEUSDT', polkadot: 'DOTUSDT',
+            'avalanche-2': 'AVAXUSDT', tron: 'TRXUSDT', chainlink: 'LINKUSDT',
+            'matic-network': 'MATICUSDT', litecoin: 'LTCUSDT', 'shiba-inu': 'SHIBUSDT',
+            cosmos: 'ATOMUSDT', uniswap: 'UNIUSDT', near: 'NEARUSDT', aptos: 'APTUSDT',
+            sui: 'SUIUSDT', arbitrum: 'ARBUSDT', optimism: 'OPUSDT', filecoin: 'FILUSDT',
+            'internet-computer': 'ICPUSDT', stellar: 'XLMUSDT', 'bitcoin-cash': 'BCHUSDT',
+            algorand: 'ALGOUSDT', vechain: 'VETUSDT', 'the-graph': 'GRTUSDT',
+            aave: 'AAVEUSDT', maker: 'MKRUSDT', tezos: 'XTZUSDT', monero: 'XMRUSDT',
+            pepe: 'PEPEUSDT', floki: 'FLOKIUSDT', 'bonk': 'BONKUSDT',
+            ondo: 'ONDOUSDT', injective: 'INJUSDT', sei: 'SEIUSDT', kaspa: 'KASUSDT',
+            'render-token': 'RNDRUSDT', 'fetch-ai': 'FETUSDT', worldcoin: 'WLDUSDT',
+            'ethereum-classic': 'ETCUSDT', 'hedera-hashgraph': 'HBARUSDT',
+            'first-digital-usd': 'FDUSDUSDT', 'true-usd': 'TUSDUSDT',
+        };
+
+        // Resolve a CoinGecko slug or short ticker to a Binance symbol. Returns null if not on Binance.
+        const getBinanceSymbol = (slug) => {
+            const lower = (slug || '').toLowerCase();
+            if (COIN_TO_BINANCE[lower]) return COIN_TO_BINANCE[lower];
+            // Heuristic: short alphanumeric (likely a ticker like 'pepe' or 'ada') → try LOWERUSDT
+            if (/^[a-z0-9]{2,7}$/.test(lower)) return lower.toUpperCase() + 'USDT';
+            return null;
+        };
+
+        // Days lookup shared by price + FNG fetchers
+        const rangeToDays = (r) => (
+            r === '1mo' ? 30 : r === '3mo' ? 90 : r === '6mo' ? 180 :
+            r === '1y' ? 365 : r === '2y' ? 730 : r === '5y' ? 1825 :
+            r === 'max' ? 1825 : 365
+        );
+
+        // ─────────────────────────────────────────────
+        // aggregateToWeekly — collapse a daily price/OHLC series into weekly buckets (Mon-anchored)
+        // Each weekly bar: open = first day's open or first price, high = max high, low = min low,
+        //                  price (close) = last day's close, date = Monday of the week
+        // ─────────────────────────────────────────────
+        const aggregateToWeekly = (daily) => {
+            if (!Array.isArray(daily) || daily.length === 0) return daily || [];
+            const buckets = new Map();
+            for (const p of daily) {
+                if (!p || !p.date) continue;
+                const d = new Date(p.date + 'T00:00:00Z');
+                if (isNaN(d.getTime())) continue;
+                // Find Monday of the same ISO week (getUTCDay: 0=Sun,1=Mon,...)
+                const dow = d.getUTCDay();
+                const diff = dow === 0 ? -6 : 1 - dow; // shift back to Monday
+                const mon = new Date(d.getTime() + diff * 86400000);
+                const key = mon.toISOString().slice(0, 10);
+                let b = buckets.get(key);
+                if (!b) {
+                    b = { date: key, _firstTs: d.getTime(), _lastTs: d.getTime(),
+                          open: p.open ?? p.price, high: p.high ?? p.price, low: p.low ?? p.price, price: p.price };
+                    buckets.set(key, b);
+                } else {
+                    if (d.getTime() < b._firstTs) { b.open = p.open ?? p.price; b._firstTs = d.getTime(); }
+                    if (d.getTime() > b._lastTs)  { b.price = p.price; b._lastTs = d.getTime(); }
+                    const ph = p.high ?? p.price, pl = p.low ?? p.price;
+                    if (ph != null) b.high = b.high == null ? ph : Math.max(b.high, ph);
+                    if (pl != null) b.low  = b.low  == null ? pl : Math.min(b.low,  pl);
+                }
+            }
+            // Sort by date
+            const out = Array.from(buckets.values()).sort((a, b) => a.date.localeCompare(b.date));
+            // Clean internal fields
+            for (const b of out) { delete b._firstTs; delete b._lastTs; }
+            return out;
+        };
+
+        // ─────────────────────────────────────────────
+        // TechnicalChartModal — full-screen analysis built on
+        // TradingView Lightweight Charts v5 + deepentropy/lightweight-charts-drawing
+        // (68 community-built drawing tools).
+        // ─────────────────────────────────────────────
+        // EMA Ribbon — mirrors the Pine "BTC EMA Ribbon Reversal" indicator
+        //   fast = 20, slow = 55, four mid lines at round(fast + (slow-fast)*0.2/0.4/0.6/0.8)
+        const EMA_FAST = 20;
+        const EMA_SLOW = 55;
+        const EMA_PERIODS = (() => {
+            const f = EMA_FAST, s = EMA_SLOW;
+            return [f,
+                Math.round(f + (s - f) * 0.2),
+                Math.round(f + (s - f) * 0.4),
+                Math.round(f + (s - f) * 0.6),
+                Math.round(f + (s - f) * 0.8),
+                s];
+        })();
+        // Single semi-transparent color flips with the latest fast>slow trend (matches Pine color.new(..., 40))
+        const EMA_BULL_COLOR = 'rgba(0, 200, 83, 0.6)';
+        const EMA_BEAR_COLOR = 'rgba(255, 23, 68, 0.6)';
+        const UP_COLOR = '#00d68f';
+        const DOWN_COLOR = '#ff5b6e';
+
+        // 68 tools grouped into 8 categories. Anchor counts come from the library's registry.
+        const DRAWING_TOOL_CATEGORIES = [
+            { key: 'line', label: '線', tools: [
+                { type: 'trend-line', name: '趨勢線', a: 2 },
+                { type: 'ray', name: '射線', a: 2 },
+                { type: 'extended-line', name: '延伸線', a: 2 },
+                { type: 'horizontal-line', name: '水平線', a: 1 },
+                { type: 'horizontal-ray', name: '水平射線', a: 1 },
+                { type: 'vertical-line', name: '垂直線', a: 1 },
+                { type: 'cross-line', name: '十字線', a: 1 },
+                { type: 'info-line', name: '訊息線', a: 2 },
+                { type: 'trend-angle', name: '趨勢角度', a: 2 },
+                { type: 'arrow', name: '箭頭', a: 2 },
+            ]},
+            { key: 'channel', label: '通道', tools: [
+                { type: 'parallel-channel', name: '平行通道', a: 3 },
+                { type: 'regression-trend', name: '迴歸趨勢', a: 2 },
+                { type: 'flat-top-bottom', name: '平頂 / 底', a: 3 },
+                { type: 'disjoint-channel', name: '斷開通道', a: 4 },
+            ]},
+            { key: 'pitchfork', label: '叉形', tools: [
+                { type: 'andrews-pitchfork', name: 'Andrews 叉形', a: 3 },
+                { type: 'schiff-pitchfork', name: 'Schiff 叉形', a: 3 },
+                { type: 'modified-schiff-pitchfork', name: 'Modified Schiff', a: 3 },
+                { type: 'inside-pitchfork', name: 'Inside 叉形', a: 3 },
+            ]},
+            { key: 'fibonacci', label: '黃金分割', tools: [
+                { type: 'fib-retracement', name: 'Fib 回撤', a: 2 },
+                { type: 'fib-extension', name: 'Fib 延伸', a: 3 },
+                { type: 'fib-channel', name: 'Fib 通道', a: 3 },
+                { type: 'fib-time-zone', name: 'Fib 時區', a: 2 },
+                { type: 'fib-speed-fan', name: 'Fib 速度扇形', a: 2 },
+                { type: 'fib-time-extension', name: 'Fib 時間延伸', a: 3 },
+                { type: 'fib-circles', name: 'Fib 圓', a: 2 },
+                { type: 'fib-spiral', name: 'Fib 螺旋', a: 2 },
+                { type: 'fib-arcs', name: 'Fib 弧', a: 2 },
+                { type: 'fib-wedge', name: 'Fib 楔形', a: 3 },
+                { type: 'pitchfan', name: 'Pitchfan', a: 3 },
+            ]},
+            { key: 'gann', label: '江恩', tools: [
+                { type: 'gann-box', name: '江恩盒', a: 2 },
+                { type: 'gann-fan', name: '江恩扇形', a: 2 },
+                { type: 'gann-square-fixed', name: '江恩方形（固定）', a: 1 },
+                { type: 'gann-square', name: '江恩方形', a: 2 },
+            ]},
+            { key: 'forecasting', label: '預測', tools: [
+                { type: 'long-position', name: '多單部位', a: 3 },
+                { type: 'short-position', name: '空單部位', a: 3 },
+                { type: 'forecast', name: '預測', a: 2 },
+                { type: 'bars-pattern', name: 'K 棒模式', a: 3 },
+                { type: 'projection', name: '投影', a: 3 },
+                { type: 'price-range', name: '價格區間', a: 2 },
+                { type: 'date-range', name: '日期區間', a: 2 },
+                { type: 'date-price-range', name: '日期 + 價格區間', a: 2 },
+            ]},
+            { key: 'shape', label: '形狀', tools: [
+                { type: 'rectangle', name: '矩形', a: 2 },
+                { type: 'rotated-rectangle', name: '旋轉矩形', a: 3 },
+                { type: 'circle', name: '圓形', a: 2 },
+                { type: 'triangle', name: '三角形', a: 3 },
+                { type: 'ellipse', name: '橢圓', a: 2 },
+                { type: 'arc', name: '弧', a: 3 },
+                { type: 'path', name: '路徑', a: 2 },
+                { type: 'polyline', name: '折線', a: 2 },
+                { type: 'curve', name: '曲線', a: 4 },
+                { type: 'double-curve', name: '雙曲線', a: 3 },
+            ]},
+            { key: 'annotation', label: '標註', tools: [
+                { type: 'text-annotation', name: '文字', a: 1 },
+                { type: 'callout', name: '標註框', a: 2 },
+                { type: 'anchored-text', name: '錨定文字', a: 2 },
+                { type: 'note', name: '便籤', a: 1 },
+                { type: 'price-note', name: '價格便籤', a: 1 },
+                { type: 'price-label', name: '價格標籤', a: 1 },
+                { type: 'flag-mark', name: '旗幟', a: 1 },
+                { type: 'pin', name: '釘子', a: 1 },
+                { type: 'comment', name: '註解', a: 1 },
+                { type: 'signpost', name: '路標', a: 1 },
+                { type: 'table', name: '表格', a: 1 },
+                { type: 'brush', name: '筆刷', a: 2 },
+                { type: 'highlighter', name: '螢光筆', a: 2 },
+                { type: 'arrow-marker', name: '箭頭記號', a: 1 },
+                { type: 'arrow-mark-up', name: '向上箭頭', a: 1 },
+                { type: 'arrow-mark-down', name: '向下箭頭', a: 1 },
+            ]},
+        ];
+
+        // FNG → bull/bear/neutral classification (mirrors the dashboard's DCA suggestion)
+        const fngClassify = (v) => {
+            if (v == null || isNaN(v)) return null;
+            if (v <= 25) return { tone: 'bull', label: '極度恐懼' };
+            if (v <= 45) return { tone: 'bull', label: '恐懼' };
+            if (v <= 55) return { tone: 'neutral', label: '中立' };
+            if (v <= 74) return { tone: 'bear', label: '貪婪' };
+            return { tone: 'bear', label: '極度貪婪' };
+        };
+
+        const TechnicalChartModal = ({ symbol, type, onClose }) => {
+            const containerRef = useRef(null);
+            const chartRef = useRef(null);
+            const candleSeriesRef = useRef(null);
+            const emaSeriesRef = useRef([]);
+            const ma200SeriesRef = useRef(null);
+            const rsiSeriesRef = useRef(null);
+            const macdRefs = useRef({ dif: null, dea: null, hist: null });
+            const markersPluginRef = useRef(null);     // candle pane: holds FNG dots + EMA LONG/SHORT
+            const rsiMarkersRef = useRef(null);        // RSI pane: 30 / 70 crossover markers
+            const macdMarkersRef = useRef(null);       // MACD pane: DIF×DEA golden / death cross markers
+            const emaCrossesRef = useRef([]);          // cached so the FNG-markers effect can merge them
+            const drawingManagerRef = useRef(null);
+            const drawingsRef = useRef([]);
+            const activeToolRef = useRef(null);
+            const pendingAnchorsRef = useRef([]);
+            const selectedDrawingIdRef = useRef(null);
+            const candleDataRef = useRef([]);
+
+            const [showHelp, setShowHelp] = useState(false);
+            const [activeTool, setActiveTool] = useState(null); // { type, name, requiredAnchors, collected }
+            const [openCategory, setOpenCategory] = useState(null);
+            const [hasSelection, setHasSelection] = useState(false);
+            const [hoverInfo, setHoverInfo] = useState(null); // { time, open, high, low, close, prevClose }
+
+            const [showEMA, setShowEMA] = useLocalState('tech-show-ema', true);
+            const [showMA200, setShowMA200] = useLocalState('tech-show-ma200', true);
+            const [showRSI, setShowRSI] = useLocalState('tech-show-rsi', true);
+            const [showMACD, setShowMACD] = useLocalState('tech-show-macd', true);
+            const [showFearSignal, setShowFearSignal] = useLocalState('tech-show-fear', true);
+            const [showComposite, setShowComposite] = useLocalState('tech-show-composite', true);
+            const [showSignalPanel, setShowSignalPanel] = useLocalState('tech-show-panel', true);
+            const [timeframe, setTimeframe] = useLocalState('tech-timeframe', '1d'); // '1d' | '1wk'
+
+            const signalSource = (type === 'CRYPTO' || type === 'crypto' || type === 'US') ? 'fng' : 'rsi';
+            const [fngHistory, setFngHistory] = useState([]);
+            const [timeRange, setTimeRange] = useState('1y');
+            const [history, setHistory] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+
+            // Auto-extend the underlying fetch range so indicators have enough bars to compute
+            const effectiveHistoryRange = useMemo(() => {
+                let r = timeRange;
+                if (timeframe === '1wk' && ['1mo', '3mo', '6mo', '1y'].includes(r)) r = '2y';
+                if (showMA200) {
+                    if (timeframe === '1d' && ['1mo', '3mo', '6mo'].includes(r)) r = '1y';
+                    if (timeframe === '1wk' && ['1y', '2y'].includes(r)) r = '5y';
+                }
+                return r;
+            }, [timeframe, timeRange, showMA200]);
+
+            // ─── Fetch price history (Binance for crypto, Yahoo via cors proxy for stocks) ───
+            useEffect(() => {
+                if (!symbol) return;
+                let cancelled = false;
+                (async () => {
+                    setLoading(true);
+                    setError(null);
+                    try {
+                        const apiType = (type === 'CRYPTO' || type === 'crypto') ? 'crypto' : 'stock';
+                        if (apiType === 'crypto') {
+                            const binSym = getBinanceSymbol(symbol);
+                            if (!binSym) { setError(`不支援的幣種：${symbol}（不在 Binance 上市）`); setHistory([]); return; }
+                            const days = rangeToDays(effectiveHistoryRange);
+                            const limit = Math.min(1000, days + 5);
+                            const binRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=${limit}`);
+                            if (cancelled) return;
+                            if (!binRes.ok) { setError(`Binance returned ${binRes.status}`); setHistory([]); return; }
+                            const klines = await binRes.json();
+                            setHistory(klines.map(k => ({
+                                date: new Date(k[0]).toISOString().slice(0, 10),
+                                price: +k[4], open: +k[1], high: +k[2], low: +k[3],
+                            })));
+                            return;
+                        }
+                        const range = ['1mo','3mo','6mo','1y','2y','5y','max'].includes(effectiveHistoryRange) ? effectiveHistoryRange : 'max';
+                        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`;
+                        const stockRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yahooUrl));
+                        if (cancelled) return;
+                        if (!stockRes.ok) { setError(`Yahoo returned ${stockRes.status}`); setHistory([]); return; }
+                        const yfJson = await stockRes.json();
+                        const result = yfJson?.chart?.result?.[0];
+                        if (!result) { setError(yfJson?.chart?.error?.description || '查無此代號'); setHistory([]); return; }
+                        const ts = result.timestamp || [];
+                        const q = result.indicators?.quote?.[0] || {};
+                        const opens = q.open || [], highs = q.high || [], lows = q.low || [], closes = q.close || [];
+                        const hist = [];
+                        for (let i = 0; i < ts.length; i++) {
+                            const c = closes[i];
+                            if (c == null || isNaN(c)) continue;
+                            const entry = { date: new Date(ts[i] * 1000).toISOString().slice(0, 10), price: c };
+                            if (opens[i] != null && !isNaN(opens[i])) entry.open = opens[i];
+                            if (highs[i] != null && !isNaN(highs[i])) entry.high = highs[i];
+                            if (lows[i] != null && !isNaN(lows[i])) entry.low = lows[i];
+                            hist.push(entry);
+                        }
+                        setHistory(hist);
+                    } catch (e) {
+                        if (!cancelled) setError(String(e));
+                    } finally {
+                        if (!cancelled) setLoading(false);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [symbol, type, effectiveHistoryRange]);
+
+            // ─── Fetch FNG history (crypto / US only) ───
+            useEffect(() => {
+                if (signalSource !== 'fng') { setFngHistory([]); return; }
+                let cancelled = false;
+                (async () => {
+                    try {
+                        const r = effectiveHistoryRange;
+                        const days = r === '1mo' ? 30 : r === '3mo' ? 90 : r === '6mo' ? 180 :
+                                     r === '1y' ? 365 : r === '2y' ? 730 : r === 'max' ? 1825 : 365;
+                        if (type === 'CRYPTO' || type === 'crypto') {
+                            const res = await fetch(`https://api.alternative.me/fng/?limit=${days}&format=json`);
+                            const json = await res.json();
+                            if (cancelled) return;
+                            const arr = (json.data || []).map(d => ({
+                                date: new Date(Number(d.timestamp) * 1000).toISOString().slice(0, 10),
+                                fng: parseInt(d.value, 10),
+                            })).reverse();
+                            setFngHistory(arr);
+                        } else if (type === 'US') {
+                            const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent('https://production.dataviz.cnn.io/index/fearandgreed/graphdata'));
+                            const json = await res.json();
+                            if (cancelled) return;
+                            const raw = json?.fear_and_greed_historical?.data || [];
+                            setFngHistory(raw.map(d => ({ date: new Date(d.x).toISOString().slice(0, 10), fng: Math.round(d.y) })));
+                        }
+                    } catch (e) {
+                        console.warn('FNG fetch failed:', e);
+                        if (!cancelled) setFngHistory([]);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [type, effectiveHistoryRange, signalSource]);
+
+            const displayHistory = useMemo(
+                () => (timeframe === '1wk' ? aggregateToWeekly(history) : history),
+                [history, timeframe]
+            );
+
+            const candleData = useMemo(() => {
+                const seen = new Set();
+                const arr = displayHistory
+                    .filter(p => { if (seen.has(p.date)) return false; seen.add(p.date); return true; })
+                    .map(p => ({
+                        time: Math.floor(new Date(p.date + 'T00:00:00Z').getTime() / 1000),
+                        open: +(p.open ?? p.price),
+                        high: +(p.high ?? p.price),
+                        low: +(p.low ?? p.price),
+                        close: +p.price,
+                    }));
+                arr.sort((a, b) => a.time - b.time);
+                return arr;
+            }, [displayHistory]);
+
+            // Click handler reads through this ref so it always sees fresh data
+            useEffect(() => { candleDataRef.current = candleData; }, [candleData]);
+
+            const fngByDate = useMemo(() => {
+                const m = {};
+                for (const d of fngHistory) m[d.date] = d.fng;
+                return m;
+            }, [fngHistory]);
+
+            // ─── Init chart (once) ───
+            useEffect(() => {
+                if (!containerRef.current || !window.LightweightCharts) return;
+                const LWC = window.LightweightCharts;
+                const chart = LWC.createChart(containerRef.current, {
+                    layout: {
+                        background: { type: (LWC.ColorType && LWC.ColorType.Solid) || 'solid', color: '#07080c' },
+                        textColor: '#b8bcc8',
+                        panes: { separatorColor: 'rgba(255,255,255,0.10)', separatorHoverColor: 'rgba(255,255,255,0.20)', enableResize: true },
+                    },
+                    grid: {
+                        vertLines: { color: 'rgba(255,255,255,0.04)' },
+                        horzLines: { color: 'rgba(255,255,255,0.04)' },
+                    },
+                    timeScale: {
+                        borderColor: 'rgba(255,255,255,0.1)',
+                        borderVisible: true,
+                        visible: true,
+                        timeVisible: true,
+                        secondsVisible: false,
+                        rightOffset: 6,
+                        barSpacing: 8,
+                        minBarSpacing: 0.5,
+                        tickMarkMaxCharacterLength: 10,
+                    },
+                    rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
+                    crosshair: { mode: 1 },
+                    autoSize: true,
+                });
+                chartRef.current = chart;
+
+                const candleSeries = chart.addSeries(LWC.CandlestickSeries, {
+                    upColor: UP_COLOR, downColor: DOWN_COLOR,
+                    borderUpColor: UP_COLOR, borderDownColor: DOWN_COLOR,
+                    wickUpColor: UP_COLOR, wickDownColor: DOWN_COLOR,
+                }, 0);
+                candleSeriesRef.current = candleSeries;
+
+                if (typeof LWC.createSeriesMarkers === 'function') {
+                    markersPluginRef.current = LWC.createSeriesMarkers(candleSeries, []);
+                }
+
+                // ─── Hover-info overlay: read OHLC out of the crosshair payload ───
+                chart.subscribeCrosshairMove((param) => {
+                    if (!param || param.time == null || !param.seriesData) {
+                        setHoverInfo(null);
+                        return;
+                    }
+                    const cur = param.seriesData.get(candleSeries);
+                    if (!cur || cur.open == null) {
+                        setHoverInfo(null);
+                        return;
+                    }
+                    const data = candleDataRef.current;
+                    let prev = null;
+                    if (param.logical != null && data.length > 1) {
+                        const idx = Math.round(param.logical);
+                        if (idx >= 1 && idx < data.length) prev = data[idx - 1];
+                    }
+                    setHoverInfo({
+                        time: param.time,
+                        open: cur.open, high: cur.high, low: cur.low, close: cur.close,
+                        prevClose: prev ? prev.close : null,
+                    });
+                });
+
+                if (window.LightweightChartsDrawing && window.LightweightChartsDrawing.DrawingManager) {
+                    const manager = new window.LightweightChartsDrawing.DrawingManager();
+                    manager.attach(chart, candleSeries, containerRef.current);
+                    drawingManagerRef.current = manager;
+                    manager.on && manager.on('drawing:selected', (e) => {
+                        selectedDrawingIdRef.current = e.drawingId || null;
+                        setHasSelection(true);
+                    });
+                    manager.on && manager.on('drawing:deselected', () => {
+                        selectedDrawingIdRef.current = null;
+                        setHasSelection(false);
+                    });
+                }
+
+                // ─── Free-form click → anchor: interpolate sub-bar time so the anchor
+                //     lands exactly where the user tapped (no bar snap). ───
+                const onClick = (param) => {
+                    const tool = activeToolRef.current;
+                    if (!tool || !param || !param.point) return;
+                    const data = candleDataRef.current;
+                    let time = null;
+                    try {
+                        const logical = chart.timeScale().coordinateToLogical(param.point.x);
+                        if (logical != null && data.length > 0) {
+                            const idx = Math.floor(logical);
+                            const frac = logical - idx;
+                            if (idx >= 0 && idx < data.length - 1) {
+                                time = data[idx].time + (data[idx + 1].time - data[idx].time) * frac;
+                            } else if (idx >= data.length - 1) {
+                                const n = data.length;
+                                const spacing = n >= 2 ? data[n - 1].time - data[n - 2].time : 86400;
+                                time = data[n - 1].time + spacing * (logical - (n - 1));
+                            } else {
+                                const spacing = data.length >= 2 ? data[1].time - data[0].time : 86400;
+                                time = data[0].time + spacing * logical;
+                            }
+                        }
+                    } catch {}
+                    if (time == null) {
+                        if (param.time == null) return;
+                        time = param.time;
+                    }
+                    time = Math.floor(time);
+                    const price = candleSeries.coordinateToPrice(param.point.y);
+                    if (price == null) return;
+                    pendingAnchorsRef.current.push({ time, price });
+                    setActiveTool(prev => prev ? { ...prev, collected: pendingAnchorsRef.current.length } : prev);
+                    if (pendingAnchorsRef.current.length >= tool.requiredAnchors) {
+                        const registry = window.LightweightChartsDrawing && window.LightweightChartsDrawing.getToolRegistry && window.LightweightChartsDrawing.getToolRegistry();
+                        if (registry && drawingManagerRef.current) {
+                            const id = 'd-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+                            const drawing = registry.createDrawing(tool.type, id, pendingAnchorsRef.current.slice());
+                            if (drawing) {
+                                drawingManagerRef.current.addDrawing(drawing);
+                                drawingsRef.current.push(id);
+                            }
+                        }
+                        pendingAnchorsRef.current = [];
+                        activeToolRef.current = null;
+                        setActiveTool(null);
+                        if (containerRef.current) containerRef.current.style.cursor = '';
+                    }
+                };
+                chart.subscribeClick(onClick);
+
+                // ─── Touch → mouse polyfill so the drawing manager's mouse-only
+                //     anchor-drag handlers also respond to finger drags on mobile. ───
+                const container = containerRef.current;
+                const dispatchMouse = (type, t) => {
+                    const ev = new MouseEvent(type, {
+                        bubbles: true, cancelable: true, view: window,
+                        clientX: t.clientX, clientY: t.clientY,
+                        button: 0,
+                    });
+                    container.dispatchEvent(ev);
+                };
+                const onTouchStart = (e) => {
+                    if (e.touches.length !== 1) return;
+                    dispatchMouse('mousedown', e.touches[0]);
+                };
+                const onTouchMove = (e) => {
+                    if (e.touches.length !== 1) return;
+                    dispatchMouse('mousemove', e.touches[0]);
+                };
+                const onTouchEnd = (e) => {
+                    const t = e.changedTouches[0];
+                    if (t) dispatchMouse('mouseup', t);
+                };
+                container.addEventListener('touchstart', onTouchStart, { passive: true });
+                container.addEventListener('touchmove', onTouchMove, { passive: true });
+                container.addEventListener('touchend', onTouchEnd, { passive: true });
+
+                const onKey = (e) => {
+                    if (e.key === 'Escape') {
+                        if (activeToolRef.current) {
+                            activeToolRef.current = null;
+                            pendingAnchorsRef.current = [];
+                            setActiveTool(null);
+                            if (containerRef.current) containerRef.current.style.cursor = '';
+                        } else {
+                            onClose && onClose();
+                        }
+                    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                        const m = drawingManagerRef.current;
+                        const id = selectedDrawingIdRef.current;
+                        if (m && id) {
+                            m.removeDrawing(id);
+                            drawingsRef.current = drawingsRef.current.filter(x => x !== id);
+                            selectedDrawingIdRef.current = null;
+                            setHasSelection(false);
+                        }
+                    }
+                };
+                window.addEventListener('keydown', onKey);
+
+                return () => {
+                    window.removeEventListener('keydown', onKey);
+                    container.removeEventListener('touchstart', onTouchStart);
+                    container.removeEventListener('touchmove', onTouchMove);
+                    container.removeEventListener('touchend', onTouchEnd);
+                    try { chart.unsubscribeClick(onClick); } catch {}
+                    try { drawingManagerRef.current && drawingManagerRef.current.detach(); } catch {}
+                    try { chart.remove(); } catch {}
+                    chartRef.current = null;
+                    candleSeriesRef.current = null;
+                    drawingManagerRef.current = null;
+                    markersPluginRef.current = null;
+                    emaSeriesRef.current = [];
+                    ma200SeriesRef.current = null;
+                    rsiSeriesRef.current = null;
+                    macdRefs.current = { dif: null, dea: null, hist: null };
+                };
+            }, []);
+
+            // ─── Apply candle data + auto-fit on first load / range change ───
+            useEffect(() => {
+                const series = candleSeriesRef.current;
+                const chart = chartRef.current;
+                if (!series || !chart || candleData.length === 0) return;
+                series.setData(candleData);
+                try { chart.timeScale().fitContent(); } catch {}
+            }, [candleData]);
+
+            // Re-balance pane heights whenever the sub-pane mix changes (so the time
+            // axis under the MACD pane always has comfortable room to render).
+            useEffect(() => {
+                const chart = chartRef.current;
+                if (!chart || !chart.panes) return;
+                const panes = chart.panes();
+                const apply = (i, f) => { try { panes[i] && panes[i].setStretchFactor(f); } catch {} };
+                apply(0, 6);   // main candle pane gets the bulk
+                apply(1, 2);   // RSI
+                apply(2, 2);   // MACD
+            }, [showRSI, showMACD, candleData]);
+
+            // ─── EMA Ribbon (6 lines on main pane) — per-segment color flip ───
+            // Each EMA line is split into bull / bear segments at every fast×slow
+            // crossover; each segment is its own LineSeries so the ribbon recolors
+            // exactly at the cross instead of being one flat color for the whole
+            // history. Segments overlap by one point at the boundary so the line
+            // doesn't visually break at the crossover bar.
+            useEffect(() => {
+                const chart = chartRef.current;
+                if (!chart) return;
+                emaSeriesRef.current.forEach(s => { try { chart.removeSeries(s); } catch {} });
+                emaSeriesRef.current = [];
+                if (!showEMA || candleData.length === 0) return;
+                const closes = candleData.map(d => d.close);
+                const emas = EMA_PERIODS.map(p => computeEMA(closes, p));
+                const fastArr = emas[0];
+                const slowArr = emas[EMA_PERIODS.length - 1];
+
+                EMA_PERIODS.forEach((period, idx) => {
+                    const ema = emas[idx];
+                    const lineWidth = (idx === 0 || idx === EMA_PERIODS.length - 1) ? 2 : 1;
+                    let curBull = null;
+                    let curPoints = [];
+
+                    const flushSegment = () => {
+                        if (curPoints.length < 2 || curBull == null) return;
+                        const s = chart.addSeries(window.LightweightCharts.LineSeries, {
+                            color: curBull ? EMA_BULL_COLOR : EMA_BEAR_COLOR,
+                            lineWidth,
+                            priceLineVisible: false,
+                            lastValueVisible: false,
+                            crosshairMarkerVisible: false,
+                        }, 0);
+                        s.setData(curPoints);
+                        emaSeriesRef.current.push(s);
+                    };
+
+                    for (let i = 0; i < ema.length; i++) {
+                        if (ema[i] == null || fastArr[i] == null || slowArr[i] == null) continue;
+                        const bull = fastArr[i] >= slowArr[i];
+                        const point = { time: candleData[i].time, value: ema[i] };
+                        if (curBull == null) {
+                            curBull = bull;
+                            curPoints = [point];
+                        } else if (bull === curBull) {
+                            curPoints.push(point);
+                        } else {
+                            // Regime change: include the crossover point as the end of
+                            // this segment AND the start of the next so they meet visually.
+                            curPoints.push(point);
+                            flushSegment();
+                            curBull = bull;
+                            curPoints = [point];
+                        }
+                    }
+                    flushSegment();
+                });
+            }, [showEMA, candleData]);
+
+            // EMA fast×slow cross markers, computed once and reused by the combined-markers effect
+            const emaCrossMarkers = useMemo(() => {
+                if (!showEMA || candleData.length === 0) return [];
+                const closes = candleData.map(d => d.close);
+                const fast = computeEMA(closes, EMA_FAST);
+                const slow = computeEMA(closes, EMA_SLOW);
+                const out = [];
+                for (let i = 1; i < candleData.length; i++) {
+                    const fPrev = fast[i - 1], fCur = fast[i];
+                    const sPrev = slow[i - 1], sCur = slow[i];
+                    if (fPrev == null || fCur == null || sPrev == null || sCur == null) continue;
+                    if (fPrev <= sPrev && fCur > sCur) {
+                        out.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
+                    } else if (fPrev >= sPrev && fCur < sCur) {
+                        out.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
+                    }
+                }
+                return out;
+            }, [showEMA, candleData]);
+
+            // ─── 200-period SMA on main pane (price > MA = bull → green, else red) ───
+            useEffect(() => {
+                const chart = chartRef.current;
+                if (!chart) return;
+                if (ma200SeriesRef.current) { try { chart.removeSeries(ma200SeriesRef.current); } catch {} ma200SeriesRef.current = null; }
+                if (!showMA200 || candleData.length < 50) return;
+                const period = 200;
+                const closes = candleData.map(d => d.close);
+                if (closes.length < period) return;
+                const data = [];
+                let sum = 0;
+                for (let i = 0; i < closes.length; i++) {
+                    sum += closes[i];
+                    if (i >= period) sum -= closes[i - period];
+                    if (i >= period - 1) data.push({ time: candleData[i].time, value: sum / period });
+                }
+                if (!data.length) return;
+                const lastPrice = closes[closes.length - 1];
+                const lastMa = data[data.length - 1].value;
+                const bull = lastPrice >= lastMa;
+                const s = chart.addSeries(window.LightweightCharts.LineSeries, {
+                    color: bull ? UP_COLOR : DOWN_COLOR,
+                    lineWidth: 2,
+                    priceLineVisible: false,
+                    lastValueVisible: true,
+                    title: 'MA200',
+                }, 0);
+                s.setData(data);
+                ma200SeriesRef.current = s;
+            }, [showMA200, candleData]);
+
+            // ─── RSI (pane 1) with 70 / 50 / 30 reference lines + cross markers ───
+            // LONG marker: RSI crosses UP through 30 (oversold rebound)
+            // SHORT marker: RSI crosses DOWN through 70 (overbought reversal)
+            useEffect(() => {
+                const chart = chartRef.current;
+                const LWC = window.LightweightCharts;
+                if (!chart) return;
+                if (rsiSeriesRef.current) { try { chart.removeSeries(rsiSeriesRef.current); } catch {} rsiSeriesRef.current = null; }
+                rsiMarkersRef.current = null;
+                if (!showRSI || candleData.length === 0) return;
+                const period = 14;
+                const closes = candleData.map(d => d.close);
+                if (closes.length <= period) return;
+                let gains = 0, losses = 0;
+                for (let i = 1; i <= period; i++) {
+                    const d = closes[i] - closes[i - 1];
+                    if (d > 0) gains += d; else losses -= d;
+                }
+                let avgGain = gains / period;
+                let avgLoss = losses / period;
+                const out = [];
+                const pushRsi = (idx) => {
+                    const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss;
+                    const rsi = avgLoss === 0 ? 100 : 100 - 100 / (1 + rs);
+                    out.push({ time: candleData[idx].time, value: rsi });
+                };
+                pushRsi(period);
+                for (let i = period + 1; i < closes.length; i++) {
+                    const d = closes[i] - closes[i - 1];
+                    const gain = d > 0 ? d : 0;
+                    const loss = d < 0 ? -d : 0;
+                    avgGain = (avgGain * (period - 1) + gain) / period;
+                    avgLoss = (avgLoss * (period - 1) + loss) / period;
+                    pushRsi(i);
+                }
+                const s = chart.addSeries(LWC.LineSeries, {
+                    color: '#a78bfa',  // purple — bull / bear is conveyed by the cross markers, not the line
+                    lineWidth: 1.5,
+                    priceLineVisible: false, lastValueVisible: true, title: 'RSI(14)',
+                }, 1);
+                s.setData(out);
+                try { s.createPriceLine({ price: 70, color: 'rgba(255,91,110,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
+                try { s.createPriceLine({ price: 50, color: 'rgba(255,255,255,0.18)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
+                try { s.createPriceLine({ price: 30, color: 'rgba(0,214,143,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
+                rsiSeriesRef.current = s;
+
+                // Cross markers on the RSI line itself
+                if (typeof LWC.createSeriesMarkers === 'function') {
+                    const markers = [];
+                    for (let i = 1; i < out.length; i++) {
+                        const prev = out[i - 1].value, cur = out[i].value;
+                        if (prev <= 30 && cur > 30) {
+                            markers.push({ time: out[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
+                        } else if (prev >= 70 && cur < 70) {
+                            markers.push({ time: out[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
+                        }
+                    }
+                    try { rsiMarkersRef.current = LWC.createSeriesMarkers(s, markers); } catch {}
+                }
+            }, [showRSI, candleData]);
+
+            // ─── MACD (pane 2) + DIF×DEA golden / death cross markers on DIF line ───
+            useEffect(() => {
+                const chart = chartRef.current;
+                const LWC = window.LightweightCharts;
+                if (!chart) return;
+                ['dif', 'dea', 'hist'].forEach(k => {
+                    if (macdRefs.current[k]) { try { chart.removeSeries(macdRefs.current[k]); } catch {} macdRefs.current[k] = null; }
+                });
+                macdMarkersRef.current = null;
+                if (!showMACD || candleData.length === 0) return;
+                const closes = candleData.map(d => d.close);
+                const macd = computeMACD(closes);
+                const histData = [];
+                const difData = [];
+                const deaData = [];
+                for (let i = 0; i < closes.length; i++) {
+                    const t = candleData[i].time;
+                    if (macd.histogram[i] != null) histData.push({ time: t, value: macd.histogram[i], color: macd.histogram[i] >= 0 ? 'rgba(0,214,143,0.75)' : 'rgba(255,91,110,0.75)' });
+                    if (macd.dif[i] != null) difData.push({ time: t, value: macd.dif[i] });
+                    if (macd.dea[i] != null) deaData.push({ time: t, value: macd.dea[i] });
+                }
+                macdRefs.current.hist = chart.addSeries(LWC.HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, 2);
+                macdRefs.current.hist.setData(histData);
+                macdRefs.current.dif = chart.addSeries(LWC.LineSeries, { color: '#3b82f6', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DIF' }, 2);
+                macdRefs.current.dif.setData(difData);
+                macdRefs.current.dea = chart.addSeries(LWC.LineSeries, { color: '#fbbf24', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DEA' }, 2);
+                macdRefs.current.dea.setData(deaData);
+
+                // Cross markers anchored on the DIF line
+                if (typeof LWC.createSeriesMarkers === 'function') {
+                    const markers = [];
+                    for (let i = 1; i < closes.length; i++) {
+                        const dPrev = macd.dif[i - 1], dCur = macd.dif[i];
+                        const ePrev = macd.dea[i - 1], eCur = macd.dea[i];
+                        if (dPrev == null || dCur == null || ePrev == null || eCur == null) continue;
+                        if (dPrev <= ePrev && dCur > eCur) {
+                            markers.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
+                        } else if (dPrev >= ePrev && dCur < eCur) {
+                            markers.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
+                        }
+                    }
+                    try { macdMarkersRef.current = LWC.createSeriesMarkers(macdRefs.current.dif, markers); } catch {}
+                }
+            }, [showMACD, candleData]);
+
+            // FNG dot markers (crypto / US only) — combined later with EMA cross markers
+            const fngMarkers = useMemo(() => {
+                if (!showFearSignal || signalSource !== 'fng' || candleData.length === 0 || fngHistory.length === 0) return [];
+                const sortedDates = Object.keys(fngByDate).sort();
+                const markers = [];
+                candleData.forEach(bar => {
+                    const dateStr = new Date(bar.time * 1000).toISOString().slice(0, 10);
+                    let v = fngByDate[dateStr];
+                    if (v === undefined) {
+                        let lo = 0, hi = sortedDates.length - 1, best = -1;
+                        while (lo <= hi) {
+                            const mid = (lo + hi) >> 1;
+                            if (sortedDates[mid] <= dateStr) { best = mid; lo = mid + 1; } else hi = mid - 1;
+                        }
+                        v = best >= 0 ? fngByDate[sortedDates[best]] : null;
+                    }
+                    if (v == null || v > 45) return;
+                    markers.push({
+                        time: bar.time,
+                        position: 'belowBar',
+                        color: v <= 25 ? DOWN_COLOR : '#f59e0b',
+                        shape: 'circle',
+                        size: v <= 25 ? 1 : 0.7,
+                    });
+                });
+                return markers;
+            }, [candleData, fngByDate, fngHistory, showFearSignal, signalSource]);
+
+            // Combined candle-pane markers: FNG dots + EMA LONG / SHORT cross arrows, sorted by time
+            useEffect(() => {
+                const plugin = markersPluginRef.current;
+                if (!plugin) return;
+                const combined = [...fngMarkers, ...emaCrossMarkers].sort((a, b) => a.time - b.time);
+                try { plugin.setMarkers(combined); } catch {}
+            }, [fngMarkers, emaCrossMarkers]);
+
+            // ─── Aggregate every signal we display into the summary panel ───
+            const signalSummary = useMemo(() => {
+                const out = [];
+                if (candleData.length === 0) return out;
+                const closes = candleData.map(d => d.close);
+                const lastPrice = closes[closes.length - 1];
+
+                // FNG (only crypto / US carry a real FNG)
+                if (signalSource === 'fng' && fngHistory.length) {
+                    const last = fngHistory[fngHistory.length - 1];
+                    const cls = fngClassify(last.fng);
+                    if (cls) out.push({ key: 'fng', name: 'FNG', tone: cls.tone, label: `${last.fng} · ${cls.label}` });
+                }
+
+                // Composite — same logic as the watchlist (RSI + 1Y position)
+                const rsi = computeRSI(closes, 14);
+                if (showComposite && rsi != null) {
+                    const high = Math.max(...closes);
+                    const low = Math.min(...closes);
+                    const pos = high - low > 0 ? (lastPrice - low) / (high - low) : 0.5;
+                    const comp = getCompositeSignal(rsi, pos);
+                    const tone = /加碼/.test(comp.label) ? 'bull' : /賣出/.test(comp.label) ? 'bear' : 'neutral';
+                    out.push({ key: 'composite', name: '綜合', tone, label: `${comp.emoji || ''} ${comp.label}`.trim() });
+                }
+
+                // EMA Ribbon (fast 20 vs slow 50)
+                if (showEMA) {
+                    const f = computeEMA(closes, EMA_PERIODS[0]);
+                    const s = computeEMA(closes, EMA_PERIODS[EMA_PERIODS.length - 1]);
+                    const lf = f[f.length - 1], ls = s[s.length - 1];
+                    if (lf != null && ls != null) {
+                        const bull = lf >= ls;
+                        out.push({ key: 'ema', name: 'EMA', tone: bull ? 'bull' : 'bear', label: bull ? '多頭排列' : '空頭排列' });
+                    }
+                }
+
+                // RSI bucket
+                if (showRSI && rsi != null) {
+                    let tone, label;
+                    if (rsi >= 70) { tone = 'bear'; label = `${Math.round(rsi)} 超買`; }
+                    else if (rsi <= 30) { tone = 'bull'; label = `${Math.round(rsi)} 超賣`; }
+                    else if (rsi >= 50) { tone = 'bull'; label = `${Math.round(rsi)} 偏多`; }
+                    else { tone = 'bear'; label = `${Math.round(rsi)} 偏空`; }
+                    out.push({ key: 'rsi', name: 'RSI', tone, label });
+                }
+
+                // MACD: above signal line + positive histogram = bull
+                if (showMACD) {
+                    const m = computeMACD(closes);
+                    const lDif = m.dif[m.dif.length - 1];
+                    const lDea = m.dea[m.dea.length - 1];
+                    const lHist = m.histogram[m.histogram.length - 1];
+                    if (lDif != null && lDea != null && lHist != null) {
+                        const above = lDif > lDea;
+                        const positive = lHist > 0;
+                        const tone = above && positive ? 'bull' : (!above && !positive ? 'bear' : 'neutral');
+                        const label = tone === 'bull' ? '多' : tone === 'bear' ? '空' : '震盪';
+                        out.push({ key: 'macd', name: 'MACD', tone, label });
+                    }
+                }
+
+                // 200MA
+                if (showMA200 && closes.length >= 200) {
+                    let sum = 0;
+                    for (let i = closes.length - 200; i < closes.length; i++) sum += closes[i];
+                    const ma200 = sum / 200;
+                    const bull = lastPrice >= ma200;
+                    out.push({ key: 'ma200', name: 'MA200', tone: bull ? 'bull' : 'bear', label: bull ? '價格站上' : '價格跌破' });
+                }
+
+                return out;
+            }, [candleData, fngHistory, signalSource, showEMA, showRSI, showMACD, showMA200, showComposite]);
+
+            // ─── Tool picker handlers ───
+            const pickTool = (tool) => {
+                pendingAnchorsRef.current = [];
+                activeToolRef.current = { type: tool.type, requiredAnchors: tool.a };
+                setActiveTool({ type: tool.type, name: tool.name, requiredAnchors: tool.a, collected: 0 });
+                setOpenCategory(null);
+                if (containerRef.current) containerRef.current.style.cursor = 'crosshair';
+            };
+            const cancelTool = () => {
+                activeToolRef.current = null;
+                pendingAnchorsRef.current = [];
+                setActiveTool(null);
+                if (containerRef.current) containerRef.current.style.cursor = '';
+            };
+            const clearAllDrawings = () => {
+                const m = drawingManagerRef.current;
+                if (!m) return;
+                if (!confirm('清除所有畫線標註？')) return;
+                m.clearAll();
+                drawingsRef.current = [];
+                selectedDrawingIdRef.current = null;
+                setHasSelection(false);
+            };
+            const deleteSelected = () => {
+                const m = drawingManagerRef.current;
+                const id = selectedDrawingIdRef.current;
+                if (!m || !id) return;
+                m.removeDrawing(id);
+                drawingsRef.current = drawingsRef.current.filter(x => x !== id);
+                selectedDrawingIdRef.current = null;
+                setHasSelection(false);
+            };
+            const resetZoom = () => { try { chartRef.current && chartRef.current.timeScale().fitContent(); } catch {} };
+
+            // ─── UI atoms ───
+            const EyeToggle = ({ label, checked, onChange, color }) => (
+                <button
+                    onClick={() => onChange(!checked)}
+                    title={label}
+                    className="flex items-center gap-1.5 px-2 h-8 rounded-lg hover:bg-white/[0.06] transition-colors shrink-0"
+                    style={{ border: '1px solid var(--line)', background: checked ? 'rgba(255,255,255,0.04)' : 'transparent' }}
+                >
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: color, opacity: checked ? 1 : 0.3 }}></span>
+                    <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: checked ? 'var(--text)' : 'var(--text-3)' }}>{label}</span>
+                </button>
+            );
+
+            const rangeBtn = (key, label) => (
+                <button
+                    key={key}
+                    onClick={() => setTimeRange(key)}
+                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${timeRange === key ? 'pill-grad' : 'hover:bg-white/[0.08]'}`}
+                    style={timeRange === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                >{label}</button>
+            );
+
+            const CategoryIcon = ({ k }) => {
+                const stroke = 'currentColor';
+                const common = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke, strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' };
+                if (k === 'line') return <svg {...common}><line x1="4" y1="20" x2="20" y2="4"/></svg>;
+                if (k === 'channel') return <svg {...common}><line x1="4" y1="18" x2="20" y2="6"/><line x1="4" y1="14" x2="20" y2="2"/></svg>;
+                if (k === 'pitchfork') return <svg {...common}><line x1="4" y1="20" x2="20" y2="4"/><line x1="8" y1="20" x2="20" y2="8"/><line x1="12" y1="20" x2="20" y2="12"/></svg>;
+                if (k === 'fibonacci') return <svg {...common}><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="3" y1="14" x2="21" y2="14"/><line x1="3" y1="18" x2="21" y2="18"/></svg>;
+                if (k === 'gann') return <svg {...common}><rect x="4" y="4" width="16" height="16"/><line x1="4" y1="4" x2="20" y2="20"/></svg>;
+                if (k === 'forecasting') return <svg {...common}><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>;
+                if (k === 'shape') return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="1"/></svg>;
+                if (k === 'annotation') return <svg {...common}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
+                return null;
+            };
+
+            // tone → pill colors
+            const tonePill = (tone) => {
+                if (tone === 'bull') return { bg: 'rgba(0,214,143,0.15)', color: UP_COLOR, border: 'rgba(0,214,143,0.4)' };
+                if (tone === 'bear') return { bg: 'rgba(255,91,110,0.15)', color: DOWN_COLOR, border: 'rgba(255,91,110,0.4)' };
+                return { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-2)', border: 'var(--line)' };
+            };
+
+            // ─── Layout ───
+            return (
+                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+                    {/* Top bar */}
+                    <div className="shrink-0 flex flex-col gap-2 px-3 md:px-4 pt-3 pb-2" style={{ borderBottom: '1px solid var(--line)' }}>
+                        {/* Row 1: title + status + help/reset/close */}
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>
+                                <div className="min-w-0">
+                                    <p className="label leading-none">TECHNICAL</p>
+                                    <h2 className="text-base md:text-lg font-extrabold text-white tracking-tight truncate">{symbol}</h2>
+                                </div>
+                                {loading && (
+                                    <div className="hidden sm:flex items-center gap-1.5 text-[10px] ml-2" style={{ color: 'var(--text-3)' }}>
+                                        <RefreshCw className="animate-spin" size={11} />
+                                        載入中
+                                    </div>
+                                )}
+                                {error && <div className="text-[10px] ml-2 truncate" style={{ color: '#ff7d8c' }}>{error}</div>}
+                                {activeTool && (
+                                    <div className="hidden md:flex items-center gap-1.5 text-[10px] ml-2 px-2 py-0.5 rounded-md" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--brand-1)', border: '1px solid var(--brand-1)' }}>
+                                        繪製：{activeTool.name}（{activeTool.collected ?? 0}/{activeTool.requiredAnchors}）
+                                        <button onClick={cancelTool} className="ml-1 hover:underline">取消</button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                                <button onClick={() => setShowSignalPanel(!showSignalPanel)}
+                                    className="h-8 px-2 rounded-md text-[10px] mono hover:bg-white/[0.08] hidden sm:inline-block"
+                                    style={{ color: showSignalPanel ? 'var(--brand-1)' : 'var(--text-2)', border: '1px solid ' + (showSignalPanel ? 'var(--brand-1)' : 'var(--line)') }}
+                                    title="切換信號面板">
+                                    📊 信號
+                                </button>
+                                <button onClick={resetZoom}
+                                    className="h-8 px-2 rounded-md text-[10px] mono hover:bg-white/[0.08]"
+                                    style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }} title="重置縮放">⤾ 重置</button>
+                                <button onClick={() => setShowHelp(true)}
+                                    className="h-8 w-8 rounded-md flex items-center justify-center hover:bg-white/[0.08]"
+                                    style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }} title="說明">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Row 2: range • timeframe • indicator toggles (horizontally scrollable) */}
+                        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+                                {rangeBtn('1mo', '1M')}
+                                {rangeBtn('3mo', '3M')}
+                                {rangeBtn('6mo', '6M')}
+                                {rangeBtn('1y', '1Y')}
+                                {rangeBtn('max', 'ALL')}
+                            </div>
+
+                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }} title="K 線週期">
+                                <button onClick={() => setTimeframe('1d')}
+                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${timeframe === '1d' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                    style={timeframe === '1d' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>日</button>
+                                <button onClick={() => setTimeframe('1wk')}
+                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${timeframe === '1wk' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                    style={timeframe === '1wk' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>週</button>
+                            </div>
+
+                            <div className="w-px h-6 shrink-0" style={{ background: 'var(--line)' }}></div>
+
+                            {signalSource === 'fng' && (
+                                <EyeToggle label="FNG 信號" checked={showFearSignal} onChange={setShowFearSignal} color={DOWN_COLOR} />
+                            )}
+                            <EyeToggle label="EMA Ribbon" checked={showEMA} onChange={setShowEMA} color="#3b82f6" />
+                            <EyeToggle label="MA200" checked={showMA200} onChange={setShowMA200} color="#f97316" />
+                            <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
+                            <EyeToggle label="MACD" checked={showMACD} onChange={setShowMACD} color="#fbbf24" />
+                            <EyeToggle label="綜合信號" checked={showComposite} onChange={setShowComposite} color={UP_COLOR} />
+                        </div>
+                    </div>
+
+                    {/* Body: drawing toolbar + chart */}
+                    <div className="flex-1 min-h-0 flex">
+                        {/* Vertical toolbar (left). Categories pop a submenu of tools. */}
+                        <div className="shrink-0 flex flex-col items-stretch gap-1 py-2 px-1.5" style={{ borderRight: '1px solid var(--line)', width: 48, background: 'rgba(255,255,255,0.02)' }}>
+                            {DRAWING_TOOL_CATEGORIES.map(cat => (
+                                <div key={cat.key} className="relative">
+                                    <button
+                                        onClick={() => setOpenCategory(openCategory === cat.key ? null : cat.key)}
+                                        className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-white/[0.08] transition-colors"
+                                        style={{
+                                            color: openCategory === cat.key ? 'var(--brand-1)' : 'var(--text-2)',
+                                            background: openCategory === cat.key ? 'rgba(59,130,246,0.12)' : 'transparent',
+                                            border: '1px solid ' + (openCategory === cat.key ? 'var(--brand-1)' : 'transparent'),
+                                        }}
+                                        title={cat.label}
+                                    >
+                                        <CategoryIcon k={cat.key} />
+                                    </button>
+                                </div>
+                            ))}
+
+                            <div className="my-1 h-px" style={{ background: 'var(--line)' }}></div>
+
+                            <button
+                                onClick={deleteSelected}
+                                disabled={!hasSelection}
+                                className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-white/[0.08] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+                                style={{ color: hasSelection ? DOWN_COLOR : 'var(--text-3)' }}
+                                title="刪除選取的標註（或按 Delete 鍵）"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                </svg>
+                            </button>
+                            <button
+                                onClick={clearAllDrawings}
+                                className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-white/[0.08] transition-colors"
+                                style={{ color: 'var(--text-2)' }}
+                                title="清除所有標註"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        {/* Tool-category popup. Positioned absolute next to the sidebar but clamped
+                            to the viewport so it never spills off a narrow phone screen. */}
+                        {openCategory && (() => {
+                            const cat = DRAWING_TOOL_CATEGORIES.find(c => c.key === openCategory);
+                            if (!cat) return null;
+                            return (
+                                <>
+                                    {/* Backdrop catches outside taps on mobile */}
+                                    <div className="fixed inset-0 z-[115] md:hidden" onClick={() => setOpenCategory(null)}></div>
+                                    <div
+                                        className="fixed z-[116] rounded-lg shadow-2xl p-1 max-h-[60vh] overflow-y-auto"
+                                        style={{
+                                            background: 'var(--surface)',
+                                            border: '1px solid var(--line)',
+                                            top: 'calc(env(safe-area-inset-top, 0px) + 120px)',
+                                            left: 56,
+                                            width: 'min(220px, calc(100vw - 72px))',
+                                        }}
+                                    >
+                                        <div className="text-[10px] uppercase tracking-wider px-2 py-1 mb-0.5 flex items-center justify-between" style={{ color: 'var(--text-3)' }}>
+                                            <span>{cat.label}（{cat.tools.length}）</span>
+                                            <button onClick={() => setOpenCategory(null)} className="md:hidden text-[11px] hover:text-white">✕</button>
+                                        </div>
+                                        {cat.tools.map(tool => (
+                                            <button
+                                                key={tool.type}
+                                                onClick={() => pickTool(tool)}
+                                                className="block w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-white/[0.06]"
+                                                style={{ color: 'var(--text)' }}
+                                            >
+                                                {tool.name}
+                                                <span className="ml-2 text-[10px]" style={{ color: 'var(--text-3)' }}>{tool.a} 點</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </>
+                            );
+                        })()}
+
+                        {/* Chart container — absolute inset so the chart canvas can NEVER
+                            overflow its parent and clip the bottom time axis. The min-height
+                            lives on the parent so a tiny viewport still gets a usable chart. */}
+                        <div className="flex-1 min-w-0 min-h-0 relative" style={{ minHeight: '280px' }}>
+                            <div ref={containerRef} className="absolute inset-1 md:inset-2"></div>
+
+                            {/* OHLC hover overlay — top-left, compact. Driven by crosshair. */}
+                            {hoverInfo && (() => {
+                                const fmtPrice = (v) => v == null ? '—' : (Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : v.toFixed(Math.abs(v) >= 1 ? 2 : 4));
+                                const change = (hoverInfo.prevClose != null) ? hoverInfo.close - hoverInfo.prevClose : null;
+                                const changePct = (change != null && hoverInfo.prevClose) ? (change / hoverInfo.prevClose) * 100 : null;
+                                const changeColor = change == null ? 'var(--text-3)' : (change >= 0 ? UP_COLOR : DOWN_COLOR);
+                                const d = new Date(hoverInfo.time * 1000);
+                                const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+                                const isUp = hoverInfo.close >= hoverInfo.open;
+                                return (
+                                    <div className="absolute top-2 left-2 z-20 px-2 py-1.5 rounded-md backdrop-blur pointer-events-none mono"
+                                        style={{ background: 'rgba(18,20,28,0.85)', border: '1px solid var(--line)', fontSize: 10, lineHeight: 1.35, color: 'var(--text-2)' }}>
+                                        <div className="font-bold" style={{ color: 'var(--text)' }}>{dateStr}</div>
+                                        <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
+                                            <span>開 <span style={{ color: 'var(--text)' }}>{fmtPrice(hoverInfo.open)}</span></span>
+                                            <span>高 <span style={{ color: UP_COLOR }}>{fmtPrice(hoverInfo.high)}</span></span>
+                                            <span>低 <span style={{ color: DOWN_COLOR }}>{fmtPrice(hoverInfo.low)}</span></span>
+                                            <span>收 <span style={{ color: isUp ? UP_COLOR : DOWN_COLOR }}>{fmtPrice(hoverInfo.close)}</span></span>
+                                        </div>
+                                        {change != null && (
+                                            <div className="mt-0.5" style={{ color: changeColor }}>
+                                                {change >= 0 ? '+' : ''}{fmtPrice(change)} ({changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%)
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Signal summary panel — top-right, semi-transparent, collapsible */}
+                            {showSignalPanel && signalSummary.length > 0 && (
+                                <div
+                                    className="absolute top-2 right-2 rounded-lg p-2 z-20 backdrop-blur"
+                                    style={{
+                                        background: 'rgba(18,20,28,0.85)',
+                                        border: '1px solid var(--line)',
+                                        width: 'min(180px, calc(100vw - 80px))',
+                                        maxHeight: 'calc(100% - 16px)',
+                                        overflowY: 'auto',
+                                    }}
+                                >
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <span className="text-[10px] font-bold tracking-wider uppercase" style={{ color: 'var(--text-3)' }}>信號總覽</span>
+                                        <button onClick={() => setShowSignalPanel(false)} className="w-5 h-5 rounded hover:bg-white/[0.08] text-[11px]" style={{ color: 'var(--text-3)' }} title="收起">−</button>
+                                    </div>
+                                    <div className="space-y-1">
+                                        {signalSummary.map(it => {
+                                            const p = tonePill(it.tone);
+                                            return (
+                                                <div key={it.key} className="flex items-center justify-between text-[10px] gap-2">
+                                                    <span style={{ color: 'var(--text-3)' }}>{it.name}</span>
+                                                    <span className="px-1.5 py-0.5 rounded font-bold truncate" style={{ background: p.bg, color: p.color, border: '1px solid ' + p.border, maxWidth: 110 }}>{it.label}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                            {!showSignalPanel && (
+                                <button
+                                    onClick={() => setShowSignalPanel(true)}
+                                    className="absolute top-2 right-2 px-2 py-1 rounded-lg text-[10px] font-bold z-20 backdrop-blur hover:bg-white/[0.08]"
+                                    style={{ background: 'rgba(18,20,28,0.85)', border: '1px solid var(--line)', color: 'var(--text-2)' }}
+                                    title="展開信號面板"
+                                >📊 信號</button>
+                            )}
+
+                            {activeTool && (
+                                <div className="md:hidden absolute top-2 left-2 right-[150px] px-3 py-2 rounded-lg flex items-center justify-between text-[11px] z-20" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--brand-1)', border: '1px solid var(--brand-1)' }}>
+                                    <span className="truncate">繪製：{activeTool.name}（{activeTool.collected ?? 0}/{activeTool.requiredAnchors}）</span>
+                                    <button onClick={cancelTool} className="hover:underline ml-2 shrink-0">取消</button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Help overlay */}
+                    {showHelp && (
+                        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={() => setShowHelp(false)}>
+                            <div className="w-full max-w-sm rounded-2xl p-5 space-y-2" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }} onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="text-sm font-bold text-white">圖表說明</h3>
+                                    <button onClick={() => setShowHelp(false)} className="w-7 h-7 rounded-full hover:bg-white/10" style={{ color: 'var(--text-2)' }}>✕</button>
+                                </div>
+                                <div className="text-[11px] leading-relaxed space-y-1.5" style={{ color: 'var(--text-2)' }}>
+                                    <p><strong className="text-white">圖表</strong>：基於 TradingView Lightweight Charts v5；滑鼠拖曳平移、滾輪縮放、雙指捏合縮放；拖曳價格軸 / 時間軸縮放單一方向。</p>
+                                    <p><strong className="text-white">畫線工具</strong>：左側工具列共 8 分類、68 種工具。點分類圖示打開選單，挑選工具後在圖表上任意位置點擊指定數量的錨點即完成（自由位置，不會吸到 K 棒）。</p>
+                                    <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊已完成的標註可選取，拖曳錨點微調；按 Delete 或左側垃圾桶刪除；Esc 取消當前繪製。手機可用單指拖曳錨點。</p>
+                                    <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20 / 27 / 34 / 41 / 48 / 55（fast=20、slow=55）。線段顏色逐段切換 — fast 站上 slow 該段顯綠、跌破則紅；K 棒下方綠 △ = 金叉（多），K 棒上方紅 ▽ = 死叉（空）。</p>
+                                    <p><strong className="text-white">RSI / MACD / MA200</strong>：RSI 紫線恆色，加 70 / 50 / 30 參考線，上穿 30 標 △、下穿 70 標 ▽；MACD DIF×DEA 金叉 △、死叉 ▽；MA200 線色隨價格站上 / 跌破切換。</p>
+                                    <p><strong className="text-white">信號總覽</strong>：右上角面板獨立列出各指標的多 / 空狀態，不做綜合判斷；可隨時收起。</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const WatchlistDashboard = ({ watchlist, onUpdateWatchlist, isPremium, user }) => {
+            const [assetsData, setAssetsData] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [selectedChartItem, setSelectedChartItem] = useState(null);
+            const [sortKey, setSortKey] = useState('signal'); // signal | symbol | change | rsi
+            const [sortDir, setSortDir] = useState('asc');
+            const [showSignalHelp, setShowSignalHelp] = useState(false);
+
+            if (!isPremium) {
+                return (
+                    <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
+                        <div className="bg-slate-800 p-6 rounded-full border border-slate-700 shadow-2xl shadow-black relative">
+                            <Lock size={64} className="text-slate-500" />
+                            <div className="absolute -top-2 -right-2 bg-amber-500 text-slate-900 font-bold px-3 py-1 rounded-full text-xs shadow-lg animate-bounce">
+                                PRO
+                            </div>
+                        </div>
+                        <div>
+                            <h2 className="text-3xl font-bold text-white mb-2">解鎖我的觀察清單</h2>
+                            <p className="text-slate-400 max-w-md mx-auto">
+                                升級至 Premium 會員，即可建立跨市場觀察清單，並獲得 RSI 即時信號與 DCA 策略建議。
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
+                                window.open(checkoutUrl, '_blank');
+                            }}
+                            className="flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-bold rounded-2xl transition-all shadow-xl shadow-amber-900/20 hover:scale-105 hover:shadow-amber-500/30 group"
+                        >
+                            <Sparkles className="group-hover:rotate-12 transition-transform" />
+                            立即升級 Pro 版本
+                        </button>
+                    </div>
+                );
+            }
+
+            // ─── Asset classification ───
+            const classifyAsset = (symbol) => {
+                if (symbol.toUpperCase().includes('.TW') || /^\d+$/.test(symbol)) return 'TW';
+                const commonCryptos = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'TRX', 'LINK', 'MATIC', 'LTC', 'BITCOIN', 'ETHEREUM', 'SOLANA'];
+                if (commonCryptos.includes(symbol.toUpperCase())) return 'CRYPTO';
+                if (/^[A-Za-z]+$/.test(symbol) && symbol.length <= 5) return 'US';
+                return 'UNKNOWN';
+            };
+
+            // Crypto slug normalization (BTC → bitcoin)
+            const normalizeCrypto = (symbol) => {
+                const map = { BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binancecoin', XRP: 'ripple', ADA: 'cardano', DOGE: 'dogecoin', AVAX: 'avalanche-2', DOT: 'polkadot', TRX: 'tron', LINK: 'chainlink', MATIC: 'matic-network', LTC: 'litecoin' };
+                return map[symbol.toUpperCase()] || symbol.toLowerCase();
+            };
+
+            // ─── Fetch via price-proxy with 1y history (so we can compute RSI + range position) ───
+            const fetchData = async () => {
+                if (!watchlist || watchlist.length === 0) {
+                    setAssetsData([]);
+                    setLoading(false);
+                    return;
+                }
+                setLoading(true);
+
+                const proxy = `${SUPABASE_URL}/functions/v1/price-proxy`;
+                const headers = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY };
+
+                // Group by type for batch fetch
+                const grouped = { US: [], TW: [], CRYPTO: [] };
+                watchlist.forEach(sym => {
+                    const t = classifyAsset(sym);
+                    if (grouped[t]) grouped[t].push(sym);
+                });
+
+                const enrichStockSymbols = (syms, isTW) =>
+                    syms.map(s => isTW && !s.includes('.') ? s + '.TW' : s);
+
+                // Crypto: hit Binance directly (single source, matches the rest of the app and avoids CoinGecko rate limits)
+                const fetchCryptoOne = async (slug) => {
+                    const binSym = getBinanceSymbol(slug);
+                    if (!binSym) return { symbol: slug, error: `不在 Binance: ${slug}` };
+                    try {
+                        const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=400`);
+                        if (!res.ok) return { symbol: slug, error: `Binance ${res.status}` };
+                        const klines = await res.json();
+                        const history = klines.map(k => ({
+                            date: new Date(k[0]).toISOString().slice(0, 10),
+                            price: +k[4], open: +k[1], high: +k[2], low: +k[3],
+                        }));
+                        const last = klines[klines.length - 1];
+                        const prev = klines[klines.length - 2];
+                        return {
+                            symbol: slug,
+                            history,
+                            price: last ? +last[4] : null,
+                            previousClose: prev ? +prev[4] : null,
+                        };
+                    } catch (e) { return { symbol: slug, error: String(e) }; }
+                };
+
+                try {
+                    const [usRes, twRes, cryptoData] = await Promise.all([
+                        grouped.US.length ? fetch(`${proxy}?symbols=${enrichStockSymbols(grouped.US, false).join(',')}&type=stock&history=1y`, { headers }).then(r => r.json()) : { data: [] },
+                        grouped.TW.length ? fetch(`${proxy}?symbols=${enrichStockSymbols(grouped.TW, true).join(',')}&type=stock&history=1y`, { headers }).then(r => r.json()) : { data: [] },
+                        grouped.CRYPTO.length ? Promise.all(grouped.CRYPTO.map(s => fetchCryptoOne(normalizeCrypto(s)))) : [],
+                    ]);
+                    const cryptoRes = { data: cryptoData };
+
+                    const buildItem = (rawSymbol, displaySymbol, type, apiResult) => {
+                        if (!apiResult || apiResult.error || !apiResult.history || apiResult.history.length < 14) {
+                            return { symbol: rawSymbol, type, error: apiResult?.error || 'no data' };
+                        }
+                        const closes = apiResult.history.map(p => p.price);
+                        const high = Math.max(...closes);
+                        const low = Math.min(...closes);
+                        const price = apiResult.price ?? closes[closes.length - 1];
+                        const prev = apiResult.previousClose ?? closes[closes.length - 2];
+                        const changePercent = (price !== null && prev) ? ((price - prev) / prev) * 100 : null;
+                        const rsi = computeRSI(closes, 14);
+                        return {
+                            symbol: rawSymbol,
+                            displaySymbol,
+                            type,
+                            price,
+                            changePercent,
+                            high,
+                            low,
+                            rsi,
+                            position: (high - low) > 0 ? (price - low) / (high - low) : 0.5,
+                        };
+                    };
+
+                    const items = [];
+                    grouped.US.forEach((s, i) => items.push(buildItem(s, s, 'US', (usRes.data || [])[i])));
+                    grouped.TW.forEach((s, i) => {
+                        const enriched = enrichStockSymbols([s], true)[0];
+                        const apiItem = (twRes.data || []).find(d => d.symbol === enriched);
+                        items.push(buildItem(s, enriched, 'TW', apiItem));
+                    });
+                    grouped.CRYPTO.forEach((s, i) => {
+                        const slug = normalizeCrypto(s);
+                        const apiItem = (cryptoRes.data || []).find(d => d.symbol === slug);
+                        items.push(buildItem(s, slug, 'CRYPTO', apiItem));
+                    });
+
+                    setAssetsData(items.filter(it => !it.error));
+                } catch (e) {
+                    console.error('Watchlist fetch failed:', e);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            useEffect(() => { fetchData(); }, [JSON.stringify(watchlist)]);
+
+            const handleDelete = (symbol) => {
+                if (!confirm(`移除「${symbol}」？`)) return;
+                onUpdateWatchlist(watchlist.filter(s => s !== symbol));
+            };
+
+            // Sort logic
+            const sortedAssets = useMemo(() => {
+                if (!assetsData.length) return [];
+                const arr = [...assetsData];
+                arr.sort((a, b) => {
+                    let av, bv;
+                    if (sortKey === 'symbol') { av = a.symbol; bv = b.symbol; }
+                    else if (sortKey === 'change') { av = a.changePercent ?? 0; bv = b.changePercent ?? 0; }
+                    else if (sortKey === 'rsi') { av = a.rsi ?? 50; bv = b.rsi ?? 50; }
+                    else if (sortKey === 'signal') {
+                        // Lower RSI = stronger buy signal → sort ascending (best buy first)
+                        av = a.rsi ?? 50; bv = b.rsi ?? 50;
+                    } else { av = a.symbol; bv = b.symbol; }
+                    if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+                    return sortDir === 'asc' ? av - bv : bv - av;
+                });
+                return arr;
+            }, [assetsData, sortKey, sortDir]);
+
+            const headerBtn = (key, label) => {
+                const active = sortKey === key;
+                return (
+                    <button
+                        onClick={() => {
+                            if (active) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+                            else { setSortKey(key); setSortDir(key === 'signal' || key === 'rsi' ? 'asc' : 'desc'); }
+                        }}
+                        className="inline-flex items-center gap-1 hover:text-white transition-colors"
+                        style={{ color: active ? 'var(--brand-1)' : 'var(--text-3)' }}
+                    >
+                        {label}
+                        {active && (sortDir === 'asc' ? <ArrowUp size={10} /> : <ArrowDown size={10} />)}
+                    </button>
+                );
+            };
+
+            const formatPrice = (p) => p === null || p === undefined ? '—' : p.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+            // ─── Render ───
+            if (loading) return <div className="flex justify-center py-20"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>;
+
+            if (!watchlist || watchlist.length === 0) return (
+                <div className="rounded-2xl ring-soft p-10 text-center relative overflow-hidden" style={{ background: 'var(--surface)' }}>
+                    <div className="absolute inset-0 dotgrid opacity-40 pointer-events-none"></div>
+                    <div className="relative">
+                        <Sparkles size={48} className="mx-auto mb-4 opacity-50" style={{ color: 'var(--text-3)' }} />
+                        <h3 className="text-xl font-bold text-white">觀察清單是空的</h3>
+                        <p className="mt-2 text-sm" style={{ color: 'var(--text-2)' }}>到加密 / 美股 / 台股 dashboard 點標題旁的星星圖示加入</p>
+                    </div>
+                </div>
+            );
+
+            return (
+                <>
+                    {/* Stats header */}
+                    <div className="rounded-2xl ring-soft p-4 flex items-center justify-between flex-wrap gap-3 mb-4" style={{ background: 'var(--surface)' }}>
+                        <div className="flex items-center gap-6 text-xs flex-wrap">
+                            <div>
+                                <p className="label">追蹤中</p>
+                                <p className="text-xl font-extrabold text-white num mt-0.5">{assetsData.length}</p>
+                            </div>
+                            <div>
+                                <p className="label">買進信號</p>
+                                <p className="text-xl font-extrabold num mt-0.5" style={{ color: '#3ce0a8' }}>
+                                    {assetsData.filter(a => a.rsi !== null && a.rsi <= 30).length}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="label">賣出警示</p>
+                                <p className="text-xl font-extrabold num mt-0.5" style={{ color: '#ff7d8c' }}>
+                                    {assetsData.filter(a => a.rsi !== null && a.rsi >= 65).length}
+                                </p>
+                            </div>
+                        </div>
+                        <button onClick={fetchData} className="px-3 py-2 rounded-xl text-xs font-semibold transition-colors" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }} title="重新整理">
+                            <RefreshCw size={14} />
+                        </button>
+                    </div>
+
+                    {/* Table */}
+                    <div className="rounded-2xl ring-soft overflow-hidden" style={{ background: 'var(--surface)' }}>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                                        <th className="text-left p-2 md:p-3 label">{headerBtn('symbol', '標的')}</th>
+                                        <th className="text-left p-2 md:p-3 label">
+                                            <span className="inline-flex items-center gap-1.5">
+                                                {headerBtn('signal', '信號')}
+                                                <button
+                                                    onClick={() => setShowSignalHelp(true)}
+                                                    className="w-4 h-4 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                                                    style={{ color: 'var(--brand-1)', border: '1px solid var(--brand-1)' }}
+                                                    title="信號邏輯說明"
+                                                >
+                                                    <span className="text-[9px] font-bold leading-none">?</span>
+                                                </button>
+                                            </span>
+                                        </th>
+                                        <th className="text-right p-2 md:p-3 label">現價</th>
+                                        <th className="text-right p-2 md:p-3 label">{headerBtn('change', '漲跌%')}</th>
+                                        <th className="text-right p-2 md:p-3 label hidden lg:table-cell">1Y 區間</th>
+                                        <th className="text-right p-2 md:p-3 label hidden sm:table-cell">{headerBtn('rsi', 'RSI')}</th>
+                                        <th className="text-right p-2 md:p-3 label"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {sortedAssets.map((item) => {
+                                        const signal = getCompositeSignal(item.rsi, item.position);
+                                        const changeUp = (item.changePercent ?? 0) >= 0;
+                                        const positionPct = Math.max(0, Math.min(100, (item.position ?? 0.5) * 100));
+                                        return (
+                                            <tr key={item.symbol} className="hover:bg-white/[0.02] transition-colors" style={{ borderBottom: '1px solid var(--line)' }}>
+                                                <td className="p-2 md:p-3">
+                                                    <button
+                                                        onClick={() => setSelectedChartItem({ symbol: item.displaySymbol || item.symbol, type: item.type })}
+                                                        className="font-bold text-white hover:text-grad text-left"
+                                                    >
+                                                        {item.symbol}
+                                                    </button>
+                                                </td>
+                                                <td className="p-2 md:p-3">
+                                                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] md:text-[11px] font-bold whitespace-nowrap" style={{ background: signal.color + '22', color: signal.color }}>
+                                                        <span>{signal.emoji}</span>
+                                                        <span>{signal.label}</span>
+                                                    </div>
+                                                    <div className="text-[10px] mono mt-0.5 hidden md:block" style={{ color: 'var(--text-3)' }}>{signal.advice}</div>
+                                                </td>
+                                                <td className="p-2 md:p-3 text-right mono">${formatPrice(item.price)}</td>
+                                                <td className="p-2 md:p-3 text-right mono font-semibold" style={{ color: changeUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                                    {changeUp ? '+' : ''}{item.changePercent?.toFixed(2) ?? '—'}%
+                                                </td>
+                                                <td className="p-2 md:p-3 text-right hidden lg:table-cell">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>{positionPct.toFixed(0)}%</span>
+                                                        <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                                                            <div className="h-full rounded-full" style={{
+                                                                width: positionPct + '%',
+                                                                background: positionPct < 30 ? '#3ce0a8' : positionPct > 70 ? '#ff7d8c' : '#fbbf24'
+                                                            }}></div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="p-2 md:p-3 text-right mono font-bold hidden sm:table-cell" style={{ color: signal.color }}>
+                                                    {item.rsi !== null ? item.rsi.toFixed(1) : '—'}
+                                                </td>
+                                                <td className="p-2 md:p-3 text-right">
+                                                    <button
+                                                        onClick={() => handleDelete(item.symbol)}
+                                                        className="p-1 rounded hover:bg-red-500/20 transition-colors"
+                                                        style={{ color: 'var(--text-3)' }}
+                                                        title="移除"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {selectedChartItem && (
+                        <ChartModal
+                            symbol={selectedChartItem.symbol}
+                            type={selectedChartItem.type}
+                            onClose={() => setSelectedChartItem(null)}
+                        />
+                    )}
+
+                    {showSignalHelp && (
+                        <div className="fixed inset-0 flex items-center justify-center z-[100] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
+                            <div className="glass-strong p-6 rounded-3xl shadow-2xl max-w-lg w-full relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                                <button
+                                    onClick={() => setShowSignalHelp(false)}
+                                    className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                                    style={{ color: 'var(--text-3)' }}
+                                >
+                                    ✕
+                                </button>
+
+                                <div className="mb-5">
+                                    <p className="label">SIGNAL LOGIC</p>
+                                    <h3 className="text-xl font-extrabold text-white mt-1 tracking-tight">信號邏輯說明</h3>
+                                    <p className="text-xs mt-1.5" style={{ color: 'var(--text-2)' }}>
+                                        信號由 <strong className="text-white">RSI(14)</strong> + <strong className="text-white">1Y 區間位置</strong> 複合判斷
+                                    </p>
+                                </div>
+
+                                <div className="space-y-3 text-sm">
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(60,224,168,0.08)', border: '1px solid rgba(60,224,168,0.25)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">🔥</span>
+                                            <span className="font-bold" style={{ color: '#3ce0a8' }}>強力加碼</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≤ 25 <strong>或</strong> (RSI ≤ 30 <strong>且</strong> 接近 1Y 低 ≤ 10%)</p>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(132,215,106,0.05)', border: '1px solid rgba(132,215,106,0.2)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">🟢</span>
+                                            <span className="font-bold" style={{ color: '#84d76a' }}>加碼</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≤ 30 <strong>或</strong> (RSI ≤ 40 <strong>且</strong> 接近 1Y 低 ≤ 20%)</p>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">⚪</span>
+                                            <span className="font-bold" style={{ color: 'var(--text)' }}>持有 / 觀望</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI 介於 30 ~ 65 之間，無明顯訊號</p>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">🟡</span>
+                                            <span className="font-bold" style={{ color: '#fbbf24' }}>警示</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≥ 65 <strong>或</strong> 接近 1Y 高 ≥ 85%</p>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,125,140,0.08)', border: '1px solid rgba(255,125,140,0.25)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">🔴</span>
+                                            <span className="font-bold" style={{ color: '#ff7d8c' }}>賣出</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≥ 70 <strong>或</strong> (RSI ≥ 60 <strong>且</strong> 接近 1Y 高 ≥ 90%)</p>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,91,110,0.10)', border: '1px solid rgba(255,91,110,0.3)' }}>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-base">🚨</span>
+                                            <span className="font-bold" style={{ color: '#ff5b6e' }}>強力賣出</span>
+                                        </div>
+                                        <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≥ 75 <strong>或</strong> (RSI ≥ 65 <strong>且</strong> 接近 1Y 高 ≥ 95%)</p>
+                                    </div>
+                                </div>
+
+                                <div className="mt-5 p-3 rounded-xl text-xs leading-relaxed" style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', color: 'var(--text-2)' }}>
+                                    <p className="mb-1.5"><strong className="text-white">RSI 是什麼？</strong></p>
+                                    <p className="mb-2">相對強弱指標 (Relative Strength Index)。看過去 14 天「上漲幅度 vs 下跌幅度」的比例，0~100 之間。標準上 &lt;30 是超賣（買進）、&gt;70 是超買（賣出）。</p>
+                                    <p className="mb-1.5"><strong className="text-white">1Y 區間位置</strong>：</p>
+                                    <p>目前股價在過去 1 年高低點之間的位置。0% = 在低點、100% = 在高點。即使 RSI 還沒衝過 70，如果價格已經接近 1 年高點，也算過熱訊號。</p>
+                                </div>
+
+                                <button
+                                    onClick={() => setShowSignalHelp(false)}
+                                    className="w-full mt-5 py-2.5 pill-grad rounded-xl text-sm font-bold transition-all glow-brand"
+                                >
+                                    知道了
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </>
+            );
+        };
+
+        // ═════════════════════════════════════════════
+        // PortfolioDashboard — track real holdings & P/L
+        // ═════════════════════════════════════════════
+        const ASSET_TYPES = {
+            tw_stock: { label: '台股', currency: 'TWD', symbol: 'NT$' },
+            us_stock: { label: '美股', currency: 'USD', symbol: '$' },
+            crypto:   { label: '加密貨幣', currency: 'USD', symbol: '$' },
+            cash:     { label: '現金', currency: 'dynamic', symbol: 'dynamic' },  // currency from holding.symbol
+        };
+
+        // Helper: get currency code for a holding (cash uses its own symbol as currency)
+        const getHoldingCurrency = (h) => h.asset_type === 'cash' ? h.symbol : ASSET_TYPES[h.asset_type].currency;
+        const getHoldingSymbol = (h) => {
+            const ccy = getHoldingCurrency(h);
+            return ccy === 'TWD' ? 'NT$' : '$';
+        };
+        const currencyToSymbol = (ccy) => ccy === 'TWD' ? 'NT$' : '$';
+
+        // Compute current holdings from a flat list of transactions
+        const computeHoldings = (transactions) => {
+            const map = new Map();
+            // Sort by date ascending so weighted-average cost is computed correctly
+            const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+            for (const tx of sorted) {
+                const key = `${tx.symbol}::${tx.asset_type}`;
+                if (!map.has(key)) {
+                    map.set(key, {
+                        symbol: tx.symbol,
+                        asset_type: tx.asset_type,
+                        totalShares: 0,
+                        totalCost: 0,
+                        sharesBought: 0,
+                        sharesSold: 0,
+                        dividends: 0,
+                        totalFees: 0,
+                        firstBuyDate: null,
+                        lastTxDate: tx.date,
+                    });
+                }
+                const h = map.get(key);
+                h.lastTxDate = tx.date;
+                const shares = Number(tx.shares) || 0;
+                const price = Number(tx.price) || 0;
+                const fee = Number(tx.fee) || 0;
+                if (tx.type === 'buy') {
+                    h.totalShares += shares;
+                    h.totalCost += shares * price + fee;
+                    h.sharesBought += shares;
+                    h.totalFees += fee;
+                    if (!h.firstBuyDate || tx.date < h.firstBuyDate) h.firstBuyDate = tx.date;
+                } else if (tx.type === 'sell') {
+                    const avgCost = h.sharesBought > 0 ? h.totalCost / h.totalShares : 0;
+                    h.totalShares -= shares;
+                    h.totalCost -= avgCost * shares;
+                    h.sharesSold += shares;
+                    h.totalFees += fee;
+                } else if (tx.type === 'dividend') {
+                    // For dividends, "price" field stores the total dividend amount in local currency
+                    h.dividends += price;
+                }
+            }
+            return Array.from(map.values()).filter(h => h.totalShares > 0.0001);
+        };
+
+        // ─────────────────────────────────────────────
+        // AddTransactionModal
+        // ─────────────────────────────────────────────
+        const AddTransactionModal = ({ supabase, user, existing, onClose, onSaved }) => {
+            const [symbol, setSymbol] = useState(existing?.symbol || '');
+            const [assetType, setAssetType] = useState(existing?.asset_type || 'tw_stock');
+            const [txType, setTxType] = useState(existing?.type || 'buy');
+            const [date, setDate] = useState(existing?.date || new Date().toISOString().slice(0, 10));
+            const [shares, setShares] = useState(existing?.shares || '');
+            const [price, setPrice] = useState(existing?.price || '');
+            const [fee, setFee] = useState(existing?.fee || '');
+            const [note, setNote] = useState(existing?.note || '');
+            const [saving, setSaving] = useState(false);
+            const [error, setError] = useState(null);
+
+            const inputStyle = { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', color: 'var(--text)' };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (assetType !== 'cash' && !symbol.trim()) return setError('請輸入代號');
+                if (txType !== 'dividend' && assetType !== 'cash' && !shares) return setError('請輸入股數');
+                if (!price) return setError(
+                    assetType === 'cash' ? '請輸入金額' :
+                    txType === 'dividend' ? '請輸入配息金額' :
+                    '請輸入價格'
+                );
+                setSaving(true);
+                setError(null);
+                // For cash: store amount in shares, price=1 (so cost == amount, MV == amount)
+                const isCash = assetType === 'cash';
+                const payload = {
+                    user_id: user.id,
+                    symbol: isCash ? symbol : symbol.trim().toUpperCase(),
+                    asset_type: assetType,
+                    type: txType,
+                    date,
+                    shares: isCash ? Number(price) : (txType === 'dividend' ? 0 : Number(shares)),
+                    price: isCash ? 1 : Number(price),
+                    fee: isCash ? 0 : (Number(fee) || 0),
+                    note: note.trim() || null,
+                };
+                let result;
+                if (existing?.id) {
+                    result = await supabase.from('transactions').update(payload).eq('id', existing.id).select().single();
+                } else {
+                    result = await supabase.from('transactions').insert(payload).select().single();
+                }
+                setSaving(false);
+                if (result.error) {
+                    setError(result.error.message);
+                    return;
+                }
+                onSaved(result.data);
+                onClose();
+            };
+
+            return (
+                <div className="fixed inset-0 flex items-center justify-center z-[100] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
+                    <div className="glass-strong p-6 rounded-3xl shadow-2xl max-w-md w-full relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                        <button
+                            onClick={onClose}
+                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                            style={{ color: 'var(--text-3)' }}
+                        >
+                            ✕
+                        </button>
+
+                        <div className="mb-5">
+                            <p className="label">{existing ? 'EDIT TRANSACTION' : 'NEW TRANSACTION'}</p>
+                            <h3 className="text-xl font-extrabold text-white mt-1">
+                                {existing ? '編輯交易' : '新增交易'}
+                            </h3>
+                        </div>
+
+                        <form onSubmit={handleSubmit} className="space-y-3">
+                            {/* Asset type + Transaction type */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="label block mb-1.5">市場</label>
+                                    <select value={assetType} onChange={e => {
+                                        const newType = e.target.value;
+                                        setAssetType(newType);
+                                        // Reset symbol when switching to/from cash
+                                        if (newType === 'cash' && !['TWD','USD'].includes(symbol.toUpperCase())) setSymbol('TWD');
+                                        // Cash doesn't support dividend
+                                        if (newType === 'cash' && txType === 'dividend') setTxType('buy');
+                                    }} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={inputStyle}>
+                                        <option value="tw_stock">台股</option>
+                                        <option value="us_stock">美股 / ETF</option>
+                                        <option value="crypto">加密貨幣</option>
+                                        <option value="cash">現金</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="label block mb-1.5">類型</label>
+                                    <select value={txType} onChange={e => setTxType(e.target.value)} className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={inputStyle}>
+                                        <option value="buy">{assetType === 'cash' ? '存入' : '買入'}</option>
+                                        <option value="sell">{assetType === 'cash' ? '提領' : '賣出'}</option>
+                                        {assetType !== 'cash' && <option value="dividend">配息</option>}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Symbol */}
+                            <div>
+                                <label className="label block mb-1.5">{assetType === 'cash' ? '幣別' : '代號'}</label>
+                                {assetType === 'cash' ? (
+                                    <select
+                                        value={symbol}
+                                        onChange={e => setSymbol(e.target.value)}
+                                        className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                                        style={inputStyle}
+                                    >
+                                        <option value="TWD">新台幣 (TWD)</option>
+                                        <option value="USD">美金 (USD)</option>
+                                    </select>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        required
+                                        value={symbol}
+                                        onChange={e => setSymbol(e.target.value)}
+                                        placeholder={assetType === 'tw_stock' ? '例如 0050.TW' : assetType === 'us_stock' ? '例如 AAPL' : '例如 bitcoin'}
+                                        className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+                                        style={inputStyle}
+                                    />
+                                )}
+                                <p className="text-[10px] mono mt-1" style={{ color: 'var(--text-3)' }}>
+                                    {assetType === 'tw_stock' && '台股要加 .TW 後綴'}
+                                    {assetType === 'us_stock' && '輸入 ticker 大寫'}
+                                    {assetType === 'crypto' && '使用 CoinMarketCap slug (例如 bitcoin、ethereum)'}
+                                    {assetType === 'cash' && '記錄存入/提領金額'}
+                                </p>
+                            </div>
+
+                            {/* Date */}
+                            <div>
+                                <label className="label block mb-1.5">日期</label>
+                                <input type="date" required value={date} onChange={e => setDate(e.target.value)}
+                                    className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
+                            </div>
+
+                            {/* Shares (hide for dividend AND cash; cash uses 'amount' field below) */}
+                            {txType !== 'dividend' && assetType !== 'cash' && (
+                                <div>
+                                    <label className="label block mb-1.5">股數 / 數量</label>
+                                    <input type="number" step="any" required value={shares} onChange={e => setShares(e.target.value)} placeholder="0"
+                                        className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="label block mb-1.5">
+                                    {assetType === 'cash'
+                                        ? `${txType === 'sell' ? '提領金額' : '存入金額'} (${symbol === 'TWD' ? 'NT$' : '$'})`
+                                        : txType === 'dividend' ? `配息總額 (${ASSET_TYPES[assetType].symbol})` : `成交價 (${ASSET_TYPES[assetType].symbol})`}
+                                </label>
+                                <input type="number" step="any" required value={price} onChange={e => setPrice(e.target.value)} placeholder="0"
+                                    className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
+                            </div>
+
+                            {/* Fee */}
+                            {txType !== 'dividend' && assetType !== 'cash' && (
+                                <div>
+                                    <label className="label block mb-1.5">手續費 (選填)</label>
+                                    <input type="number" step="any" value={fee} onChange={e => setFee(e.target.value)} placeholder="0"
+                                        className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
+                                </div>
+                            )}
+
+                            {/* Note */}
+                            <div>
+                                <label className="label block mb-1.5">備註 (選填)</label>
+                                <input type="text" value={note} onChange={e => setNote(e.target.value)}
+                                    className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none" style={inputStyle} />
+                            </div>
+
+                            {error && (
+                                <div className="text-xs text-center px-3 py-2 rounded-lg" style={{ background: 'rgba(255,91,110,0.08)', color: '#ff7d8c', border: '1px solid rgba(255,91,110,0.2)' }}>
+                                    {error}
+                                </div>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={saving}
+                                className="w-full py-3 pill-grad text-white rounded-xl text-sm font-bold transition-all glow-brand disabled:opacity-50"
+                            >
+                                {saving ? '儲存中...' : (existing ? '更新交易' : '新增交易')}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        // ─────────────────────────────────────────────
+        // PortfolioValueChart — TRUE historical market value
+        // X axis = daily timeline; Y axis = sum(holdings[d] × price[symbol][d])
+        // Also shows cost basis line as reference
+        // ─────────────────────────────────────────────
+        const PortfolioValueChart = ({ transactions, holdings, prices, currency = 'USD' }) => {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+            const [timeRange, setTimeRange] = useState('1y');  // 1mo|3mo|6mo|1y|max
+            const [historicalPrices, setHistoricalPrices] = useState({}); // {symbol::asset_type: [{date, price}]}
+            const [historyLoading, setHistoryLoading] = useState(false);
+
+            const ccyMatch = currency === 'TWD' ? ['tw_stock'] : ['us_stock', 'crypto'];
+
+            // Get unique symbols for the relevant currency
+            const symbolKeys = useMemo(() => {
+                const set = new Set();
+                transactions.forEach(t => {
+                    if (ccyMatch.includes(t.asset_type)) {
+                        set.add(`${t.symbol}::${t.asset_type}`);
+                    }
+                });
+                return Array.from(set);
+            }, [transactions, currency]);
+
+            // Fetch historical prices for all symbols when timeRange or symbols change
+            useEffect(() => {
+                if (symbolKeys.length === 0) return;
+                let cancelled = false;
+                (async () => {
+                    setHistoryLoading(true);
+                    try {
+                        const proxy = `${SUPABASE_URL}/functions/v1/price-proxy`;
+                        const headers = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY };
+                        const stockSyms = symbolKeys.filter(k => k.endsWith('::tw_stock') || k.endsWith('::us_stock')).map(k => k.split('::')[0]);
+                        const cryptoSyms = symbolKeys.filter(k => k.endsWith('::crypto')).map(k => k.split('::')[0]);
+
+                        const results = await Promise.all([
+                            stockSyms.length ? fetch(`${proxy}?symbols=${stockSyms.join(',')}&type=stock&history=${timeRange}`, { headers }).then(r => r.json()) : { data: [] },
+                            cryptoSyms.length ? fetch(`${proxy}?symbols=${cryptoSyms.join(',')}&type=crypto&history=${timeRange}`, { headers }).then(r => r.json()) : { data: [] },
+                        ]);
+                        if (cancelled) return;
+
+                        const map = {};
+                        (results[0].data || []).forEach(r => {
+                            if (r.history && r.history.length) {
+                                const key = symbolKeys.find(k => k.split('::')[0] === r.symbol);
+                                if (key) map[key] = r.history;
+                            }
+                        });
+                        (results[1].data || []).forEach(r => {
+                            if (r.history && r.history.length) {
+                                const key = symbolKeys.find(k => k.split('::')[0].toLowerCase() === r.symbol.toLowerCase());
+                                if (key) map[key] = r.history;
+                            }
+                        });
+                        setHistoricalPrices(map);
+                    } catch (e) {
+                        console.error('Historical price fetch failed', e);
+                    } finally {
+                        setHistoryLoading(false);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [symbolKeys.join(','), timeRange]);
+
+            // Build the daily timeline
+            const { dates, valueSeries, costSeries, currentMarketValue, totalCost } = useMemo(() => {
+                const filteredTxs = transactions.filter(t => ccyMatch.includes(t.asset_type));
+                if (filteredTxs.length === 0 || Object.keys(historicalPrices).length === 0) {
+                    return { dates: [], valueSeries: [], costSeries: [], currentMarketValue: 0, totalCost: 0 };
+                }
+
+                // Build a Set of all dates from historical prices
+                const dateSet = new Set();
+                Object.values(historicalPrices).forEach(arr => arr.forEach(p => dateSet.add(p.date)));
+                const allDates = Array.from(dateSet).sort();
+
+                // Index: symbol_key -> { date: price }
+                const priceByDate = {};
+                for (const [key, arr] of Object.entries(historicalPrices)) {
+                    priceByDate[key] = {};
+                    for (const p of arr) priceByDate[key][p.date] = p.price;
+                }
+
+                // Sort transactions ascending for cumulative computation
+                const txsAsc = [...filteredTxs].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                const valueSeries = [];
+                const costSeries = [];
+                let netCost = 0;
+                let txIndex = 0;
+                const holdingsByKey = {}; // current shares per key based on txs up to date
+
+                for (const date of allDates) {
+                    // Apply all transactions up to (and including) this date
+                    while (txIndex < txsAsc.length && txsAsc[txIndex].date <= date) {
+                        const tx = txsAsc[txIndex];
+                        const key = `${tx.symbol}::${tx.asset_type}`;
+                        const shares = Number(tx.shares) || 0;
+                        const price = Number(tx.price) || 0;
+                        const fee = Number(tx.fee) || 0;
+                        if (!holdingsByKey[key]) holdingsByKey[key] = 0;
+
+                        if (tx.type === 'buy') {
+                            holdingsByKey[key] += shares;
+                            netCost += shares * price + fee;
+                        } else if (tx.type === 'sell') {
+                            holdingsByKey[key] -= shares;
+                            netCost -= shares * price;
+                        } else if (tx.type === 'dividend') {
+                            netCost -= price;
+                        }
+                        txIndex++;
+                    }
+
+                    // Compute portfolio value on this date
+                    let value = 0;
+                    for (const [key, shares] of Object.entries(holdingsByKey)) {
+                        if (shares <= 0.000001) continue;
+                        const px = priceByDate[key] && priceByDate[key][date];
+                        // If no price for this exact date, use last known price
+                        if (px !== undefined) {
+                            value += shares * px;
+                        } else {
+                            // Find nearest earlier date
+                            const symbolDates = Object.keys(priceByDate[key] || {}).sort();
+                            const candidates = symbolDates.filter(d => d <= date);
+                            if (candidates.length > 0) {
+                                value += shares * priceByDate[key][candidates[candidates.length - 1]];
+                            }
+                        }
+                    }
+                    valueSeries.push(value);
+                    costSeries.push(netCost);
+                }
+
+                // Current market value from live prices
+                let currentMarketValue = 0;
+                holdings.filter(h => ccyMatch.includes(h.asset_type)).forEach(h => {
+                    const p = prices[`${h.symbol}::${h.asset_type}`];
+                    if (p && p.price) currentMarketValue += h.totalShares * p.price;
+                });
+
+                return { dates: allDates, valueSeries, costSeries, currentMarketValue, totalCost: netCost };
+            }, [transactions, historicalPrices, holdings, prices, currency]);
+
+            useEffect(() => {
+                if (!canvasRef.current || dates.length === 0) return;
+                if (chartRef.current) { chartRef.current.destroy(); }
+
+                const ctx = canvasRef.current.getContext('2d');
+                chartRef.current = new window.Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: dates,
+                        datasets: [
+                            {
+                                label: '總市值',
+                                data: valueSeries,
+                                borderColor: CHART.line,
+                                backgroundColor: makePriceGradient,
+                                fill: true,
+                                pointRadius: 0,
+                                pointHoverRadius: 4,
+                                borderWidth: 2.5,
+                                tension: 0.3,
+                            },
+                            {
+                                label: '累計投入成本',
+                                data: costSeries,
+                                borderColor: 'rgba(255,255,255,0.35)',
+                                borderDash: [5, 5],
+                                fill: false,
+                                pointRadius: 0,
+                                pointHoverRadius: 3,
+                                borderWidth: 1.5,
+                                tension: 0.3,
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    title: (items) => items[0].label,
+                                    label: (item) => {
+                                        const sym = currency === 'TWD' ? 'NT$' : '$';
+                                        return `${item.dataset.label}: ${sym}${item.parsed.y.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: { grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: 6, font: { family: "'JetBrains Mono', monospace", size: 10 } } },
+                            y: {
+                                grid: { color: CHART.grid },
+                                ticks: {
+                                    color: CHART.tick,
+                                    callback: (val) => {
+                                        const sym = currency === 'TWD' ? 'NT$' : '$';
+                                        return `${sym}${val.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+                                    },
+                                    font: { family: "'JetBrains Mono', monospace", size: 10 }
+                                }
+                            }
+                        }
+                    },
+                    plugins: [dotGridPlugin, lineGlowPlugin, crosshairPlugin]
+                });
+
+                return () => {
+                    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+                };
+            }, [dates, valueSeries, costSeries, currency]);
+
+            if (symbolKeys.length === 0) return null;
+
+            const pl = currentMarketValue - totalCost;
+            const plPct = totalCost > 0 ? (pl / totalCost) * 100 : 0;
+            const isUp = pl >= 0;
+            const sym = currency === 'TWD' ? 'NT$' : '$';
+
+            const rangeBtn = (key, label) => (
+                <button
+                    onClick={() => setTimeRange(key)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${timeRange === key ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                    style={timeRange === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                >
+                    {label}
+                </button>
+            );
+
+            return (
+                <div className="rounded-2xl ring-soft p-4 md:p-5 relative overflow-hidden" style={{ background: 'var(--surface)' }}>
+                    <div className="flex items-start justify-between mb-3 flex-wrap gap-3">
+                        <div>
+                            <p className="label">TOTAL · {currency}</p>
+                            <p className="text-3xl font-extrabold text-white mt-1 num">
+                                {sym}{currentMarketValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </p>
+                            <p className="text-xs mono mt-1" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                {isUp ? '▲' : '▼'} {sym}{Math.abs(pl).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                ({isUp ? '+' : ''}{plPct.toFixed(2)}%)
+                                <span className="ml-2" style={{ color: 'var(--text-3)' }}>vs 成本 {sym}{totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                            </p>
+                        </div>
+                        {historyLoading && (
+                            <div className="flex items-center gap-1.5 text-[11px] mono" style={{ color: 'var(--text-3)' }}>
+                                <RefreshCw className="animate-spin" size={11} />
+                                載入歷史價...
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Time range buttons */}
+                    <div className="flex gap-1 mb-3 flex-wrap">
+                        {rangeBtn('1mo', '1M')}
+                        {rangeBtn('3mo', '3M')}
+                        {rangeBtn('6mo', '6M')}
+                        {rangeBtn('1y', '1Y')}
+                        {rangeBtn('max', 'ALL')}
+                    </div>
+
+                    {/* Chart */}
+                    <div className="relative" style={{ height: '240px' }}>
+                        {dates.length === 0 && !historyLoading && (
+                            <div className="absolute inset-0 flex items-center justify-center text-xs" style={{ color: 'var(--text-3)' }}>
+                                等待歷史價...
+                            </div>
+                        )}
+                        <canvas ref={canvasRef}></canvas>
+                    </div>
+
+                    {/* Legend */}
+                    <div className="flex items-center gap-4 mt-2 text-[10px] mono" style={{ color: 'var(--text-3)' }}>
+                        <span className="flex items-center gap-1.5">
+                            <span className="inline-block w-3 h-0.5 rounded" style={{ background: '#3b82f6' }}></span>
+                            總市值
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                            <span className="inline-block w-3 h-0 border-t border-dashed" style={{ borderColor: 'rgba(255,255,255,0.35)', height: '1px' }}></span>
+                            累計投入成本
+                        </span>
+                    </div>
+                </div>
+            );
+        };
+
+        // ─────────────────────────────────────────────
+        // PortfolioDashboard — main component
+        // ─────────────────────────────────────────────
+        // ─── ForumGate：論壇函式庫(marked/KaTeX/EasyMDE 等)改為點開論壇才載入,首頁不再背這些成本 ───
+        const ForumGate = (props) => {
+            const [ready, setReady] = useState(false);
+            useEffect(() => {
+                let cancelled = false;
+                // 載入失敗也照樣渲染:forum.js 對缺少的函式庫有防呆,只是少了對應功能
+                window.__loadForumLibs().catch(() => {}).then(() => { if (!cancelled) setReady(true); });
+                return () => { cancelled = true; };
+            }, []);
+            if (!ready || !window.ForumApp) {
+                return (
+                    <div className="text-center py-16">
+                        <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-1)' }}></div>
+                    </div>
+                );
+            }
+            return <window.ForumApp {...props} />;
+        };
+
+        // ─── 交易日誌(合約開單備忘錄):進場邏輯、止盈止損、事後反省 ───
+        const calcJournalRR = (e) => {
+            const entry = parseFloat(e.entry_price), sl = parseFloat(e.stop_loss), tp = parseFloat(e.take_profit);
+            if (!entry || !sl || !tp) return null;
+            const risk = e.direction === 'long' ? entry - sl : sl - entry;
+            const reward = e.direction === 'long' ? tp - entry : entry - tp;
+            if (risk <= 0 || reward <= 0) return null;
+            return reward / risk;
+        };
+        const calcJournalPnlPct = (e) => {
+            const entry = parseFloat(e.entry_price), exit = parseFloat(e.exit_price);
+            if (!entry || !exit) return null;
+            const raw = (exit - entry) / entry * (e.direction === 'long' ? 1 : -1) * 100;
+            return raw * (parseFloat(e.leverage) || 1);
+        };
+
+        // ISO 時間 → datetime-local 欄位值(本地時區,非 UTC)
+        const toLocalDatetimeValue = (iso) => {
+            const d = iso ? new Date(iso) : new Date();
+            const p = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+        };
+
+        const TradeJournalFormModal = ({ supabase, user, editing, onClose, onSaved }) => {
+            const isEdit = !!editing;
+            const [form, setForm] = useState(() => ({
+                symbol: editing?.symbol || '',
+                direction: editing?.direction || 'long',
+                leverage: editing?.leverage ?? '',
+                entry_price: editing?.entry_price ?? '',
+                position_size: editing?.position_size ?? '',
+                stop_loss: editing?.stop_loss ?? '',
+                take_profit: editing?.take_profit ?? '',
+                entry_reason: editing?.entry_reason || '',
+                status: editing?.status || 'open',
+                exit_price: editing?.exit_price ?? '',
+                review: editing?.review || '',
+                entry_at: toLocalDatetimeValue(editing?.entry_at),
+            }));
+            const [saving, setSaving] = useState(false);
+            const set = (k) => (ev) => setForm(f => ({ ...f, [k]: ev.target.value }));
+
+            const rr = calcJournalRR(form);
+            const entryP = parseFloat(form.entry_price), slP = parseFloat(form.stop_loss);
+            const riskPct = (entryP && slP && entryP > 0) ? Math.abs(entryP - slP) / entryP * 100 * (parseFloat(form.leverage) || 1) : null;
+            const pnlPct = form.status === 'closed' ? calcJournalPnlPct(form) : null;
+
+            const handleSave = async () => {
+                if (!form.symbol.trim() || !form.entry_price) { alert('標的與進場價為必填。'); return; }
+                setSaving(true);
+                const num = (v) => (v === '' || v === null || isNaN(parseFloat(v))) ? null : parseFloat(v);
+                const row = {
+                    user_id: user.id,
+                    symbol: form.symbol.trim().toUpperCase(),
+                    direction: form.direction,
+                    leverage: num(form.leverage),
+                    entry_price: num(form.entry_price),
+                    position_size: num(form.position_size),
+                    stop_loss: num(form.stop_loss),
+                    take_profit: num(form.take_profit),
+                    entry_reason: form.entry_reason.trim() || null,
+                    status: form.status,
+                    exit_price: form.status === 'closed' ? num(form.exit_price) : null,
+                    pnl: form.status === 'closed' ? calcJournalPnlPct(form) : null,
+                    review: form.review.trim() || null,
+                    entry_at: new Date(form.entry_at).toISOString(),
+                    closed_at: form.status === 'closed' ? (editing?.closed_at || new Date().toISOString()) : null,
+                };
+                const q = isEdit
+                    ? supabase.from('trade_journal').update(row).eq('id', editing.id)
+                    : supabase.from('trade_journal').insert(row);
+                const { error: err } = await q;
+                setSaving(false);
+                if (err) { alert('儲存失敗：' + err.message); return; }
+                onSaved();
+            };
+
+            const inputCls = "w-full px-3 py-2 rounded-xl text-sm text-white outline-none focus:ring-1";
+            const inputStyle = { background: 'var(--bg-soft)', border: '1px solid var(--line)' };
+            const labelCls = "label mb-1.5 block";
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center p-4 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
+                    <div className="rounded-2xl ring-soft p-5 w-full max-w-lg my-8" style={{ background: 'var(--surface)' }} onClick={ev => ev.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-extrabold text-white">{isEdit ? '編輯開單紀錄' : '新增開單紀錄'}</h3>
+                            <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">×</button>
+                        </div>
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className={labelCls}>標的 *</label>
+                                    <input className={inputCls + " mono uppercase"} style={inputStyle} placeholder="BTCUSDT" value={form.symbol} onChange={set('symbol')} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>方向</label>
+                                    <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-soft)', border: '1px solid var(--line)' }}>
+                                        <button onClick={() => setForm(f => ({ ...f, direction: 'long' }))} className="flex-1 py-1 rounded-lg text-xs font-bold transition-all" style={form.direction === 'long' ? { background: 'rgba(0,214,143,0.18)', color: 'var(--up)' } : { color: 'var(--text-3)' }}>做多 ↑</button>
+                                        <button onClick={() => setForm(f => ({ ...f, direction: 'short' }))} className="flex-1 py-1 rounded-lg text-xs font-bold transition-all" style={form.direction === 'short' ? { background: 'rgba(255,91,110,0.18)', color: 'var(--down)' } : { color: 'var(--text-3)' }}>做空 ↓</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3">
+                                <div>
+                                    <label className={labelCls}>進場價 *</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={inputStyle} value={form.entry_price} onChange={set('entry_price')} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>槓桿 (x)</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={inputStyle} placeholder="10" value={form.leverage} onChange={set('leverage')} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>倉位 (USDT)</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={inputStyle} placeholder="保證金" value={form.position_size} onChange={set('position_size')} />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className={labelCls}>止損 SL</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={{ ...inputStyle, borderColor: 'rgba(255,91,110,0.3)' }} value={form.stop_loss} onChange={set('stop_loss')} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>止盈 TP</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={{ ...inputStyle, borderColor: 'rgba(0,214,143,0.3)' }} value={form.take_profit} onChange={set('take_profit')} />
+                                </div>
+                            </div>
+                            {(rr || riskPct) && (
+                                <div className="flex gap-2 flex-wrap">
+                                    {rr && (
+                                        <span className="px-2.5 py-1 rounded-full text-xs font-bold mono" style={{ background: rr >= 2 ? 'rgba(0,214,143,0.15)' : 'rgba(245,158,11,0.15)', color: rr >= 2 ? 'var(--up)' : 'var(--warn)' }}>
+                                            R:R ≈ 1 : {rr.toFixed(2)}{rr < 2 ? '（低於 1:2，想清楚再進）' : ''}
+                                        </span>
+                                    )}
+                                    {riskPct != null && (
+                                        <span className="px-2.5 py-1 rounded-full text-xs font-bold mono" style={{ background: 'rgba(255,91,110,0.12)', color: riskPct > 30 ? 'var(--down)' : 'var(--text-2)' }}>
+                                            打損失去保證金 {riskPct.toFixed(1)}%
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                            <div>
+                                <label className={labelCls}>為什麼進場？（技術依據）</label>
+                                <textarea rows="3" className={inputCls} style={inputStyle} placeholder="例：4H 跌破後 SFP 收回 + 日線 EMA 支撐共振、量價背離…" value={form.entry_reason} onChange={set('entry_reason')} />
+                            </div>
+                            <div>
+                                <label className={labelCls}>進場時間</label>
+                                <input type="datetime-local" className={inputCls + " mono"} style={inputStyle} value={form.entry_at} onChange={set('entry_at')} />
+                            </div>
+                            <div className="pt-2" style={{ borderTop: '1px solid var(--line)' }}>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="label">狀態</label>
+                                    <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-soft)', border: '1px solid var(--line)' }}>
+                                        <button onClick={() => setForm(f => ({ ...f, status: 'open' }))} className="px-3 py-1 rounded-lg text-xs font-bold transition-all" style={form.status === 'open' ? { background: 'rgba(245,158,11,0.18)', color: 'var(--warn)' } : { color: 'var(--text-3)' }}>持倉中</button>
+                                        <button onClick={() => setForm(f => ({ ...f, status: 'closed' }))} className="px-3 py-1 rounded-lg text-xs font-bold transition-all" style={form.status === 'closed' ? { background: 'rgba(255,255,255,0.1)', color: 'var(--text)' } : { color: 'var(--text-3)' }}>已平倉</button>
+                                    </div>
+                                </div>
+                                {form.status === 'closed' && (
+                                    <div className="space-y-3">
+                                        <div className="grid grid-cols-2 gap-3 items-end">
+                                            <div>
+                                                <label className={labelCls}>出場價</label>
+                                                <input type="number" step="any" className={inputCls + " num"} style={inputStyle} value={form.exit_price} onChange={set('exit_price')} />
+                                            </div>
+                                            {pnlPct != null && (
+                                                <p className="text-lg font-extrabold num pb-1" style={{ color: pnlPct >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                                                    {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className={labelCls}>事後反省</label>
+                                            <textarea rows="3" className={inputCls} style={inputStyle} placeholder="哪裡做對？哪裡做錯？下次同樣情境怎麼處理？" value={form.review} onChange={set('review')} />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }}>取消</button>
+                                <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded-xl text-sm font-bold pill-grad glow-brand">{saving ? '儲存中…' : '儲存'}</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const TradeJournalDashboard = ({ supabase, user }) => {
+            const [entries, setEntries] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [tableMissing, setTableMissing] = useState(false);
+            const [error, setError] = useState(null);
+            const [showForm, setShowForm] = useState(false);
+            const [editing, setEditing] = useState(null);
+            const [filter, setFilter] = useState('all'); // 'all' | 'open' | 'closed'
+
+            const reload = async () => {
+                if (!user || !supabase) return;
+                setLoading(true);
+                const { data, error: err } = await supabase
+                    .from('trade_journal')
+                    .select('*')
+                    .order('entry_at', { ascending: false });
+                if (err) {
+                    if (err.code === '42P01' || err.code === 'PGRST205' || /trade_journal/.test(err.message || '')) setTableMissing(true);
+                    else setError(err.message);
+                } else {
+                    setEntries(data || []);
+                }
+                setLoading(false);
+            };
+            useEffect(() => { reload(); }, [user]);
+
+            const stats = useMemo(() => {
+                const closed = entries.filter(e => e.status === 'closed' && e.pnl != null);
+                const wins = closed.filter(e => e.pnl > 0).length;
+                return {
+                    open: entries.filter(e => e.status === 'open').length,
+                    closed: closed.length,
+                    winRate: closed.length ? (wins / closed.length * 100) : null,
+                    avgPnl: closed.length ? closed.reduce((s, e) => s + e.pnl, 0) / closed.length : null,
+                };
+            }, [entries]);
+
+            const shown = entries.filter(e => filter === 'all' || e.status === filter);
+
+            const handleDelete = async (id) => {
+                if (!confirm('確定刪除這筆開單紀錄？')) return;
+                const { error: err } = await supabase.from('trade_journal').delete().eq('id', id);
+                if (err) { alert('刪除失敗：' + err.message); return; }
+                reload();
+            };
+
+            if (loading) {
+                return (
+                    <div className="text-center py-16">
+                        <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-1)' }}></div>
+                    </div>
+                );
+            }
+
+            if (tableMissing) {
+                return (
+                    <div className="rounded-2xl ring-soft p-8" style={{ background: 'var(--surface)' }}>
+                        <h3 className="text-lg font-bold text-white mb-2">📓 交易日誌需要先建立資料表</h3>
+                        <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+                            到 Supabase Dashboard → SQL Editor 執行 repo 裡的 <code className="mono px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-soft)' }}>supabase/trade_journal.sql</code>，重新整理即可使用。
+                        </p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-4">
+                    {/* Stats + actions */}
+                    <div className="rounded-2xl ring-soft p-4 flex items-center justify-between flex-wrap gap-3" style={{ background: 'var(--surface)' }}>
+                        <div className="flex gap-6 flex-wrap">
+                            <div><p className="label">持倉中</p><p className="text-xl font-extrabold num mt-0.5" style={{ color: 'var(--warn)' }}>{stats.open}</p></div>
+                            <div><p className="label">已平倉</p><p className="text-xl font-extrabold num mt-0.5 text-white">{stats.closed}</p></div>
+                            <div><p className="label">勝率</p><p className="text-xl font-extrabold num mt-0.5 text-white">{stats.winRate == null ? '—' : stats.winRate.toFixed(0) + '%'}</p></div>
+                            <div><p className="label">平均報酬</p><p className="text-xl font-extrabold num mt-0.5" style={{ color: stats.avgPnl == null ? 'var(--text)' : stats.avgPnl >= 0 ? 'var(--up)' : 'var(--down)' }}>{stats.avgPnl == null ? '—' : (stats.avgPnl >= 0 ? '+' : '') + stats.avgPnl.toFixed(1) + '%'}</p></div>
+                        </div>
+                        <button onClick={() => { setEditing(null); setShowForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold pill-grad glow-brand flex items-center gap-1.5">
+                            <span>＋</span> 新增開單
+                        </button>
+                    </div>
+
+                    {/* Filter pills */}
+                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
+                        {[['all', '全部'], ['open', '持倉中'], ['closed', '已平倉']].map(([k, label]) => (
+                            <button key={k} onClick={() => setFilter(k)}
+                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${filter === k ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                style={filter === k ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {error && <p className="text-sm" style={{ color: 'var(--down)' }}>讀取失敗：{error}</p>}
+
+                    {shown.length === 0 && !error && (
+                        <div className="rounded-2xl ring-soft p-10 text-center" style={{ background: 'var(--surface)' }}>
+                            <p className="text-4xl mb-3">📓</p>
+                            <h3 className="text-lg font-bold text-white mb-1">還沒有開單紀錄</h3>
+                            <p className="text-sm" style={{ color: 'var(--text-2)' }}>每一單都寫下「為什麼進場」與事後反省，是最快變強的方式。</p>
+                        </div>
+                    )}
+
+                    {shown.map(e => {
+                        const rr = calcJournalRR(e);
+                        const isLong = e.direction === 'long';
+                        const pnl = e.pnl;
+                        return (
+                            <div key={e.id} className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)', borderLeft: `3px solid ${e.status === 'open' ? 'var(--warn)' : pnl == null ? 'var(--line-2)' : pnl >= 0 ? 'var(--up)' : 'var(--down)'}` }}>
+                                <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-extrabold text-white mono">{e.symbol}</span>
+                                        <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={isLong ? { background: 'rgba(0,214,143,0.15)', color: 'var(--up)' } : { background: 'rgba(255,91,110,0.15)', color: 'var(--down)' }}>
+                                            {isLong ? '多' : '空'}{e.leverage ? ` ${e.leverage}x` : ''}
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={e.status === 'open' ? { background: 'rgba(245,158,11,0.15)', color: 'var(--warn)' } : { background: 'rgba(255,255,255,0.08)', color: 'var(--text-2)' }}>
+                                            {e.status === 'open' ? '持倉中' : '已平倉'}
+                                        </span>
+                                        {pnl != null && (
+                                            <span className="font-extrabold num text-sm" style={{ color: pnl >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                                                {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}%
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs mono" style={{ color: 'var(--text-3)' }}>{new Date(e.entry_at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                                        {e.status === 'open' && (
+                                            <button onClick={() => { setEditing({ ...e, status: 'closed' }); setShowForm(true); }} className="px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--brand-1)' }}>平倉</button>
+                                        )}
+                                        <button onClick={() => { setEditing(e); setShowForm(true); }} className="px-2 py-1 rounded-lg text-xs" style={{ color: 'var(--text-2)' }} title="編輯">✎</button>
+                                        <button onClick={() => handleDelete(e.id)} className="px-2 py-1 rounded-lg text-xs" style={{ color: 'var(--text-3)' }} title="刪除">✕</button>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-3">
+                                    <div><p className="label">進場</p><p className="text-sm font-bold num text-white mt-0.5">{e.entry_price}</p></div>
+                                    <div><p className="label">止損</p><p className="text-sm font-bold num mt-0.5" style={{ color: 'var(--down)' }}>{e.stop_loss ?? '—'}</p></div>
+                                    <div><p className="label">止盈</p><p className="text-sm font-bold num mt-0.5" style={{ color: 'var(--up)' }}>{e.take_profit ?? '—'}</p></div>
+                                    <div><p className="label">R:R</p><p className="text-sm font-bold num text-white mt-0.5">{rr ? `1:${rr.toFixed(1)}` : '—'}</p></div>
+                                    <div><p className="label">倉位</p><p className="text-sm font-bold num text-white mt-0.5">{e.position_size ?? '—'}</p></div>
+                                    <div><p className="label">出場</p><p className="text-sm font-bold num text-white mt-0.5">{e.exit_price ?? '—'}</p></div>
+                                </div>
+                                {e.entry_reason && (
+                                    <div className="rounded-xl p-3 mb-2" style={{ background: 'var(--bg-soft)' }}>
+                                        <p className="label mb-1">進場理由</p>
+                                        <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-2)' }}>{e.entry_reason}</p>
+                                    </div>
+                                )}
+                                {e.review && (
+                                    <div className="rounded-xl p-3" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
+                                        <p className="label mb-1" style={{ color: 'var(--brand-2)' }}>事後反省</p>
+                                        <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-2)' }}>{e.review}</p>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+
+                    {showForm && (
+                        <TradeJournalFormModal
+                            supabase={supabase}
+                            user={user}
+                            editing={editing}
+                            onClose={() => setShowForm(false)}
+                            onSaved={() => { setShowForm(false); reload(); }}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        const PortfolioDashboard = ({ supabase, user, watchlist, onUpdateWatchlist, isPremium }) => {
+            const [subTab, setSubTab] = useState('holdings'); // 'holdings' | 'watchlist' | 'journal'
+            const [ccyView, setCcyView] = useState('USD'); // 投組顯示幣別:預設 USD,有多幣別時可切換(例如 TWD)
+            const [transactions, setTransactions] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [prices, setPrices] = useState({}); // {symbol::asset_type: {price, changePercent, currency}}
+            const [pricesLoading, setPricesLoading] = useState(false);
+            const [showModal, setShowModal] = useState(false);
+            const [editingTx, setEditingTx] = useState(null);
+
+            // 1. Fetch transactions
+            const reload = async () => {
+                if (!user || !supabase) return;
+                setLoading(true);
+                const { data, error: err } = await supabase
+                    .from('transactions')
+                    .select('*')
+                    .order('date', { ascending: false });
+                if (err) setError(err.message);
+                else setTransactions(data || []);
+                setLoading(false);
+            };
+
+            useEffect(() => { reload(); }, [user, supabase]);
+
+            // 2. Compute holdings
+            const holdings = useMemo(() => computeHoldings(transactions), [transactions]);
+
+            // 3. Fetch current prices for all holdings
+            useEffect(() => {
+                if (holdings.length === 0) return;
+                let cancelled = false;
+                (async () => {
+                    setPricesLoading(true);
+                    // Skip cash entries (always price 1) and filter by asset type
+                    const stockSyms = holdings.filter(h => h.asset_type === 'tw_stock' || h.asset_type === 'us_stock').map(h => h.symbol);
+                    const cryptoSyms = holdings.filter(h => h.asset_type === 'crypto').map(h => h.symbol);
+                    const proxy = `${SUPABASE_URL}/functions/v1/price-proxy`;
+                    const headers = { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY };
+                    try {
+                        const results = await Promise.all([
+                            stockSyms.length ? fetch(`${proxy}?symbols=${stockSyms.join(',')}&type=stock`, { headers }).then(r => r.json()) : { data: [] },
+                            cryptoSyms.length ? fetch(`${proxy}?symbols=${cryptoSyms.join(',')}&type=crypto`, { headers }).then(r => r.json()) : { data: [] },
+                        ]);
+                        if (cancelled) return;
+                        const map = {};
+                        const sd = results[0].data || [];
+                        const cd = results[1].data || [];
+                        holdings.forEach(h => {
+                            if (h.asset_type === 'crypto') {
+                                const found = cd.find(p => p.symbol === h.symbol.toLowerCase());
+                                if (found) map[`${h.symbol}::${h.asset_type}`] = found;
+                            } else {
+                                const found = sd.find(p => p.symbol === h.symbol);
+                                if (found) map[`${h.symbol}::${h.asset_type}`] = found;
+                            }
+                        });
+                        // Inject synthetic price=1 for cash holdings
+                        holdings.filter(h => h.asset_type === 'cash').forEach(h => {
+                            map[`${h.symbol}::${h.asset_type}`] = { symbol: h.symbol, price: 1, previousClose: 1, change: 0, changePercent: 0, currency: h.symbol };
+                        });
+                        setPrices(map);
+                    } catch (e) {
+                        console.error('Price fetch failed', e);
+                    } finally {
+                        setPricesLoading(false);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [holdings.length, transactions.length]);
+
+            // 4. Summary totals
+            const summary = useMemo(() => {
+                const byCurrency = {};
+                holdings.forEach(h => {
+                    const ccy = getHoldingCurrency(h);
+                    if (!byCurrency[ccy]) byCurrency[ccy] = { cost: 0, marketValue: 0, dividends: 0, count: 0, cash: 0 };
+                    if (h.asset_type === 'cash') {
+                        // Cash: cost == market value == net amount; price always 1
+                        byCurrency[ccy].cost += h.totalCost;
+                        byCurrency[ccy].marketValue += h.totalShares; // each "share" = 1 unit of currency
+                        byCurrency[ccy].cash += h.totalShares;
+                        byCurrency[ccy].count += 1;
+                    } else {
+                        byCurrency[ccy].cost += h.totalCost;
+                        byCurrency[ccy].dividends += h.dividends;
+                        byCurrency[ccy].count += 1;
+                        const p = prices[`${h.symbol}::${h.asset_type}`];
+                        if (p?.price) byCurrency[ccy].marketValue += h.totalShares * p.price;
+                    }
+                });
+                return byCurrency;
+            }, [holdings, prices]);
+
+            // 5. Delete transaction
+            const handleDelete = async (id) => {
+                if (!confirm('確定要刪除這筆交易？此操作無法復原。')) return;
+                const { error: err } = await supabase.from('transactions').delete().eq('id', id);
+                if (err) { alert('刪除失敗：' + err.message); return; }
+                reload();
+            };
+
+            if (!user) {
+                return (
+                    <div className="rounded-2xl ring-soft p-10 text-center" style={{ background: 'var(--surface)' }}>
+                        <p className="text-5xl mb-4">🔒</p>
+                        <h3 className="text-xl font-bold text-white mb-2">請先登入</h3>
+                        <p className="text-sm" style={{ color: 'var(--text-2)' }}>登入後才能管理你的投資組合</p>
+                    </div>
+                );
+            }
+
+            if (loading) {
+                return (
+                    <div className="text-center py-16">
+                        <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-1)' }}></div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-4">
+                    {/* Header */}
+                    <div className="rounded-2xl ring-soft p-5 flex items-center justify-between flex-wrap gap-3" style={{ background: 'var(--surface)' }}>
+                        <div>
+                            <p className="label">MY INVESTMENTS</p>
+                            <h2 className="text-2xl font-extrabold text-white mt-1 tracking-tight">
+                                {subTab === 'holdings' ? '我的投資組合' : subTab === 'watchlist' ? '觀察清單' : '交易日誌'}
+                            </h2>
+                            <p className="text-xs mt-1 mono" style={{ color: 'var(--text-3)' }}>
+                                {subTab === 'holdings'
+                                    ? `${holdings.length} 檔持股 · ${transactions.length} 筆交易`
+                                    : subTab === 'watchlist'
+                                        ? `${(watchlist || []).length} 檔追蹤中`
+                                        : '合約開單備忘 · 進場邏輯與事後檢討'
+                                }
+                            </p>
+                        </div>
+                        {subTab === 'holdings' && (
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={reload}
+                                    className="px-3 py-2 rounded-xl text-xs font-semibold transition-colors"
+                                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }}
+                                    title="重新整理"
+                                >
+                                    <RefreshCw size={14} className={pricesLoading ? "animate-spin" : ""} />
+                                </button>
+                                <button
+                                    onClick={() => { setEditingTx(null); setShowModal(true); }}
+                                    className="px-4 py-2 rounded-xl text-sm font-bold pill-grad glow-brand flex items-center gap-1.5"
+                                >
+                                    <span>＋</span> 新增交易
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Sub-tab switcher */}
+                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
+                        <button
+                            onClick={() => setSubTab('holdings')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${subTab === 'holdings' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            style={subTab === 'holdings' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                            </svg>
+                            持股
+                        </button>
+                        <button
+                            onClick={() => setSubTab('watchlist')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${subTab === 'watchlist' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            style={subTab === 'watchlist' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                            </svg>
+                            觀察清單
+                        </button>
+                        <button
+                            onClick={() => setSubTab('journal')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${subTab === 'journal' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            style={subTab === 'journal' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 20h9"/>
+                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                            </svg>
+                            交易日誌
+                        </button>
+                    </div>
+
+                    {/* Watchlist sub-view */}
+                    {subTab === 'watchlist' && (
+                        <WatchlistDashboard
+                            watchlist={watchlist}
+                            onUpdateWatchlist={onUpdateWatchlist}
+                            isPremium={isPremium}
+                            user={user}
+                        />
+                    )}
+
+                    {/* Trade journal sub-view */}
+                    {subTab === 'journal' && (
+                        <TradeJournalDashboard supabase={supabase} user={user} />
+                    )}
+
+                    {/* Holdings sub-view */}
+                    {subTab !== 'holdings' ? null : <>
+
+                    {/* Portfolio value chart + summary(單一幣別檢視:預設 USD,持有多種計價幣別時可切換) */}
+                    {(() => {
+                        const ccyList = Object.keys(summary);
+                        if (ccyList.length === 0) return null;
+                        const activeCcy = ccyList.includes(ccyView) ? ccyView : (ccyList.includes('USD') ? 'USD' : ccyList[0]);
+                        const s = summary[activeCcy];
+                        const pl = s.marketValue - s.cost;
+                        const plPct = s.cost > 0 ? (pl / s.cost) * 100 : 0;
+                        const isUp = pl >= 0;
+                        const sym = activeCcy === 'TWD' ? 'NT$' : '$';
+                        return (
+                            <>
+                                {/* 幣別切換:僅在同時持有多種計價幣別時顯示(例如 USD / TWD) */}
+                                {ccyList.length > 1 && (
+                                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
+                                        {ccyList.map(ccy => (
+                                            <button
+                                                key={ccy}
+                                                onClick={() => setCcyView(ccy)}
+                                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${activeCcy === ccy ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                                style={activeCcy === ccy ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                                            >
+                                                {ccy}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Portfolio value chart(選中幣別) */}
+                                <PortfolioValueChart
+                                    transactions={transactions}
+                                    holdings={holdings}
+                                    prices={prices}
+                                    currency={activeCcy}
+                                />
+
+                                {/* Summary cards(選中幣別) */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                        <p className="label">{activeCcy} · 總市值</p>
+                                        <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                            {sym}{s.marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                        <p className="label">總成本</p>
+                                        <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                            {sym}{s.cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                        <p className="label">未實現損益</p>
+                                        <p className="text-xl md:text-2xl font-extrabold mt-1 num" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                            {isUp ? '+' : ''}{sym}{pl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                        </p>
+                                        <p className="text-xs mono mt-0.5" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                            {isUp ? '+' : ''}{plPct.toFixed(2)}%
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
+                                        <p className="label">累計配息</p>
+                                        <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                            {sym}{s.dividends.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                        </p>
+                                    </div>
+                                </div>
+                            </>
+                        );
+                    })()}
+
+                    {/* Empty state */}
+                    {holdings.length === 0 && transactions.length === 0 && (
+                        <div className="rounded-2xl ring-soft p-10 text-center relative overflow-hidden" style={{ background: 'var(--surface)' }}>
+                            <div className="absolute inset-0 dotgrid opacity-40 pointer-events-none"></div>
+                            <div className="relative">
+                                <p className="text-5xl mb-3">📊</p>
+                                <h3 className="text-lg font-bold text-white mb-2">還沒有任何交易</h3>
+                                <p className="text-sm mb-5" style={{ color: 'var(--text-2)' }}>新增第一筆交易來開始追蹤你的投資組合</p>
+                                <button
+                                    onClick={() => { setEditingTx(null); setShowModal(true); }}
+                                    className="px-5 py-2.5 rounded-xl text-sm font-bold pill-grad glow-brand"
+                                >
+                                    ＋ 新增第一筆交易
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Holdings table */}
+                    {holdings.length > 0 && (
+                        <div className="rounded-2xl ring-soft overflow-hidden" style={{ background: 'var(--surface)' }}>
+                            <div className="p-4 border-b" style={{ borderColor: 'var(--line)' }}>
+                                <h3 className="font-bold text-white">目前持股</h3>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                                            <th className="text-left p-3 label">代號</th>
+                                            <th className="text-right p-3 label">持股</th>
+                                            <th className="text-right p-3 label">均價</th>
+                                            <th className="text-right p-3 label">現價</th>
+                                            <th className="text-right p-3 label">市值</th>
+                                            <th className="text-right p-3 label">損益</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {holdings.map((h) => {
+                                            const isCash = h.asset_type === 'cash';
+                                            const p = prices[`${h.symbol}::${h.asset_type}`];
+                                            const avgCost = h.totalShares > 0 ? h.totalCost / h.totalShares : 0;
+                                            const currentPrice = p?.price ?? null;
+                                            const marketValue = currentPrice ? h.totalShares * currentPrice : null;
+                                            const pl = isCash ? 0 : (marketValue !== null ? marketValue - h.totalCost : null);
+                                            const plPct = pl !== null && h.totalCost > 0 && !isCash ? (pl / h.totalCost) * 100 : null;
+                                            const sym = getHoldingSymbol(h);
+                                            const isUp = pl !== null && pl >= 0;
+                                            return (
+                                                <tr key={`${h.symbol}::${h.asset_type}`} className="hover:bg-white/[0.02]" style={{ borderBottom: '1px solid var(--line)' }}>
+                                                    <td className="p-3">
+                                                        <div className="font-bold text-white flex items-center gap-2">
+                                                            {isCash && <span className="text-base">💵</span>}
+                                                            {isCash ? `${h.symbol} 現金` : h.symbol}
+                                                        </div>
+                                                        <div className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>
+                                                            {ASSET_TYPES[h.asset_type].label}
+                                                            {h.dividends > 0 && ` · 配息 ${sym}${h.dividends.toFixed(0)}`}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-3 text-right mono">
+                                                        {isCash ? `${sym}${h.totalShares.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : h.totalShares.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                                                    </td>
+                                                    <td className="p-3 text-right mono" style={{ color: 'var(--text-2)' }}>
+                                                        {isCash ? '—' : `${sym}${avgCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+                                                    </td>
+                                                    <td className="p-3 text-right mono">
+                                                        {isCash ? '—' : (currentPrice !== null ? `${sym}${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—')}
+                                                        {!isCash && p?.changePercent !== null && p?.changePercent !== undefined && (
+                                                            <div className="text-[10px] mono" style={{ color: p.changePercent >= 0 ? '#3ce0a8' : '#ff7d8c' }}>
+                                                                {p.changePercent >= 0 ? '+' : ''}{p.changePercent.toFixed(2)}%
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-3 text-right mono font-semibold">
+                                                        {marketValue !== null ? `${sym}${marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+                                                    </td>
+                                                    <td className="p-3 text-right">
+                                                        {isCash ? <span style={{ color: 'var(--text-3)' }}>—</span> : (pl !== null ? (
+                                                            <div>
+                                                                <div className="mono font-bold" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                                                    {isUp ? '+' : ''}{sym}{pl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                                </div>
+                                                                <div className="text-[10px] mono" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                                                    {isUp ? '+' : ''}{plPct.toFixed(2)}%
+                                                                </div>
+                                                            </div>
+                                                        ) : '—')}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Recent transactions */}
+                    {transactions.length > 0 && (
+                        <div className="rounded-2xl ring-soft overflow-hidden" style={{ background: 'var(--surface)' }}>
+                            <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--line)' }}>
+                                <h3 className="font-bold text-white">交易紀錄</h3>
+                                <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>共 {transactions.length} 筆</span>
+                            </div>
+                            <div className="divide-y" style={{ borderColor: 'var(--line)' }}>
+                                {transactions.slice(0, 20).map((tx) => {
+                                    const isCashTx = tx.asset_type === 'cash';
+                                    const sym = isCashTx ? (tx.symbol === 'TWD' ? 'NT$' : '$') : (ASSET_TYPES[tx.asset_type]?.symbol || '$');
+                                    const typeColor = tx.type === 'buy' ? '#3ce0a8' : tx.type === 'sell' ? '#ff7d8c' : '#fbbf24';
+                                    const typeLabel = isCashTx
+                                        ? (tx.type === 'buy' ? '存入' : '提領')
+                                        : (tx.type === 'buy' ? '買入' : tx.type === 'sell' ? '賣出' : '配息');
+                                    return (
+                                        <div key={tx.id} className="p-3 flex items-center gap-3 hover:bg-white/[0.02]" style={{ borderColor: 'var(--line)' }}>
+                                            <span className="chip whitespace-nowrap" style={{ background: `${typeColor}22`, color: typeColor }}>{typeLabel}</span>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-semibold text-white text-sm flex items-center gap-1.5">
+                                                    {isCashTx && <span>💵</span>}
+                                                    {isCashTx ? `${tx.symbol} 現金` : tx.symbol}
+                                                </div>
+                                                <div className="text-[10px] mono mt-0.5" style={{ color: 'var(--text-3)' }}>
+                                                    {tx.date}
+                                                    {isCashTx && ` · ${sym}${Number(tx.shares).toLocaleString()}`}
+                                                    {!isCashTx && tx.type !== 'dividend' && ` · ${Number(tx.shares).toLocaleString()} 股 @ ${sym}${Number(tx.price).toLocaleString()}`}
+                                                    {!isCashTx && tx.type === 'dividend' && ` · 配息 ${sym}${Number(tx.price).toLocaleString()}`}
+                                                    {tx.note && ` · ${tx.note}`}
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => { setEditingTx(tx); setShowModal(true); }}
+                                                className="px-2 py-1 text-[11px] rounded hover:bg-white/10"
+                                                style={{ color: 'var(--text-2)' }}
+                                            >
+                                                編輯
+                                            </button>
+                                            <button
+                                                onClick={() => handleDelete(tx.id)}
+                                                className="px-2 py-1 text-[11px] rounded hover:bg-red-500/20"
+                                                style={{ color: '#ff7d8c' }}
+                                            >
+                                                刪除
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            {transactions.length > 20 && (
+                                <div className="p-3 text-center text-[11px] mono" style={{ color: 'var(--text-3)', borderTop: '1px solid var(--line)' }}>
+                                    僅顯示最近 20 筆 · 總共 {transactions.length} 筆
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    </>}
+
+                    {/* Modal (shared by both sub-tabs) */}
+                    {showModal && (
+                        <AddTransactionModal
+                            supabase={supabase}
+                            user={user}
+                            existing={editingTx}
+                            onClose={() => { setShowModal(false); setEditingTx(null); }}
+                            onSaved={reload}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        // ─────────────────────────────────────────────
+        // InstallHelpModal — tabbed instructions for all platforms
+        // ─────────────────────────────────────────────
+        const InstallHelpModal = ({ detectedPlatform, onClose }) => {
+            // Decide initial tab from detected platform
+            const initialTab = (detectedPlatform === 'ios') ? 'ios'
+                : (detectedPlatform === 'android') ? 'android'
+                : 'desktop';
+            const [tab, setTab] = useState(initialTab);
+
+            const isFile = typeof window !== 'undefined' && window.location.protocol === 'file:';
+
+            const tabBtn = (key, label) => (
+                <button
+                    onClick={() => setTab(key)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${tab === key ? 'pill-grad' : 'hover:bg-white/[0.05]'}`}
+                    style={tab === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                >
+                    {label}
+                </button>
+            );
+
+            return (
+                <div className="fixed inset-0 flex items-center justify-center z-[100] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
+                    <div className="glass-strong p-6 rounded-3xl shadow-2xl max-w-md w-full relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                        <button
+                            onClick={onClose}
+                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                            style={{ color: 'var(--text-3)' }}
+                        >
+                            ✕
+                        </button>
+
+                        <div className="flex items-center gap-3 mb-5">
+                            <div className="w-11 h-11 rounded-2xl flex items-center justify-center pill-grad">
+                                <Smartphone size={20} style={{ color: 'var(--brand-ink)' }} />
+                            </div>
+                            <div>
+                                <p className="label">INSTALL AS APP</p>
+                                <h3 className="text-lg font-extrabold text-white mt-0.5 tracking-tight">將 SmartDCA 加到主畫面</h3>
+                            </div>
+                        </div>
+
+                        {/* Platform tabs */}
+                        <div className="flex gap-1 p-1 rounded-xl mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+                            {tabBtn('desktop', '🖥 電腦')}
+                            {tabBtn('ios', '📱 iPhone')}
+                            {tabBtn('android', '🤖 Android')}
+                        </div>
+
+                        {/* ─── Desktop ─── */}
+                        {tab === 'desktop' && (
+                            <div className="space-y-4 text-sm" style={{ color: 'var(--text-2)' }}>
+                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                    <p className="font-bold text-white mb-2">Chrome / Edge</p>
+                                    <ol className="space-y-1.5 list-decimal list-inside pl-1 text-xs">
+                                        <li>看網址列右側的 <strong className="text-white">安裝圖示</strong> (⊕ 或 螢幕+下載)</li>
+                                        <li>點下去 → 確認 <strong className="text-white">「安裝」</strong></li>
+                                        <li>SmartDCA 會像 App 顯示在桌面 / 開始選單</li>
+                                    </ol>
+                                </div>
+
+                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                    <p className="font-bold text-white mb-2">Safari (macOS)</p>
+                                    <ol className="space-y-1.5 list-decimal list-inside pl-1 text-xs">
+                                        <li>選單列點 <strong className="text-white">檔案</strong></li>
+                                        <li>選 <strong className="text-white">「加入 Dock」</strong></li>
+                                    </ol>
+                                </div>
+
+                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                    <p className="font-bold text-white mb-2">Firefox</p>
+                                    <p className="text-xs">桌面版 Firefox 目前不支援 PWA 安裝，請改用 Chrome 或 Edge。</p>
+                                </div>
+
+                                {isFile && (
+                                    <div className="p-3 rounded-xl text-xs" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24' }}>
+                                        ⚠️ 你目前用 <code className="mono">file://</code> 開啟，PWA 必須在 HTTPS 或 localhost 才能安裝。請部署到網站或執行本機 server：
+                                        <pre className="mt-2 p-2 rounded mono text-[10px]" style={{ background: 'rgba(0,0,0,0.4)', color: 'var(--brand-1)' }}>python -m http.server 8000</pre>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ─── iOS ─── */}
+                        {tab === 'ios' && (
+                            <div className="space-y-3 text-sm" style={{ color: 'var(--text-2)' }}>
+                                <p>在 iPhone / iPad 上用 <strong className="text-white">Safari</strong> 瀏覽器打開此網站：</p>
+                                <ol className="space-y-3 pl-1">
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>1</span>
+                                        <div>
+                                            點下方工具列的 <strong className="text-white">分享</strong> 按鈕
+                                            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>（一個向上箭頭從方框射出的圖示 ↑）</div>
+                                        </div>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>2</span>
+                                        <div>下滑找到 <strong className="text-white">「加入主畫面」</strong></div>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>3</span>
+                                        <div>右上角點 <strong className="text-white">「新增」</strong> 完成 ✨</div>
+                                    </li>
+                                </ol>
+                                <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: 'rgba(196,244,50,0.06)', border: '1px solid rgba(196,244,50,0.2)', color: 'var(--text-2)' }}>
+                                    💡 必須用 <strong className="text-white">Safari</strong>，Chrome / Firefox 等其他瀏覽器無法安裝
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ─── Android ─── */}
+                        {tab === 'android' && (
+                            <div className="space-y-3 text-sm" style={{ color: 'var(--text-2)' }}>
+                                <p>在 Android 上用 <strong className="text-white">Chrome</strong> 瀏覽器打開此網站：</p>
+                                <ol className="space-y-3 pl-1">
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>1</span>
+                                        <div>
+                                            點右上角的 <strong className="text-white">⋮</strong> (三個點) 選單
+                                        </div>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>2</span>
+                                        <div>選擇 <strong className="text-white">「加到主畫面」</strong> 或 <strong className="text-white">「安裝應用程式」</strong></div>
+                                    </li>
+                                    <li className="flex gap-3">
+                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>3</span>
+                                        <div>確認 <strong className="text-white">「安裝」</strong> ✨</div>
+                                    </li>
+                                </ol>
+                                <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: 'rgba(196,244,50,0.06)', border: '1px solid rgba(196,244,50,0.2)', color: 'var(--text-2)' }}>
+                                    💡 Samsung Internet / Firefox Mobile 也支援，但選單位置可能略不同
+                                </div>
+                            </div>
+                        )}
+
+                        <button
+                            onClick={onClose}
+                            className="w-full mt-5 py-2.5 rounded-xl text-sm font-bold pill-grad transition-all glow-brand"
+                        >
+                            知道了
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        // ─────────────────────────────────────────────
+        // SettingsModal — profile + start page + personal Gemini key
+        // ─────────────────────────────────────────────
+        const SettingsModal = ({ supabase, user, profile, onClose, onSaved }) => {
+            const [displayName, setDisplayName] = useState(profile?.display_name || '');
+            const [startPage, setStartPage] = useState(profile?.start_page || 'crypto');
+            const [apiKey, setApiKey] = useState(profile?.personal_gemini_key || '');
+            const [showKey, setShowKey] = useState(false);
+            const [saving, setSaving] = useState(false);
+            const [error, setError] = useState(null);
+            const [success, setSuccess] = useState(false);
+            const [section, setSection] = useState('profile'); // 'profile' | 'preferences' | 'api'
+
+            const inputStyle = { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', color: 'var(--text)' };
+
+            const handleSave = async () => {
+                setSaving(true);
+                setError(null);
+                setSuccess(false);
+                const payload = {
+                    display_name: displayName.trim() || null,
+                    start_page: startPage,
+                    personal_gemini_key: apiKey.trim() || null,
+                };
+                const { data, error: err } = await supabase
+                    .from('user_profiles')
+                    .update(payload)
+                    .eq('id', user.id)
+                    .select()
+                    .single();
+                setSaving(false);
+                if (err) { setError(err.message); return; }
+                setSuccess(true);
+                window.__USER_GEMINI_KEY = data.personal_gemini_key || null;
+                onSaved(data);
+                setTimeout(() => setSuccess(false), 1800);
+            };
+
+            const sectionBtn = (key, label, icon) => (
+                <button
+                    onClick={() => setSection(key)}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 ${section === key ? 'pill-grad' : 'hover:bg-white/[0.05]'}`}
+                    style={section === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                >
+                    {icon}
+                    <span>{label}</span>
+                </button>
+            );
+
+            const iconUser = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+            const iconSliders = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>;
+            const iconKey = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>;
+
+            return (
+                <div className="fixed inset-0 flex items-center justify-center z-[110] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
+                    <div className="glass-strong rounded-3xl shadow-2xl max-w-2xl w-full relative max-h-[90vh] overflow-hidden flex flex-col md:flex-row">
+                        <button
+                            onClick={onClose}
+                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors z-10"
+                            style={{ color: 'var(--text-3)' }}
+                        >
+                            ✕
+                        </button>
+
+                        {/* Sidebar */}
+                        <div className="md:w-48 p-4 md:border-r" style={{ borderColor: 'var(--line)' }}>
+                            <div className="mb-4">
+                                <p className="label">SETTINGS</p>
+                                <h3 className="text-base font-extrabold text-white mt-1">設定</h3>
+                            </div>
+                            <div className="space-y-1 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
+                                {sectionBtn('profile', '個人資料', iconUser)}
+                                {sectionBtn('preferences', '偏好設定', iconSliders)}
+                                {sectionBtn('api', 'API Keys', iconKey)}
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 p-6 overflow-y-auto custom-scrollbar">
+                            {section === 'profile' && (
+                                <div className="space-y-4">
+                                    <div>
+                                        <p className="label">PROFILE</p>
+                                        <h4 className="text-lg font-bold text-white mt-1">個人資料</h4>
+                                    </div>
+
+                                    <div>
+                                        <label className="label block mb-1.5">Email</label>
+                                        <div className="px-3.5 py-2.5 rounded-xl text-sm mono" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--line)', color: 'var(--text-3)' }}>
+                                            {user?.email}
+                                        </div>
+                                        <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>無法修改</p>
+                                    </div>
+
+                                    <div>
+                                        <label className="label block mb-1.5">顯示名稱</label>
+                                        <input
+                                            type="text"
+                                            value={displayName}
+                                            onChange={e => setDisplayName(e.target.value)}
+                                            placeholder="自訂顯示名稱（預設用 email 前綴）"
+                                            className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
+                                            style={inputStyle}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {section === 'preferences' && (
+                                <div className="space-y-4">
+                                    <div>
+                                        <p className="label">PREFERENCES</p>
+                                        <h4 className="text-lg font-bold text-white mt-1">偏好設定</h4>
+                                    </div>
+
+                                    <div>
+                                        <label className="label block mb-1.5">起始頁面</label>
+                                        <select
+                                            value={startPage}
+                                            onChange={e => setStartPage(e.target.value)}
+                                            className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none"
+                                            style={inputStyle}
+                                        >
+                                            <option value="crypto">加密貨幣</option>
+                                            <option value="stock">美股</option>
+                                            <option value="taiwan">台股</option>
+                                            <option value="portfolio">我的投資</option>
+                                            <option value="forum">論壇</option>
+                                        </select>
+                                        <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>登入時自動開啟這個頁面</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {section === 'api' && (
+                                <div className="space-y-4">
+                                    <div>
+                                        <p className="label">API KEYS</p>
+                                        <h4 className="text-lg font-bold text-white mt-1">個人 API 金鑰</h4>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl text-xs" style={{ background: 'rgba(196,244,50,0.06)', border: '1px solid rgba(196,244,50,0.2)', color: 'var(--text-2)' }}>
+                                        💡 使用自己的 Gemini key 可享有：
+                                        <ul className="list-disc list-inside mt-2 space-y-1">
+                                            <li>不受預設配額限制</li>
+                                            <li>使用紀錄歸到你自己的 Google 帳號</li>
+                                            <li>不會耗用站方額度</li>
+                                        </ul>
+                                    </div>
+
+                                    <div>
+                                        <label className="label block mb-1.5">Gemini API Key</label>
+                                        <div className="relative">
+                                            <input
+                                                type={showKey ? 'text' : 'password'}
+                                                value={apiKey}
+                                                onChange={e => setApiKey(e.target.value)}
+                                                placeholder="AIzaSy..."
+                                                className="w-full rounded-xl px-3.5 py-2.5 pr-20 text-sm text-white outline-none mono"
+                                                style={inputStyle}
+                                                autoComplete="off"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowKey(!showKey)}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-[10px] rounded hover:bg-white/10"
+                                                style={{ color: 'var(--text-3)' }}
+                                            >
+                                                {showKey ? '隱藏' : '顯示'}
+                                            </button>
+                                        </div>
+                                        <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>
+                                            申請：<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style={{ color: 'var(--brand-1)' }} className="underline">Google AI Studio</a>
+                                            ・留空則使用站方預設 key
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Footer */}
+                            <div className="mt-6 pt-4 flex items-center gap-2 justify-end" style={{ borderTop: '1px solid var(--line)' }}>
+                                {error && <p className="text-xs flex-1" style={{ color: '#ff7d8c' }}>{error}</p>}
+                                {success && <p className="text-xs flex-1" style={{ color: '#3ce0a8' }}>✓ 已儲存</p>}
+                                <button
+                                    onClick={onClose}
+                                    className="px-4 py-2 rounded-xl text-xs font-semibold transition-colors"
+                                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }}
+                                >
+                                    關閉
+                                </button>
+                                <button
+                                    onClick={handleSave}
+                                    disabled={saving}
+                                    className="px-5 py-2 rounded-xl text-xs font-bold pill-grad glow-brand disabled:opacity-50"
+                                >
+                                    {saving ? '儲存中...' : '儲存設定'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState(() =>
+                window.location.hash.startsWith('#/forum') ? 'forum' : 'crypto'
+            );
+            const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+
+            // PWA install prompt
+            const [installPrompt, setInstallPrompt] = useState(null);
+            const [isPwaInstalled, setIsPwaInstalled] = useState(false);
+            const [showInstallHelp, setShowInstallHelp] = useState(false);
+
+            useEffect(() => {
+                // Detect if already running as installed PWA
+                const standalone = window.matchMedia('(display-mode: standalone)').matches
+                    || window.navigator.standalone === true;
+                if (standalone) {
+                    setIsPwaInstalled(true);
+                    return;
+                }
+
+                const onBeforeInstall = (e) => {
+                    e.preventDefault();
+                    setInstallPrompt(e);
+                };
+                const onInstalled = () => {
+                    setInstallPrompt(null);
+                    setIsPwaInstalled(true);
+                };
+
+                window.addEventListener('beforeinstallprompt', onBeforeInstall);
+                window.addEventListener('appinstalled', onInstalled);
+                return () => {
+                    window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+                    window.removeEventListener('appinstalled', onInstalled);
+                };
+            }, []);
+
+            const handleInstallApp = async () => {
+                // Native prompt available (Chrome / Edge on HTTPS / localhost)
+                if (installPrompt) {
+                    installPrompt.prompt();
+                    const { outcome } = await installPrompt.userChoice;
+                    if (outcome === 'accepted') {
+                        setIsPwaInstalled(true);
+                    }
+                    setInstallPrompt(null);
+                    return;
+                }
+                // Fallback: show manual instructions
+                setShowInstallHelp(true);
+            };
+
+            // Detect platform for help modal
+            const getPlatform = () => {
+                const ua = navigator.userAgent;
+                if (/iPad|iPhone|iPod/.test(ua)) return 'ios';
+                if (/Android/.test(ua)) return 'android';
+                if (/Edg/.test(ua)) return 'edge';
+                if (/Chrome/.test(ua)) return 'chrome';
+                if (/Safari/.test(ua)) return 'safari';
+                if (/Firefox/.test(ua)) return 'firefox';
+                return 'other';
+            };
+
+            // Sync hash → activeTab (so direct links like /#/forum/abc work)
+            useEffect(() => {
+                const sync = () => {
+                    if (window.location.hash.startsWith('#/forum')) {
+                        setActiveTab('forum');
+                    }
+                };
+                window.addEventListener('hashchange', sync);
+                return () => window.removeEventListener('hashchange', sync);
+            }, []);
+
+            // User State
+            const [user, setUser] = useState(null);
+            const [isPremium, setIsPremium] = useState(false);
+            const [isAdmin, setIsAdmin] = useState(false);
+            const [watchlist, setWatchlist] = useState([]);
+            const [appLoading, setAppLoading] = useState(true);
+            const [userProfile, setUserProfile] = useState(null);
+            const [showSettings, setShowSettings] = useState(false);
+            const startPageAppliedRef = useRef(false);
+
+            // 1. Check Auth Session & Subscribe to Changes
+            useEffect(() => {
+                if (!supabase) {
+                    setAppLoading(false);
+                    return;
+                }
+
+                // Initial Session Check
+                supabase.auth.getSession().then(({ data: { session } }) => {
+                    if (session) {
+                        setUser(session.user);
+                    }
+                    setAppLoading(false);
+                });
+
+                // Listen for Auth Changes (Login, Logout, OAuth Redirects)
+                const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+                    setUser(session?.user ?? null);
+                    setAppLoading(false);
+
+                    // Clean up the URL hash if it contains auth tokens
+                    if (session && window.location.hash && window.location.hash.includes('access_token')) {
+                        window.history.replaceState(null, '', window.location.pathname);
+                    }
+                });
+
+                return () => subscription.unsubscribe();
+            }, []);
+
+            // 2. Fetch User Profile
+            useEffect(() => {
+                const fetchProfile = async () => {
+                    if (!user || !supabase) {
+                        setIsPremium(false);
+                        setIsAdmin(false);
+                        setWatchlist([]);
+                        setUserProfile(null);
+                        window.__USER_GEMINI_KEY = null;
+                        startPageAppliedRef.current = false;
+                        return;
+                    }
+                    try {
+                        const { data, error } = await supabase
+                            .from('user_profiles')
+                            .select('is_premium, is_admin, watchlist, display_name, start_page, personal_gemini_key')
+                            .eq('id', user.id)
+                            .single();
+
+                        if (data) {
+                            setIsPremium(data.is_premium || false);
+                            setIsAdmin(data.is_admin || false);
+                            setWatchlist(data.watchlist || []);
+                            setUserProfile(data);
+                            window.__USER_GEMINI_KEY = data.personal_gemini_key || null;
+                            // Apply start_page once on initial login (don't override user's manual tab clicks)
+                            if (data.start_page && !startPageAppliedRef.current && !window.location.hash.startsWith('#/forum')) {
+                                setActiveTab(data.start_page);
+                                startPageAppliedRef.current = true;
+                            }
+                        } else if (error && error.code === 'PGRST116') {
+                            // Profile doesn't exist, create default
+                            const { error: insertErr } = await supabase
+                                .from('user_profiles')
+                                .insert({ id: user.id, is_premium: false, is_admin: false });
+                            if (insertErr) console.error('Profile create failed:', insertErr.message);
+                        }
+                    } catch (error) {
+                        console.error("Profile Error:", error);
+                    }
+                };
+                fetchProfile();
+            }, [user]);
+
+            // 3. Update Watchlist (Sync to DB)
+            const handleUpdateWatchlist = async (newWatchlist) => {
+                setWatchlist(newWatchlist); // Optimistic update
+                if (user && supabase) {
+                    await supabase
+                        .from('user_profiles')
+                        .update({ watchlist: newWatchlist })
+                        .eq('id', user.id);
+                }
+            };
+
+            // 初始檢查通知權限 (No changes)
+            useEffect(() => {
+                if ("Notification" in window && Notification.permission === 'granted') {
+                    setNotificationsEnabled(true);
+                }
+            }, []);
+
+            // 處理通知開關切換 (No changes to logic, just copied for context)
+            // VAPID Public Key
+            const VAPID_PUBLIC_KEY = 'BP0TmK3lqnO-j0x1H9OGzYJgOV5x2FRN4roE_AQGecl9nEbuCqHZjk0yNP0omI0xgqDubzxdSY50XauvlyhjzNc';
+
+            const urlBase64ToUint8Array = (base64String) => {
+                const padding = '='.repeat((4 - base64String.length % 4) % 4);
+                const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+                const rawData = window.atob(base64);
+                const outputArray = new Uint8Array(rawData.length);
+                for (let i = 0; i < rawData.length; ++i) {
+                    outputArray[i] = rawData.charCodeAt(i);
+                }
+                return outputArray;
+            };
+
+            const toggleNotifications = async () => {
+                // 1. Strict Check for Premium / Login
+                if (!user || !isPremium) {
+                    alert("🚫 需升級 Pro 版才能啟用推播通知\n\nPlease upgrade to Premium to enable customized push notifications.");
+
+                    // Optional: Open Checkout if user is logged in but not premium
+                    if (user && !isPremium) {
+                        const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
+                        window.open(checkoutUrl, '_blank');
+                    } else {
+                        // Prompt login
+                        setShowLoginModal(true);
+                    }
+                    return;
+                }
+
+                if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+                    alert("您的瀏覽器不支援推播通知");
+                    return;
+                }
+
+                if (notificationsEnabled) {
+                    // Optional: Unsubscribe logic could go here, but for now just toggle state UI
+                    setNotificationsEnabled(false);
+                    return;
+                }
+
+                try {
+                    const permission = await Notification.requestPermission();
+                    if (permission !== 'granted') {
+                        alert("請允許通知權限以接收快訊");
+                        return;
+                    }
+
+                    // Register SW & Subscribe
+                    const registration = await navigator.serviceWorker.register('./sw.js');
+                    const subscription = await registration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                    });
+
+                    // Save to Supabase if logged in
+                    if (user && supabase) {
+                        // Check if subscription changed to avoid redundant writes? Or just overwrite.
+                        const { error } = await supabase
+                            .from('user_profiles')
+                            .update({ push_subscription: subscription })
+                            .eq('id', user.id);
+
+                        if (error) {
+                            console.error("Supabase Error:", error);
+                            // We don't block UI if DB write fails, but warn?
+                            // alert("無法儲存訂閱設定 (DB Error)");
+                        }
+                    } else if (!user) {
+                        // Still enable local state, but warn
+                        // alert("請登入以同步推播設定");
+                    }
+
+                    setNotificationsEnabled(true);
+
+                    // Show detailed feedback to user
+                    const successValues = {
+                        body: "將為您監控市場！\n我們會在每天早上 8:00 發送您的自選股分析通知。",
+                        icon: "./app-icon.png",
+                        requireInteraction: true // Keep notification visible longer on mobile
+                    };
+                    new Notification("推播已啟用 ✅", successValues);
+                    alert("✅ 推播通知已成功啟用！\n\n系統將在每天早上 8:00 為您發送自選股的市場分析報告。");
+
+                } catch (e) {
+                    console.error("Push Error:", e);
+                    alert("啟用失敗: " + e.message);
+                }
+            };
+
+            // Notification Center State
+            const [showNotificationDropdown, setShowNotificationDropdown] = React.useState(false);
+            const [notificationHistory, setNotificationHistory] = React.useState([]);
+            const [unreadCount, setUnreadCount] = React.useState(0);
+
+            // Fetch Notifications from user_profiles JSONB
+            React.useEffect(() => {
+                if (user && supabase) {
+                    const fetchNotifications = async () => {
+                        const { data, error } = await supabase
+                            .from('user_profiles')
+                            .select('notifications')
+                            .eq('id', user.id)
+                            .single();
+
+                        if (data && data.notifications) {
+                            // Ensure it's an array
+                            const notifs = Array.isArray(data.notifications) ? data.notifications : [];
+                            setNotificationHistory(notifs);
+                            setUnreadCount(notifs.filter(n => !n.is_read).length);
+                        }
+                    };
+                    fetchNotifications();
+                }
+            }, [user]);
+
+            const markAsRead = async () => {
+                if (unreadCount > 0 && user && notificationHistory.length > 0) {
+                    // Update local state first
+                    const updatedHistory = notificationHistory.map(n => ({ ...n, is_read: true }));
+                    setNotificationHistory(updatedHistory);
+                    setUnreadCount(0);
+
+                    // Sync to DB (Optimistic Update)
+                    await supabase
+                        .from('user_profiles')
+                        .update({ notifications: updatedHistory })
+                        .eq('id', user.id);
+                }
+            };
+
+            const handleBellClick = () => {
+                if (!user) {
+                    alert("請先登入以查看通知");
+                    return;
+                }
+                setShowNotificationDropdown(!showNotificationDropdown);
+                if (!showNotificationDropdown) {
+                    markAsRead();
+                }
+            };
+
+            return (
+                <div className="min-h-screen text-slate-300 font-sans selection:bg-blue-500/30 pb-20">
+                    <div className="max-w-4xl mx-auto p-4">
+                        {/* Header */}
+                        <header className="flex justify-between items-center mb-6 relative">
+                            {/* Logo */}
+                            <div className="flex items-center gap-3">
+                                <div className="relative w-11 h-11 rounded-2xl overflow-hidden ring-soft" style={{ background: '#0a0c12' }}>
+                                    <div className="absolute -inset-2 rounded-full opacity-40 blur-lg" style={{ background: 'linear-gradient(135deg,#3b82f6,#8b5cf6)' }}></div>
+                                    <img src="./app-icon.png" alt="Smart DCA Logo" className="relative w-full h-full object-cover" />
+                                </div>
+                                <div>
+                                    <h1 className="text-[20px] font-extrabold tracking-tight leading-tight">
+                                        Smart <span className="text-grad">DCA</span>
+                                    </h1>
+                                    <p className="label mt-0.5">Intelligent investing</p>
+                                </div>
+                            </div>
+
+                            {/* Right controls */}
+                            <div className="flex items-center gap-2">
+                                {/* PWA Install button — glass style, always visible until installed */}
+                                {!isPwaInstalled && (
+                                    <button
+                                        onClick={handleInstallApp}
+                                        className="hidden sm:flex items-center gap-1.5 h-10 px-3.5 rounded-full text-xs font-bold glass hover:bg-white/[0.10] transition-all"
+                                        style={{ color: 'var(--text)' }}
+                                        title="安裝為桌面 App"
+                                    >
+                                        <Smartphone size={14} style={{ color: 'var(--brand-1)' }} />
+                                        <span>安裝 App</span>
+                                    </button>
+                                )}
+                                {!isPwaInstalled && (
+                                    <button
+                                        onClick={handleInstallApp}
+                                        className="sm:hidden w-10 h-10 rounded-full flex items-center justify-center glass hover:bg-white/[0.10] transition-all"
+                                        title="安裝為桌面 App"
+                                    >
+                                        <Smartphone size={16} style={{ color: 'var(--brand-1)' }} />
+                                    </button>
+                                )}
+
+                                {/* Notification Center */}
+                                <div className="relative z-[100]">
+                                    <button
+                                        onClick={handleBellClick}
+                                        disabled={!user}
+                                        className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-colors ${!user
+                                            ? "text-slate-600 bg-white/[0.02] border border-white/5 cursor-not-allowed opacity-50"
+                                            : "glass hover:bg-white/[0.08]"
+                                            }`}
+                                    >
+                                        <BellRing size={18} className={!user ? "text-slate-600" : (notificationsEnabled ? "text-blue-400" : "text-slate-300")} />
+                                        {unreadCount > 0 && user && (
+                                            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse" style={{ background: '#ff5b6e', boxShadow: '0 0 0 2px #07080c' }}></span>
+                                        )}
+                                    </button>
+
+                                    {showNotificationDropdown && (
+                                        <div className="fixed top-28 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm glass-strong rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 z-[100] md:absolute md:top-full md:left-auto md:right-0 md:translate-x-0 md:w-96 md:mt-2">
+                                            {/* Dropdown Header */}
+                                            <div className="p-4 border-b flex justify-between items-center" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,0.02)' }}>
+                                                <h3 className="font-bold text-white">通知中心</h3>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[11px] mono" style={{ color: 'var(--text-3)' }}>{notificationsEnabled ? "DAILY · ON" : "DAILY · OFF"}</span>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); toggleNotifications(); }}
+                                                        className={`w-10 h-6 rounded-full p-1 transition-colors ${notificationsEnabled ? 'pill-grad' : 'bg-white/10'}`}
+                                                    >
+                                                        <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${notificationsEnabled ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Notification List */}
+                                            <div className="max-h-80 overflow-y-auto custom-scrollbar">
+                                                {notificationHistory.length > 0 ? (
+                                                    notificationHistory.map((item) => (
+                                                        <div key={item.id} className="p-4 border-b hover:bg-white/[0.03] transition-colors" style={{ borderColor: 'var(--line)' }}>
+                                                            <div className="flex justify-between items-start mb-1">
+                                                                <h4 className="text-sm font-bold text-white">{item.title || "系統通知"}</h4>
+                                                                <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>{new Date(item.created_at).toLocaleDateString()}</span>
+                                                            </div>
+                                                            <p className="text-xs whitespace-pre-line leading-relaxed" style={{ color: 'var(--text-2)' }}>{item.body}</p>
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <div className="p-8 text-center" style={{ color: 'var(--text-3)' }}>
+                                                        <BellOff size={32} className="mx-auto mb-2 opacity-50" />
+                                                        <p className="text-sm">尚無歷史通知</p>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Footer */}
+                                            <div className="p-3 text-center border-t" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,0.02)' }}>
+                                                <p className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>DAILY REPORT · 08:00 AM</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <AuthComponent user={user} setUser={setUser} isPremium={isPremium} onOpenSettings={() => setShowSettings(true)} userProfile={userProfile} />
+                            </div>
+                        </header>
+
+                        {/* Navigation Tabs */}
+                        <nav className="glass flex p-1 rounded-full mb-6 sticky top-4 z-50 shadow-2xl gap-1 overflow-x-auto scrollbar-none">
+                            <button
+                                onClick={() => setActiveTab('crypto')}
+                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
+                                    activeTab === 'crypto'
+                                        ? 'pill-grad text-white shadow-lg'
+                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                                }`}
+                                style={activeTab === 'crypto' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
+                            >
+                                <img src="https://assets.coingecko.com/coins/images/1/small/bitcoin.png" className={`w-4 h-4 ${activeTab === 'crypto' ? '' : 'opacity-70'}`} alt="Crypto" />
+                                <span className="hidden md:inline">加密貨幣</span>
+                                <span className="md:hidden">加密</span>
+                            </button>
+
+                            <button
+                                onClick={() => setActiveTab('stock')}
+                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
+                                    activeTab === 'stock'
+                                        ? 'pill-grad text-white shadow-lg'
+                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                                }`}
+                                style={activeTab === 'stock' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
+                            >
+                                <Globe size={15} />
+                                <span className="hidden md:inline">美股市場</span>
+                                <span className="md:hidden">美股</span>
+                            </button>
+
+                            <button
+                                onClick={() => setActiveTab('taiwan')}
+                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
+                                    activeTab === 'taiwan'
+                                        ? 'pill-grad text-white shadow-lg'
+                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                                }`}
+                                style={activeTab === 'taiwan' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
+                            >
+                                <Activity size={15} />
+                                <span className="hidden md:inline">台股市場</span>
+                                <span className="md:hidden">台股</span>
+                            </button>
+
+                            {user && (
+                                <button
+                                    onClick={() => setActiveTab('portfolio')}
+                                    className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
+                                        activeTab === 'portfolio'
+                                            ? 'pill-grad text-white shadow-lg'
+                                            : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                                    }`}
+                                    style={activeTab === 'portfolio' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                                        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                                    </svg>
+                                    <span className="hidden md:inline">我的投資</span>
+                                    <span className="md:hidden">投資</span>
+                                </button>
+                            )}
+
+                            {FORUM_ENABLED && (
+                                <button
+                                    onClick={() => { setActiveTab('forum'); window.location.hash = '#/forum'; }}
+                                    className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
+                                        activeTab === 'forum'
+                                            ? 'text-white shadow-lg'
+                                            : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                                    }`}
+                                    style={activeTab === 'forum' ? { background: 'linear-gradient(135deg,#8b5cf6,#ec4899)', boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                                    </svg>
+                                    <span className="hidden md:inline">論壇</span>
+                                    <span className="md:hidden">論壇</span>
+                                </button>
+                            )}
+                        </nav>
+
+                        {/* Content Area */}
+                        <main>
+                            {appLoading ? (
+                                <div className="flex justify-center py-20"><RefreshCw className="animate-spin text-slate-500" /></div>
+                            ) : (
+                                <>
+                                    {activeTab === 'crypto' && (
+                                        <CryptoDashboard
+                                            notificationsEnabled={notificationsEnabled}
+                                            toggleNotifications={toggleNotifications}
+                                            userInfo={{ isPremium, watchlist, email: user?.email }}
+                                            onUpdateWatchlist={handleUpdateWatchlist}
+                                        />
+                                    )}
+                                    {activeTab === 'stock' && (
+                                        <StockDashboard
+                                            notificationsEnabled={notificationsEnabled}
+                                            toggleNotifications={toggleNotifications}
+                                            userInfo={{ isPremium, watchlist, email: user?.email }}
+                                            onUpdateWatchlist={handleUpdateWatchlist}
+                                        />
+                                    )}
+                                    {activeTab === 'taiwan' && (
+                                        <TaiwanDashboard
+                                            userInfo={{ isPremium, watchlist, email: user?.email }}
+                                            onUpdateWatchlist={handleUpdateWatchlist}
+                                        />
+                                    )}
+                                    {activeTab === 'portfolio' && (
+                                        <PortfolioDashboard
+                                            supabase={supabase}
+                                            user={user}
+                                            watchlist={watchlist}
+                                            onUpdateWatchlist={handleUpdateWatchlist}
+                                            isPremium={isPremium}
+                                        />
+                                    )}
+                                    {activeTab === 'forum' && FORUM_ENABLED && (
+                                        <ForumGate
+                                            supabase={supabase}
+                                            user={user}
+                                            isAdmin={isAdmin}
+                                            isPremium={isPremium}
+                                        />
+                                    )}
+                                </>
+                            )}
+                        </main>
+
+                        {/* PWA Install Help Modal — all platforms */}
+                        {showInstallHelp && (
+                            <InstallHelpModal
+                                detectedPlatform={getPlatform()}
+                                onClose={() => setShowInstallHelp(false)}
+                            />
+                        )}
+
+                        {/* Settings Modal */}
+                        {showSettings && user && (
+                            <SettingsModal
+                                supabase={supabase}
+                                user={user}
+                                profile={userProfile}
+                                onClose={() => setShowSettings(false)}
+                                onSaved={(updated) => setUserProfile(updated)}
+                            />
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    
