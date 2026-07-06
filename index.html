@@ -5,7 +5,7 @@
        
     <meta charset="UTF-8">
        
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
         <title>Smart DCA — 智慧定期定額投資追蹤</title>
     <meta name="description" content="Smart DCA：加密貨幣、美股、台股的智慧定期定額（DCA）投資工具。恐懼與貪婪指數、買入訊號、投資組合追蹤、AI 投資顧問與技術分析論壇。">
     <meta name="theme-color" content="#07080c">
@@ -137,6 +137,18 @@
 
     body {
         background-color: var(--bg); /* override original slate-950 */
+        /* PWA 全螢幕(black-translucent)時內容不被瀏海/狀態列/Home 條蓋住;
+           一般瀏覽器中 env() 為 0,完全無影響 */
+        padding-top: env(safe-area-inset-top, 0px);
+        padding-left: env(safe-area-inset-left, 0px);
+        padding-right: env(safe-area-inset-right, 0px);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    /* 行動瀏覽器網址列收合時高度會變:dvh 追蹤實際可視高度,取代固定的 100vh */
+    @supports (height: 100dvh) {
+        .min-h-screen { min-height: 100dvh; }
+        .h-screen { height: 100dvh; }
     }
 
     /* Numeric displays */
@@ -579,7 +591,7 @@
                 if (!document.body) { setTimeout(_showDemoTag, 50); return; }
                 const tag = document.createElement('div');
                 tag.textContent = '👀 展示模式 Demo · 已解鎖所有 Premium 功能(唯讀)';
-                tag.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:99999;background:rgba(20,20,24,.88);color:#fff;font-size:12px;font-weight:500;padding:7px 16px;border-radius:999px;border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.4);pointer-events:none;white-space:nowrap';
+                tag.style.cssText = 'position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);z-index:99999;background:rgba(20,20,24,.88);color:#fff;font-size:12px;font-weight:500;padding:7px 16px;border-radius:999px;border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(0,0,0,.4);pointer-events:none;white-space:nowrap';
                 document.body.appendChild(tag);
             };
             _showDemoTag();
