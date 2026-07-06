@@ -65,18 +65,39 @@
     <!-- Supabase JS -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
 
-    <!-- Forum: markdown rendering + code highlight + LaTeX -->
-    <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js" defer></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" defer></script>
-
-    <!-- Forum editor: EasyMDE -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js" defer></script>
+    <!-- Forum libs (marked / DOMPurify / highlight.js / KaTeX / EasyMDE) are heavy and
+         only used by the forum tab — they are lazy-loaded on first visit to the forum
+         via window.__loadForumLibs() below, instead of blocking every page load. -->
+    <script>
+        window.__forumLibsPromise = null;
+        window.__loadForumLibs = function () {
+            if (window.__forumLibsPromise) return window.__forumLibsPromise;
+            var css = function (href) {
+                var l = document.createElement('link');
+                l.rel = 'stylesheet'; l.href = href;
+                document.head.appendChild(l);
+            };
+            var js = function (src) {
+                return new Promise(function (resolve, reject) {
+                    var s = document.createElement('script');
+                    s.src = src; s.onload = resolve; s.onerror = reject;
+                    document.head.appendChild(s);
+                });
+            };
+            css('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css');
+            css('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css');
+            css('https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css');
+            window.__forumLibsPromise = Promise.all([
+                js('https://cdn.jsdelivr.net/npm/marked@12/marked.min.js'),
+                js('https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js'),
+                js('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js'),
+                js('https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js'),
+                js('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js')
+                    .then(function () { return js('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js'); }),
+            ]);
+            return window.__forumLibsPromise;
+        };
+    </script>
 
     <!-- Local dev config (gitignored; 404 in production is silently ignored) -->
     <script>window.__LOCAL_CONFIG__ = null;</script>
@@ -5771,8 +5792,381 @@
         // ─────────────────────────────────────────────
         // PortfolioDashboard — main component
         // ─────────────────────────────────────────────
+        // ─── ForumGate：論壇函式庫(marked/KaTeX/EasyMDE 等)改為點開論壇才載入,首頁不再背這些成本 ───
+        const ForumGate = (props) => {
+            const [ready, setReady] = useState(false);
+            useEffect(() => {
+                let cancelled = false;
+                // 載入失敗也照樣渲染:forum.js 對缺少的函式庫有防呆,只是少了對應功能
+                window.__loadForumLibs().catch(() => {}).then(() => { if (!cancelled) setReady(true); });
+                return () => { cancelled = true; };
+            }, []);
+            if (!ready || !window.ForumApp) {
+                return (
+                    <div className="text-center py-16">
+                        <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-1)' }}></div>
+                    </div>
+                );
+            }
+            return <window.ForumApp {...props} />;
+        };
+
+        // ─── 交易日誌(合約開單備忘錄):進場邏輯、止盈止損、事後反省 ───
+        const calcJournalRR = (e) => {
+            const entry = parseFloat(e.entry_price), sl = parseFloat(e.stop_loss), tp = parseFloat(e.take_profit);
+            if (!entry || !sl || !tp) return null;
+            const risk = e.direction === 'long' ? entry - sl : sl - entry;
+            const reward = e.direction === 'long' ? tp - entry : entry - tp;
+            if (risk <= 0 || reward <= 0) return null;
+            return reward / risk;
+        };
+        const calcJournalPnlPct = (e) => {
+            const entry = parseFloat(e.entry_price), exit = parseFloat(e.exit_price);
+            if (!entry || !exit) return null;
+            const raw = (exit - entry) / entry * (e.direction === 'long' ? 1 : -1) * 100;
+            return raw * (parseFloat(e.leverage) || 1);
+        };
+
+        // ISO 時間 → datetime-local 欄位值(本地時區,非 UTC)
+        const toLocalDatetimeValue = (iso) => {
+            const d = iso ? new Date(iso) : new Date();
+            const p = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+        };
+
+        const TradeJournalFormModal = ({ supabase, user, editing, onClose, onSaved }) => {
+            const isEdit = !!editing;
+            const [form, setForm] = useState(() => ({
+                symbol: editing?.symbol || '',
+                direction: editing?.direction || 'long',
+                leverage: editing?.leverage ?? '',
+                entry_price: editing?.entry_price ?? '',
+                position_size: editing?.position_size ?? '',
+                stop_loss: editing?.stop_loss ?? '',
+                take_profit: editing?.take_profit ?? '',
+                entry_reason: editing?.entry_reason || '',
+                status: editing?.status || 'open',
+                exit_price: editing?.exit_price ?? '',
+                review: editing?.review || '',
+                entry_at: toLocalDatetimeValue(editing?.entry_at),
+            }));
+            const [saving, setSaving] = useState(false);
+            const set = (k) => (ev) => setForm(f => ({ ...f, [k]: ev.target.value }));
+
+            const rr = calcJournalRR(form);
+            const entryP = parseFloat(form.entry_price), slP = parseFloat(form.stop_loss);
+            const riskPct = (entryP && slP && entryP > 0) ? Math.abs(entryP - slP) / entryP * 100 * (parseFloat(form.leverage) || 1) : null;
+            const pnlPct = form.status === 'closed' ? calcJournalPnlPct(form) : null;
+
+            const handleSave = async () => {
+                if (!form.symbol.trim() || !form.entry_price) { alert('標的與進場價為必填。'); return; }
+                setSaving(true);
+                const num = (v) => (v === '' || v === null || isNaN(parseFloat(v))) ? null : parseFloat(v);
+                const row = {
+                    user_id: user.id,
+                    symbol: form.symbol.trim().toUpperCase(),
+                    direction: form.direction,
+                    leverage: num(form.leverage),
+                    entry_price: num(form.entry_price),
+                    position_size: num(form.position_size),
+                    stop_loss: num(form.stop_loss),
+                    take_profit: num(form.take_profit),
+                    entry_reason: form.entry_reason.trim() || null,
+                    status: form.status,
+                    exit_price: form.status === 'closed' ? num(form.exit_price) : null,
+                    pnl: form.status === 'closed' ? calcJournalPnlPct(form) : null,
+                    review: form.review.trim() || null,
+                    entry_at: new Date(form.entry_at).toISOString(),
+                    closed_at: form.status === 'closed' ? (editing?.closed_at || new Date().toISOString()) : null,
+                };
+                const q = isEdit
+                    ? supabase.from('trade_journal').update(row).eq('id', editing.id)
+                    : supabase.from('trade_journal').insert(row);
+                const { error: err } = await q;
+                setSaving(false);
+                if (err) { alert('儲存失敗：' + err.message); return; }
+                onSaved();
+            };
+
+            const inputCls = "w-full px-3 py-2 rounded-xl text-sm text-white outline-none focus:ring-1";
+            const inputStyle = { background: 'var(--bg-soft)', border: '1px solid var(--line)' };
+            const labelCls = "label mb-1.5 block";
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center p-4 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
+                    <div className="rounded-2xl ring-soft p-5 w-full max-w-lg my-8" style={{ background: 'var(--surface)' }} onClick={ev => ev.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-extrabold text-white">{isEdit ? '編輯開單紀錄' : '新增開單紀錄'}</h3>
+                            <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">×</button>
+                        </div>
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className={labelCls}>標的 *</label>
+                                    <input className={inputCls + " mono uppercase"} style={inputStyle} placeholder="BTCUSDT" value={form.symbol} onChange={set('symbol')} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>方向</label>
+                                    <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-soft)', border: '1px solid var(--line)' }}>
+                                        <button onClick={() => setForm(f => ({ ...f, direction: 'long' }))} className="flex-1 py-1 rounded-lg text-xs font-bold transition-all" style={form.direction === 'long' ? { background: 'rgba(0,214,143,0.18)', color: 'var(--up)' } : { color: 'var(--text-3)' }}>做多 ↑</button>
+                                        <button onClick={() => setForm(f => ({ ...f, direction: 'short' }))} className="flex-1 py-1 rounded-lg text-xs font-bold transition-all" style={form.direction === 'short' ? { background: 'rgba(255,91,110,0.18)', color: 'var(--down)' } : { color: 'var(--text-3)' }}>做空 ↓</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3">
+                                <div>
+                                    <label className={labelCls}>進場價 *</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={inputStyle} value={form.entry_price} onChange={set('entry_price')} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>槓桿 (x)</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={inputStyle} placeholder="10" value={form.leverage} onChange={set('leverage')} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>倉位 (USDT)</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={inputStyle} placeholder="保證金" value={form.position_size} onChange={set('position_size')} />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className={labelCls}>止損 SL</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={{ ...inputStyle, borderColor: 'rgba(255,91,110,0.3)' }} value={form.stop_loss} onChange={set('stop_loss')} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>止盈 TP</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={{ ...inputStyle, borderColor: 'rgba(0,214,143,0.3)' }} value={form.take_profit} onChange={set('take_profit')} />
+                                </div>
+                            </div>
+                            {(rr || riskPct) && (
+                                <div className="flex gap-2 flex-wrap">
+                                    {rr && (
+                                        <span className="px-2.5 py-1 rounded-full text-xs font-bold mono" style={{ background: rr >= 2 ? 'rgba(0,214,143,0.15)' : 'rgba(245,158,11,0.15)', color: rr >= 2 ? 'var(--up)' : 'var(--warn)' }}>
+                                            R:R ≈ 1 : {rr.toFixed(2)}{rr < 2 ? '（低於 1:2，想清楚再進）' : ''}
+                                        </span>
+                                    )}
+                                    {riskPct != null && (
+                                        <span className="px-2.5 py-1 rounded-full text-xs font-bold mono" style={{ background: 'rgba(255,91,110,0.12)', color: riskPct > 30 ? 'var(--down)' : 'var(--text-2)' }}>
+                                            打損失去保證金 {riskPct.toFixed(1)}%
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                            <div>
+                                <label className={labelCls}>為什麼進場？（技術依據）</label>
+                                <textarea rows="3" className={inputCls} style={inputStyle} placeholder="例：4H 跌破後 SFP 收回 + 日線 EMA 支撐共振、量價背離…" value={form.entry_reason} onChange={set('entry_reason')} />
+                            </div>
+                            <div>
+                                <label className={labelCls}>進場時間</label>
+                                <input type="datetime-local" className={inputCls + " mono"} style={inputStyle} value={form.entry_at} onChange={set('entry_at')} />
+                            </div>
+                            <div className="pt-2" style={{ borderTop: '1px solid var(--line)' }}>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="label">狀態</label>
+                                    <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-soft)', border: '1px solid var(--line)' }}>
+                                        <button onClick={() => setForm(f => ({ ...f, status: 'open' }))} className="px-3 py-1 rounded-lg text-xs font-bold transition-all" style={form.status === 'open' ? { background: 'rgba(245,158,11,0.18)', color: 'var(--warn)' } : { color: 'var(--text-3)' }}>持倉中</button>
+                                        <button onClick={() => setForm(f => ({ ...f, status: 'closed' }))} className="px-3 py-1 rounded-lg text-xs font-bold transition-all" style={form.status === 'closed' ? { background: 'rgba(255,255,255,0.1)', color: 'var(--text)' } : { color: 'var(--text-3)' }}>已平倉</button>
+                                    </div>
+                                </div>
+                                {form.status === 'closed' && (
+                                    <div className="space-y-3">
+                                        <div className="grid grid-cols-2 gap-3 items-end">
+                                            <div>
+                                                <label className={labelCls}>出場價</label>
+                                                <input type="number" step="any" className={inputCls + " num"} style={inputStyle} value={form.exit_price} onChange={set('exit_price')} />
+                                            </div>
+                                            {pnlPct != null && (
+                                                <p className="text-lg font-extrabold num pb-1" style={{ color: pnlPct >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                                                    {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className={labelCls}>事後反省</label>
+                                            <textarea rows="3" className={inputCls} style={inputStyle} placeholder="哪裡做對？哪裡做錯？下次同樣情境怎麼處理？" value={form.review} onChange={set('review')} />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }}>取消</button>
+                                <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded-xl text-sm font-bold pill-grad glow-brand">{saving ? '儲存中…' : '儲存'}</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const TradeJournalDashboard = ({ supabase, user }) => {
+            const [entries, setEntries] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [tableMissing, setTableMissing] = useState(false);
+            const [error, setError] = useState(null);
+            const [showForm, setShowForm] = useState(false);
+            const [editing, setEditing] = useState(null);
+            const [filter, setFilter] = useState('all'); // 'all' | 'open' | 'closed'
+
+            const reload = async () => {
+                if (!user || !supabase) return;
+                setLoading(true);
+                const { data, error: err } = await supabase
+                    .from('trade_journal')
+                    .select('*')
+                    .order('entry_at', { ascending: false });
+                if (err) {
+                    if (err.code === '42P01' || err.code === 'PGRST205' || /trade_journal/.test(err.message || '')) setTableMissing(true);
+                    else setError(err.message);
+                } else {
+                    setEntries(data || []);
+                }
+                setLoading(false);
+            };
+            useEffect(() => { reload(); }, [user]);
+
+            const stats = useMemo(() => {
+                const closed = entries.filter(e => e.status === 'closed' && e.pnl != null);
+                const wins = closed.filter(e => e.pnl > 0).length;
+                return {
+                    open: entries.filter(e => e.status === 'open').length,
+                    closed: closed.length,
+                    winRate: closed.length ? (wins / closed.length * 100) : null,
+                    avgPnl: closed.length ? closed.reduce((s, e) => s + e.pnl, 0) / closed.length : null,
+                };
+            }, [entries]);
+
+            const shown = entries.filter(e => filter === 'all' || e.status === filter);
+
+            const handleDelete = async (id) => {
+                if (!confirm('確定刪除這筆開單紀錄？')) return;
+                const { error: err } = await supabase.from('trade_journal').delete().eq('id', id);
+                if (err) { alert('刪除失敗：' + err.message); return; }
+                reload();
+            };
+
+            if (loading) {
+                return (
+                    <div className="text-center py-16">
+                        <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-1)' }}></div>
+                    </div>
+                );
+            }
+
+            if (tableMissing) {
+                return (
+                    <div className="rounded-2xl ring-soft p-8" style={{ background: 'var(--surface)' }}>
+                        <h3 className="text-lg font-bold text-white mb-2">📓 交易日誌需要先建立資料表</h3>
+                        <p className="text-sm mb-4" style={{ color: 'var(--text-2)' }}>
+                            到 Supabase Dashboard → SQL Editor 執行 repo 裡的 <code className="mono px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-soft)' }}>supabase/trade_journal.sql</code>，重新整理即可使用。
+                        </p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-4">
+                    {/* Stats + actions */}
+                    <div className="rounded-2xl ring-soft p-4 flex items-center justify-between flex-wrap gap-3" style={{ background: 'var(--surface)' }}>
+                        <div className="flex gap-6 flex-wrap">
+                            <div><p className="label">持倉中</p><p className="text-xl font-extrabold num mt-0.5" style={{ color: 'var(--warn)' }}>{stats.open}</p></div>
+                            <div><p className="label">已平倉</p><p className="text-xl font-extrabold num mt-0.5 text-white">{stats.closed}</p></div>
+                            <div><p className="label">勝率</p><p className="text-xl font-extrabold num mt-0.5 text-white">{stats.winRate == null ? '—' : stats.winRate.toFixed(0) + '%'}</p></div>
+                            <div><p className="label">平均報酬</p><p className="text-xl font-extrabold num mt-0.5" style={{ color: stats.avgPnl == null ? 'var(--text)' : stats.avgPnl >= 0 ? 'var(--up)' : 'var(--down)' }}>{stats.avgPnl == null ? '—' : (stats.avgPnl >= 0 ? '+' : '') + stats.avgPnl.toFixed(1) + '%'}</p></div>
+                        </div>
+                        <button onClick={() => { setEditing(null); setShowForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold pill-grad glow-brand flex items-center gap-1.5">
+                            <span>＋</span> 新增開單
+                        </button>
+                    </div>
+
+                    {/* Filter pills */}
+                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
+                        {[['all', '全部'], ['open', '持倉中'], ['closed', '已平倉']].map(([k, label]) => (
+                            <button key={k} onClick={() => setFilter(k)}
+                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${filter === k ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                style={filter === k ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {error && <p className="text-sm" style={{ color: 'var(--down)' }}>讀取失敗：{error}</p>}
+
+                    {shown.length === 0 && !error && (
+                        <div className="rounded-2xl ring-soft p-10 text-center" style={{ background: 'var(--surface)' }}>
+                            <p className="text-4xl mb-3">📓</p>
+                            <h3 className="text-lg font-bold text-white mb-1">還沒有開單紀錄</h3>
+                            <p className="text-sm" style={{ color: 'var(--text-2)' }}>每一單都寫下「為什麼進場」與事後反省，是最快變強的方式。</p>
+                        </div>
+                    )}
+
+                    {shown.map(e => {
+                        const rr = calcJournalRR(e);
+                        const isLong = e.direction === 'long';
+                        const pnl = e.pnl;
+                        return (
+                            <div key={e.id} className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)', borderLeft: `3px solid ${e.status === 'open' ? 'var(--warn)' : pnl == null ? 'var(--line-2)' : pnl >= 0 ? 'var(--up)' : 'var(--down)'}` }}>
+                                <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-extrabold text-white mono">{e.symbol}</span>
+                                        <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={isLong ? { background: 'rgba(0,214,143,0.15)', color: 'var(--up)' } : { background: 'rgba(255,91,110,0.15)', color: 'var(--down)' }}>
+                                            {isLong ? '多' : '空'}{e.leverage ? ` ${e.leverage}x` : ''}
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={e.status === 'open' ? { background: 'rgba(245,158,11,0.15)', color: 'var(--warn)' } : { background: 'rgba(255,255,255,0.08)', color: 'var(--text-2)' }}>
+                                            {e.status === 'open' ? '持倉中' : '已平倉'}
+                                        </span>
+                                        {pnl != null && (
+                                            <span className="font-extrabold num text-sm" style={{ color: pnl >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                                                {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}%
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs mono" style={{ color: 'var(--text-3)' }}>{new Date(e.entry_at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                                        {e.status === 'open' && (
+                                            <button onClick={() => { setEditing({ ...e, status: 'closed' }); setShowForm(true); }} className="px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--brand-1)' }}>平倉</button>
+                                        )}
+                                        <button onClick={() => { setEditing(e); setShowForm(true); }} className="px-2 py-1 rounded-lg text-xs" style={{ color: 'var(--text-2)' }} title="編輯">✎</button>
+                                        <button onClick={() => handleDelete(e.id)} className="px-2 py-1 rounded-lg text-xs" style={{ color: 'var(--text-3)' }} title="刪除">✕</button>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-3">
+                                    <div><p className="label">進場</p><p className="text-sm font-bold num text-white mt-0.5">{e.entry_price}</p></div>
+                                    <div><p className="label">止損</p><p className="text-sm font-bold num mt-0.5" style={{ color: 'var(--down)' }}>{e.stop_loss ?? '—'}</p></div>
+                                    <div><p className="label">止盈</p><p className="text-sm font-bold num mt-0.5" style={{ color: 'var(--up)' }}>{e.take_profit ?? '—'}</p></div>
+                                    <div><p className="label">R:R</p><p className="text-sm font-bold num text-white mt-0.5">{rr ? `1:${rr.toFixed(1)}` : '—'}</p></div>
+                                    <div><p className="label">倉位</p><p className="text-sm font-bold num text-white mt-0.5">{e.position_size ?? '—'}</p></div>
+                                    <div><p className="label">出場</p><p className="text-sm font-bold num text-white mt-0.5">{e.exit_price ?? '—'}</p></div>
+                                </div>
+                                {e.entry_reason && (
+                                    <div className="rounded-xl p-3 mb-2" style={{ background: 'var(--bg-soft)' }}>
+                                        <p className="label mb-1">進場理由</p>
+                                        <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-2)' }}>{e.entry_reason}</p>
+                                    </div>
+                                )}
+                                {e.review && (
+                                    <div className="rounded-xl p-3" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.2)' }}>
+                                        <p className="label mb-1" style={{ color: 'var(--brand-2)' }}>事後反省</p>
+                                        <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-2)' }}>{e.review}</p>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+
+                    {showForm && (
+                        <TradeJournalFormModal
+                            supabase={supabase}
+                            user={user}
+                            editing={editing}
+                            onClose={() => setShowForm(false)}
+                            onSaved={() => { setShowForm(false); reload(); }}
+                        />
+                    )}
+                </div>
+            );
+        };
+
         const PortfolioDashboard = ({ supabase, user, watchlist, onUpdateWatchlist, isPremium }) => {
-            const [subTab, setSubTab] = useState('holdings'); // 'holdings' | 'watchlist'
+            const [subTab, setSubTab] = useState('holdings'); // 'holdings' | 'watchlist' | 'journal'
             const [ccyView, setCcyView] = useState('USD'); // 投組顯示幣別:預設 USD,有多幣別時可切換(例如 TWD)
             const [transactions, setTransactions] = useState([]);
             const [loading, setLoading] = useState(true);
@@ -5899,12 +6293,14 @@
                         <div>
                             <p className="label">MY INVESTMENTS</p>
                             <h2 className="text-2xl font-extrabold text-white mt-1 tracking-tight">
-                                {subTab === 'holdings' ? '我的投資組合' : '觀察清單'}
+                                {subTab === 'holdings' ? '我的投資組合' : subTab === 'watchlist' ? '觀察清單' : '交易日誌'}
                             </h2>
                             <p className="text-xs mt-1 mono" style={{ color: 'var(--text-3)' }}>
                                 {subTab === 'holdings'
                                     ? `${holdings.length} 檔持股 · ${transactions.length} 筆交易`
-                                    : `${(watchlist || []).length} 檔追蹤中`
+                                    : subTab === 'watchlist'
+                                        ? `${(watchlist || []).length} 檔追蹤中`
+                                        : '合約開單備忘 · 進場邏輯與事後檢討'
                                 }
                             </p>
                         </div>
@@ -5951,6 +6347,17 @@
                             </svg>
                             觀察清單
                         </button>
+                        <button
+                            onClick={() => setSubTab('journal')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${subTab === 'journal' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            style={subTab === 'journal' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 20h9"/>
+                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                            </svg>
+                            交易日誌
+                        </button>
                     </div>
 
                     {/* Watchlist sub-view */}
@@ -5961,6 +6368,11 @@
                             isPremium={isPremium}
                             user={user}
                         />
+                    )}
+
+                    {/* Trade journal sub-view */}
+                    {subTab === 'journal' && (
+                        <TradeJournalDashboard supabase={supabase} user={user} />
                     )}
 
                     {/* Holdings sub-view */}
@@ -7103,8 +7515,8 @@
                                             isPremium={isPremium}
                                         />
                                     )}
-                                    {activeTab === 'forum' && FORUM_ENABLED && window.ForumApp && (
-                                        <window.ForumApp
+                                    {activeTab === 'forum' && FORUM_ENABLED && (
+                                        <ForumGate
                                             supabase={supabase}
                                             user={user}
                                             isAdmin={isAdmin}
