@@ -4684,6 +4684,54 @@ import { createClient } from '@supabase/supabase-js';
             );
         };
 
+        // 緊湊下拉選單:取代整排 pill(尤其時間維度),放在卡片標題右側,點開才展開選項。
+        // 按鈕顯示目前選中值 + 前綴 icon;點外面關閉。
+        const Dropdown = ({ value, options, onChange, icon }) => {
+            const [open, setOpen] = useState(false);
+            const ref = useRef(null);
+            useEffect(() => {
+                if (!open) return;
+                const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+                document.addEventListener('mousedown', onDoc);
+                return () => document.removeEventListener('mousedown', onDoc);
+            }, [open]);
+            const current = options.find(o => o.key === value);
+            return (
+                <div className="relative shrink-0" ref={ref}>
+                    <button
+                        onClick={() => setOpen(o => !o)}
+                        className="flex items-center gap-1.5 pl-2.5 pr-2 h-8 rounded-lg text-[11px] font-bold hover:bg-white/[0.08] transition-colors"
+                        style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid ' + (open ? 'var(--brand-1)' : 'var(--line)'), color: open ? 'var(--brand-1)' : 'var(--text-2)' }}
+                    >
+                        {icon && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+                            </svg>
+                        )}
+                        <span>{current ? current.label : value}</span>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </button>
+                    {open && (
+                        <div className="absolute right-0 mt-1 z-40 rounded-lg py-1 shadow-2xl" style={{ background: 'var(--surface-2)', border: '1px solid var(--line-2)', minWidth: 108 }}>
+                            {options.map(o => (
+                                <button
+                                    key={o.key}
+                                    onClick={() => { if (!o.disabled) { onChange(o.key); setOpen(false); } }}
+                                    disabled={o.disabled}
+                                    className={`block w-full text-left px-3 py-1.5 text-[11px] font-semibold ${o.disabled ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/[0.07]'}`}
+                                    style={{ color: o.key === value ? 'var(--brand-1)' : 'var(--text-2)' }}
+                                >
+                                    {o.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
         // ─── 合約數據(Coinglass 風格):Binance 合約公開 API,免金鑰、CORS 開放 ───
         // 資金費率 / 持倉量 / 全體帳戶多空比 / 大戶持倉多空比 / 主動買賣比。
         // futures/data 系列僅保留最近 30 天;爆倉數據 Binance 只提供 WebSocket,略過。
@@ -4760,7 +4808,7 @@ import { createClient } from '@supabase/supabase-js';
             }, [sym, period]);
 
             const pills = (items, active, onPick) => (
-                <div className="flex gap-0.5 p-0.5 rounded-lg shrink-0 overflow-x-auto no-scrollbar" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+                <div className="flex gap-0.5 p-0.5 rounded-lg overflow-x-auto no-scrollbar" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', width: 'fit-content', maxWidth: '100%' }}>
                     {items.map(it => (
                         <button key={it.key}
                             onClick={() => onPick(it.key)}
@@ -4806,13 +4854,11 @@ import { createClient } from '@supabase/supabase-js';
             return (
                 <div className="space-y-4">
                     <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
-                        <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center justify-between gap-2">
                             <h3 className="font-bold text-white">合約數據（Binance 永續）</h3>
-                            <div className="flex gap-2 flex-wrap">
-                                {pills(DERIV_COINS.map(c => ({ key: c.sym, label: c.label })), sym, setSym)}
-                                {pills([{ key: '1h', label: '1H' }, { key: '4h', label: '4H' }, { key: '12h', label: '12H' }, { key: '1d', label: '1D' }], period, setPeriod)}
-                            </div>
+                            <Dropdown value={period} onChange={setPeriod} options={[{ key: '1h', label: '1 小時' }, { key: '4h', label: '4 小時' }, { key: '12h', label: '12 小時' }, { key: '1d', label: '1 天' }]} />
                         </div>
+                        {pills(DERIV_COINS.map(c => ({ key: c.sym, label: c.label })), sym, setSym)}
                         <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
                             資金費率為正 = 多方付費給空方（市場偏多）；持倉量驟增伴隨價格急拉 / 急殺常見於軋空、殺多。歷史區間為最近 30 天。
                         </p>
@@ -5048,7 +5094,7 @@ import { createClient } from '@supabase/supabase-js';
 
             // ── UI atoms ──
             const pills = (items, active, onPick) => (
-                <div className="flex gap-0.5 p-0.5 rounded-lg shrink-0 overflow-x-auto no-scrollbar" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+                <div className="flex gap-0.5 p-0.5 rounded-lg overflow-x-auto no-scrollbar" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', width: 'fit-content', maxWidth: '100%' }}>
                     {items.map(it => (
                         <button key={it.key}
                             onClick={() => !it.disabled && onPick(it.key)}
@@ -5077,13 +5123,11 @@ import { createClient } from '@supabase/supabase-js';
                 <div className="space-y-4">
                     {/* ── 1. MVRV / Realized Price ── */}
                     <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
-                        <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center justify-between gap-2">
                             <h3 className="font-bold text-white">MVRV & Realized Price</h3>
-                            <div className="flex gap-2 flex-wrap">
-                                {pills(ONCHAIN_MVRV_ASSETS.map(a => ({ key: a.id, label: a.label, disabled: a.unsupported })), mvrvAsset, setMvrvAsset)}
-                                {pills([{ key: '1y', label: '1Y' }, { key: '2y', label: '2Y' }, { key: '4y', label: '4Y' }, { key: 'all', label: 'ALL' }], mvrvRange, setMvrvRange)}
-                            </div>
+                            <Dropdown icon value={mvrvRange} onChange={setMvrvRange} options={[{ key: '1y', label: '近 1 年' }, { key: '2y', label: '近 2 年' }, { key: '4y', label: '近 4 年' }, { key: 'all', label: '全部' }]} />
                         </div>
+                        {pills(ONCHAIN_MVRV_ASSETS.map(a => ({ key: a.id, label: a.label, disabled: a.unsupported })), mvrvAsset, setMvrvAsset)}
                         <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
                             Realized Price = 全網平均持倉成本；價格跌破橘線 = 鏈上持有者整體虧損，歷史上是週期底部區。MVRV &lt; 1 低估（綠區）、&gt; 2.4 過熱。SOL / HYPE 無公開 MVRV 資料。
                         </p>
@@ -5155,13 +5199,11 @@ import { createClient } from '@supabase/supabase-js';
 
                     {/* ── 2. ETF 淨流入 ── */}
                     <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
-                        <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center justify-between gap-2">
                             <h3 className="font-bold text-white">美國現貨 ETF 淨流入</h3>
-                            <div className="flex gap-2 flex-wrap">
-                                {pills(ETF_TYPES.map(t => ({ key: t.id, label: t.label })), etfType, setEtfType)}
-                                {pills([{ key: '1mo', label: '1M' }, { key: '3mo', label: '3M' }, { key: '1y', label: '1Y' }, { key: 'all', label: 'ALL' }], etfRange, setEtfRange)}
-                            </div>
+                            <Dropdown icon value={etfRange} onChange={setEtfRange} options={[{ key: '1mo', label: '近 1 個月' }, { key: '3mo', label: '近 3 個月' }, { key: '1y', label: '近 1 年' }, { key: 'all', label: '全部' }]} />
                         </div>
+                        {pills(ETF_TYPES.map(t => ({ key: t.id, label: t.label })), etfType, setEtfType)}
                         {etfLoading ? spinner : etfError ? (
                             <p className="text-sm py-6 text-center" style={{ color: 'var(--down)' }}>讀取失敗：{etfError}</p>
                         ) : etfView.length === 0 ? (
@@ -5213,11 +5255,9 @@ import { createClient } from '@supabase/supabase-js';
                     <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
                         <div className="flex items-center justify-between flex-wrap gap-2">
                             <h3 className="font-bold text-white">穩定幣供給（購買力指標）</h3>
-                            <div className="flex gap-2 flex-wrap">
-                                {pills([{ key: 'all', label: '全部穩定幣' }, { key: 'usdt', label: 'USDT' }], stableView, setStableView)}
-                                {pills([{ key: '3mo', label: '3M' }, { key: '1y', label: '1Y' }, { key: 'all', label: 'ALL' }], stableRange, setStableRange)}
-                            </div>
+                            <Dropdown icon value={stableRange} onChange={setStableRange} options={[{ key: '3mo', label: '近 3 個月' }, { key: '1y', label: '近 1 年' }, { key: 'all', label: '全部' }]} />
                         </div>
+                        {pills([{ key: 'all', label: '全部穩定幣' }, { key: 'usdt', label: 'USDT' }], stableView, setStableView)}
                         <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
                             穩定幣市值持續增加 = 場外資金進場待命（利多）；持續縮水 = 資金撤出。綠柱 / 紅柱為每日淨增發 / 淨贖回。
                         </p>
