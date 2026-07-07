@@ -4684,7 +4684,223 @@ import { createClient } from '@supabase/supabase-js';
             );
         };
 
+        // ─── 合約數據(Coinglass 風格):Binance 合約公開 API,免金鑰、CORS 開放 ───
+        // 資金費率 / 持倉量 / 全體帳戶多空比 / 大戶持倉多空比 / 主動買賣比。
+        // futures/data 系列僅保留最近 30 天;爆倉數據 Binance 只提供 WebSocket,略過。
+        const DERIV_COINS = [
+            { sym: 'BTCUSDT', label: 'BTC' },
+            { sym: 'ETHUSDT', label: 'ETH' },
+            { sym: 'SOLUSDT', label: 'SOL' },
+            { sym: 'LINKUSDT', label: 'LINK' },
+            { sym: 'HYPEUSDT', label: 'HYPE' },
+        ];
+        const derivCache = {}; // `${sym}|${period}` → data(session 內快取)
+        async function fetchDerivatives(sym, period) {
+            const key = `${sym}|${period}`;
+            if (derivCache[key]) return derivCache[key];
+            const B = 'https://fapi.binance.com';
+            const j = (url) => fetch(url).then(r => { if (!r.ok) throw new Error(`Binance ${r.status}`); return r.json(); });
+            const [premium, oiNow, funding, oiHist, globalLS, topLS, taker] = await Promise.all([
+                j(`${B}/fapi/v1/premiumIndex?symbol=${sym}`),
+                j(`${B}/fapi/v1/openInterest?symbol=${sym}`),
+                j(`${B}/fapi/v1/fundingRate?symbol=${sym}&limit=90`),                              // 8h 一筆 ≈ 30 天
+                j(`${B}/futures/data/openInterestHist?symbol=${sym}&period=${period}&limit=500`),
+                j(`${B}/futures/data/globalLongShortAccountRatio?symbol=${sym}&period=${period}&limit=500`),
+                j(`${B}/futures/data/topLongShortPositionRatio?symbol=${sym}&period=${period}&limit=500`),
+                j(`${B}/futures/data/takerlongshortRatio?symbol=${sym}&period=${period}&limit=500`),
+            ]);
+            const price = parseFloat(premium.markPrice);
+            const data = {
+                price,
+                fundingNow: parseFloat(premium.lastFundingRate) * 100,          // %
+                oiNowUsd: parseFloat(oiNow.openInterest) * price,
+                funding: (funding || []).map(d => ({ t: d.fundingTime, v: parseFloat(d.fundingRate) * 100 })),
+                oi: (oiHist || []).map(d => ({ t: d.timestamp, v: parseFloat(d.sumOpenInterestValue) })),
+                globalLS: (globalLS || []).map(d => ({ t: d.timestamp, v: parseFloat(d.longShortRatio), longPct: parseFloat(d.longAccount) * 100 })),
+                topLS: (topLS || []).map(d => ({ t: d.timestamp, v: parseFloat(d.longShortRatio) })),
+                taker: (taker || []).map(d => ({ t: d.timestamp, v: parseFloat(d.buySellRatio) })),
+            };
+            derivCache[key] = data;
+            return data;
+        }
+        const derivTimeLabel = (t) => {
+            const d = new Date(t);
+            return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`;
+        };
+
+        const DerivativesPanel = ({ defaultAsset }) => {
+            const initialSym = (() => {
+                try {
+                    const bin = getBinanceSymbol(String(defaultAsset || '').toLowerCase());
+                    if (bin && DERIV_COINS.some(c => c.sym === bin)) return bin;
+                } catch {}
+                return 'BTCUSDT';
+            })();
+            const [sym, setSym] = useState(initialSym);
+            const [period, setPeriod] = useState('4h'); // 1h | 4h | 12h | 1d
+            const [data, setData] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+
+            useEffect(() => {
+                let cancelled = false;
+                (async () => {
+                    setLoading(true);
+                    setError(null);
+                    try {
+                        const d = await fetchDerivatives(sym, period);
+                        if (!cancelled) setData(d);
+                    } catch (e) {
+                        if (!cancelled) { setError(String(e.message || e)); setData(null); }
+                    } finally {
+                        if (!cancelled) setLoading(false);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [sym, period]);
+
+            const pills = (items, active, onPick) => (
+                <div className="flex gap-0.5 p-0.5 rounded-lg shrink-0 overflow-x-auto no-scrollbar" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+                    {items.map(it => (
+                        <button key={it.key}
+                            onClick={() => onPick(it.key)}
+                            className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${active === it.key ? 'pill-grad' : 'hover:bg-white/[0.08]'}`}
+                            style={active === it.key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >{it.label}</button>
+                    ))}
+                </div>
+            );
+            const statCard = (label, value, color) => (
+                <div className="rounded-xl p-3" style={{ background: 'var(--bg-soft)', border: '1px solid var(--line)' }}>
+                    <p className="label">{label}</p>
+                    <p className="text-base md:text-lg font-extrabold num mt-0.5" style={{ color: color || 'var(--text)' }}>{value}</p>
+                </div>
+            );
+            const gridColor = 'rgba(255,255,255,0.05)';
+            const coinLabel = (DERIV_COINS.find(c => c.sym === sym) || {}).label || sym;
+            const lastGlobal = data && data.globalLS.length ? data.globalLS[data.globalLS.length - 1] : null;
+
+            // 比值線圖(多空比/買賣比):以 1.0 為分界,上綠下紅
+            const ratioChart = (rows, label) => ({
+                type: 'line',
+                data: {
+                    labels: rows.map(d => derivTimeLabel(d.t)),
+                    datasets: [{
+                        label,
+                        data: rows.map(d => d.v),
+                        borderColor: '#a78bfa', borderWidth: 1.5, pointRadius: 0, tension: 0.2,
+                        fill: { target: { value: 1 }, above: 'rgba(0,214,143,0.12)', below: 'rgba(255,91,110,0.12)' },
+                    }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { display: false }, title: { display: true, text: `${label}（>1 偏多 · <1 偏空）`, font: { size: 11 } } },
+                    scales: {
+                        x: { ticks: { maxTicksLimit: 6, maxRotation: 0 }, grid: { color: gridColor } },
+                        y: { grid: { color: gridColor } },
+                    },
+                },
+            });
+
+            return (
+                <div className="space-y-4">
+                    <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <h3 className="font-bold text-white">合約數據（Binance 永續）</h3>
+                            <div className="flex gap-2 flex-wrap">
+                                {pills(DERIV_COINS.map(c => ({ key: c.sym, label: c.label })), sym, setSym)}
+                                {pills([{ key: '1h', label: '1H' }, { key: '4h', label: '4H' }, { key: '12h', label: '12H' }, { key: '1d', label: '1D' }], period, setPeriod)}
+                            </div>
+                        </div>
+                        <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                            資金費率為正 = 多方付費給空方（市場偏多）；持倉量驟增伴隨價格急拉 / 急殺常見於軋空、殺多。歷史區間為最近 30 天。
+                        </p>
+                        {loading ? (
+                            <div className="text-center py-12">
+                                <div className="inline-block w-7 h-7 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-1)' }}></div>
+                            </div>
+                        ) : error ? (
+                            <p className="text-sm py-6 text-center" style={{ color: 'var(--down)' }}>讀取失敗：{error}</p>
+                        ) : !data ? null : (
+                            <>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    {statCard('標記價格', fmtUsdCompact(data.price))}
+                                    {statCard('當前資金費率', `${data.fundingNow >= 0 ? '+' : ''}${data.fundingNow.toFixed(4)}%`, data.fundingNow >= 0 ? 'var(--up)' : 'var(--down)')}
+                                    {statCard('持倉量', fmtUsdCompact(data.oiNowUsd))}
+                                    {statCard('多空比(帳戶)', lastGlobal ? `${lastGlobal.v.toFixed(2)}（多 ${lastGlobal.longPct.toFixed(0)}%）` : '—', lastGlobal ? (lastGlobal.v >= 1 ? 'var(--up)' : 'var(--down)') : undefined)}
+                                </div>
+
+                                {/* 資金費率 */}
+                                <OnChainChart
+                                    height={200}
+                                    title={`${coinLabel} · 資金費率（8 小時）`}
+                                    deps={[data]}
+                                    build={() => ({
+                                        type: 'bar',
+                                        data: {
+                                            labels: data.funding.map(d => derivTimeLabel(d.t)),
+                                            datasets: [{
+                                                label: '資金費率 %',
+                                                data: data.funding.map(d => d.v),
+                                                backgroundColor: data.funding.map(d => d.v >= 0 ? 'rgba(0,214,143,0.7)' : 'rgba(255,91,110,0.7)'),
+                                            }],
+                                        },
+                                        options: {
+                                            responsive: true, maintainAspectRatio: false, animation: false,
+                                            interaction: { mode: 'index', intersect: false },
+                                            plugins: { legend: { display: false }, title: { display: true, text: '資金費率 %（正 = 多方付費）', font: { size: 11 } } },
+                                            scales: {
+                                                x: { ticks: { maxTicksLimit: 6, maxRotation: 0 }, grid: { color: gridColor } },
+                                                y: { grid: { color: gridColor }, ticks: { callback: (v) => Number(v).toFixed(3) + '%' } },
+                                            },
+                                        },
+                                    })}
+                                />
+
+                                {/* 持倉量 */}
+                                <OnChainChart
+                                    height={220}
+                                    title={`${coinLabel} · 持倉量（USD）`}
+                                    deps={[data]}
+                                    build={() => ({
+                                        type: 'line',
+                                        data: {
+                                            labels: data.oi.map(d => derivTimeLabel(d.t)),
+                                            datasets: [{
+                                                label: '持倉量',
+                                                data: data.oi.map(d => d.v),
+                                                borderColor: '#4cc2ff', borderWidth: 1.5, pointRadius: 0, tension: 0.2,
+                                                fill: true, backgroundColor: 'rgba(76,194,255,0.08)',
+                                            }],
+                                        },
+                                        options: {
+                                            responsive: true, maintainAspectRatio: false, animation: false,
+                                            interaction: { mode: 'index', intersect: false },
+                                            plugins: { legend: { display: false }, title: { display: true, text: '未平倉合約價值', font: { size: 11 } } },
+                                            scales: {
+                                                x: { ticks: { maxTicksLimit: 6, maxRotation: 0 }, grid: { color: gridColor } },
+                                                y: { grid: { color: gridColor }, ticks: { callback: (v) => fmtUsdCompact(v) } },
+                                            },
+                                        },
+                                    })}
+                                />
+
+                                {/* 多空比三張 */}
+                                <OnChainChart height={180} title={`${coinLabel} · 全體帳戶多空比`} deps={[data]} build={() => ratioChart(data.globalLS, '全體帳戶多空比')} />
+                                <OnChainChart height={180} title={`${coinLabel} · 大戶持倉多空比`} deps={[data]} build={() => ratioChart(data.topLS, '大戶持倉多空比')} />
+                                <OnChainChart height={180} title={`${coinLabel} · 主動買賣比`} deps={[data]} build={() => ratioChart(data.taker, '主動買賣比（Taker）')} />
+                            </>
+                        )}
+                    </div>
+
+                    <p className="text-[11px] px-1 pt-1" style={{ color: 'var(--text-3)' }}>合約數據資料源：Binance Futures 公開 API（免金鑰；futures/data 系列歷史僅保留 30 天）</p>
+                </div>
+            );
+        };
+
         const OnChainDashboard = ({ defaultAsset }) => {
+            const [ocView, setOcView] = useState('valuation'); // 'valuation' | 'deriv'
             // ── 1. MVRV / Realized Price ──
             // 預設跟隨加密分頁選中的幣;不支援 MVRV 的幣(SOL/HYPE)則退回 BTC
             const [mvrvAsset, setMvrvAsset] = useState(() => CM_ASSET_MAP[String(defaultAsset || '').toLowerCase()] || 'btc');
@@ -4860,6 +5076,21 @@ import { createClient } from '@supabase/supabase-js';
 
             return (
                 <div className="space-y-4">
+                    {/* 檢視切換:鏈上估值(MVRV/ETF/穩定幣) vs 合約數據(Binance 永續) */}
+                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
+                        <button
+                            onClick={() => setOcView('valuation')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${ocView === 'valuation' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            style={ocView === 'valuation' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >鏈上估值</button>
+                        <button
+                            onClick={() => setOcView('deriv')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${ocView === 'deriv' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            style={ocView === 'deriv' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >合約數據</button>
+                    </div>
+
+                    {ocView === 'deriv' ? <DerivativesPanel defaultAsset={defaultAsset} /> : (<>
                     {/* ── 1. MVRV / Realized Price ── */}
                     <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
                         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -5052,6 +5283,7 @@ import { createClient } from '@supabase/supabase-js';
                     </div>
 
                     <p className="text-[11px] px-1 pt-1" style={{ color: 'var(--text-3)' }}>MVRV 估值 · 美國現貨 ETF 資金流 · 穩定幣供給（資料源：CoinMetrics / SoSoValue / DefiLlama）</p>
+                    </>)}
                 </div>
             );
         };
