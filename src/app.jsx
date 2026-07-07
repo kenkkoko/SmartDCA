@@ -3298,6 +3298,43 @@ import { createClient } from '@supabase/supabase-js';
             ]},
         ];
 
+        // ─── CoinMetrics 社群 API(免金鑰、CORS 開放)───
+        // MVRV 與 Realized Price:Realized Price = 現價 ÷ MVRV
+        // (社群版拿不到 CapRealUSD,但 MVRV = 市值/實現市值,故 RP = Price/MVRV)
+        // 支援資產:btc / eth / link / doge(SOL、HYPE 無 MVRV 資料)
+        const CM_ASSET_MAP = {
+            btc: 'btc', bitcoin: 'btc',
+            eth: 'eth', ethereum: 'eth',
+            link: 'link', chainlink: 'link',
+            doge: 'doge', dogecoin: 'doge',
+        };
+        const cmCache = {}; // asset → [{date, mvrv, rp}](session 內共用,modal 和鏈上頁都會用)
+        const fetchCoinMetrics = async (asset) => {
+            if (cmCache[asset]) return cmCache[asset];
+            const url = `https://community-api.coinmetrics.io/v4/timeseries/asset-metrics?assets=${asset}&metrics=CapMVRVCur,PriceUSD&frequency=1d&page_size=10000&start_time=2013-01-01`;
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`CoinMetrics ${res.status}`);
+            const json = await res.json();
+            const arr = (json.data || []).map(d => {
+                const mvrv = parseFloat(d.CapMVRVCur);
+                const price = parseFloat(d.PriceUSD);
+                return {
+                    date: d.time.slice(0, 10),
+                    mvrv: isFinite(mvrv) ? mvrv : null,
+                    price: isFinite(price) ? price : null,
+                    rp: (isFinite(mvrv) && mvrv > 0 && isFinite(price)) ? price / mvrv : null,
+                };
+            }).filter(d => d.mvrv != null && d.rp != null);
+            cmCache[asset] = arr;
+            return arr;
+        };
+        const mvrvClassify = (v) => {
+            if (v == null || !isFinite(v)) return null;
+            if (v < 1) return { tone: 'bull', label: '低估(抄底區)' };
+            if (v <= 2.4) return { tone: 'neutral', label: '中性' };
+            return { tone: 'bear', label: '過熱' };
+        };
+
         // FNG → bull/bear/neutral classification (mirrors the dashboard's DCA suggestion)
         const fngClassify = (v) => {
             if (v == null || isNaN(v)) return null;
@@ -3314,6 +3351,7 @@ import { createClient } from '@supabase/supabase-js';
             const candleSeriesRef = useRef(null);
             const emaSeriesRef = useRef([]);
             const ma200SeriesRef = useRef(null);
+            const rpSeriesRef = useRef(null);          // Realized Price 線(主圖,crypto 限定)
             const rsiSeriesRef = useRef(null);
             const macdRefs = useRef({ dif: null, dea: null, hist: null });
             const markersPluginRef = useRef(null);     // candle pane: holds FNG dots + EMA LONG/SHORT
@@ -3326,6 +3364,7 @@ import { createClient } from '@supabase/supabase-js';
             const pendingAnchorsRef = useRef([]);
             const selectedDrawingIdRef = useRef(null);
             const candleDataRef = useRef([]);
+            const lastHoverTimeRef = useRef(null);   // crosshair 防抖:同一根 K 棒不重複 setState
 
             const [showHelp, setShowHelp] = useState(false);
             const [activeTool, setActiveTool] = useState(null); // { type, name, requiredAnchors, collected }
@@ -3335,6 +3374,7 @@ import { createClient } from '@supabase/supabase-js';
 
             const [showEMA, setShowEMA] = useLocalState('tech-show-ema', true);
             const [showMA200, setShowMA200] = useLocalState('tech-show-ma200', true);
+            const [showRP, setShowRP] = useLocalState('tech-show-rp', true);
             const [showRSI, setShowRSI] = useLocalState('tech-show-rsi', true);
             const [showMACD, setShowMACD] = useLocalState('tech-show-macd', true);
             const [showFearSignal, setShowFearSignal] = useLocalState('tech-show-fear', true);
@@ -3343,6 +3383,10 @@ import { createClient } from '@supabase/supabase-js';
             const [timeframe, setTimeframe] = useLocalState('tech-timeframe', '1d'); // '1d' | '1wk'
 
             const signalSource = (type === 'CRYPTO' || type === 'crypto' || type === 'US') ? 'fng' : 'rsi';
+            const isCryptoType = (type === 'CRYPTO' || type === 'crypto');
+            // crypto 用鏈上 Realized Price 取代 MA200(Binance 只給 1000 根 K 棒,MA200 沒參考性)
+            const cmAsset = isCryptoType ? (CM_ASSET_MAP[String(symbol || '').toLowerCase()] || null) : null;
+            const [cmData, setCmData] = useState([]);
             const [fngHistory, setFngHistory] = useState([]);
             const [timeRange, setTimeRange] = useState('1y');
             const [history, setHistory] = useState([]);
@@ -3448,6 +3492,22 @@ import { createClient } from '@supabase/supabase-js';
                 return () => { cancelled = true; };
             }, [type, effectiveHistoryRange, signalSource]);
 
+            // ─── Fetch MVRV / Realized Price(crypto 限定,session 內快取)───
+            useEffect(() => {
+                if (!cmAsset) { setCmData([]); return; }
+                let cancelled = false;
+                (async () => {
+                    try {
+                        const arr = await fetchCoinMetrics(cmAsset);
+                        if (!cancelled) setCmData(arr);
+                    } catch (e) {
+                        console.warn('CoinMetrics fetch failed:', e);
+                        if (!cancelled) setCmData([]);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [cmAsset]);
+
             const displayHistory = useMemo(
                 () => (timeframe === '1wk' ? aggregateToWeekly(history) : history),
                 [history, timeframe]
@@ -3520,16 +3580,20 @@ import { createClient } from '@supabase/supabase-js';
                 }
 
                 // ─── Hover-info overlay: read OHLC out of the crosshair payload ───
+                // 只在移到「不同的 K 棒」時才 setState:滑鼠在同一根上垂直移動不重繪,
+                // 避免整個 modal 在畫線 / 平移時被 React 重繪拖慢。
                 chart.subscribeCrosshairMove((param) => {
                     if (!param || param.time == null || !param.seriesData) {
-                        setHoverInfo(null);
+                        if (lastHoverTimeRef.current !== null) { lastHoverTimeRef.current = null; setHoverInfo(null); }
                         return;
                     }
                     const cur = param.seriesData.get(candleSeries);
                     if (!cur || cur.open == null) {
-                        setHoverInfo(null);
+                        if (lastHoverTimeRef.current !== null) { lastHoverTimeRef.current = null; setHoverInfo(null); }
                         return;
                     }
+                    if (lastHoverTimeRef.current === param.time) return;
+                    lastHoverTimeRef.current = param.time;
                     const data = candleDataRef.current;
                     let prev = null;
                     if (param.logical != null && data.length > 1) {
@@ -3547,13 +3611,18 @@ import { createClient } from '@supabase/supabase-js';
                     const manager = new window.LightweightChartsDrawing.DrawingManager();
                     manager.attach(chart, candleSeries, containerRef.current);
                     drawingManagerRef.current = manager;
+                    // 選取標註時鎖住圖表平移/縮放:拖曳錨點才不會同時把整張圖拖走
                     manager.on && manager.on('drawing:selected', (e) => {
                         selectedDrawingIdRef.current = e.drawingId || null;
                         setHasSelection(true);
+                        try { chart.applyOptions({ handleScroll: false, handleScale: false }); } catch {}
                     });
                     manager.on && manager.on('drawing:deselected', () => {
                         selectedDrawingIdRef.current = null;
                         setHasSelection(false);
+                        if (!activeToolRef.current) {
+                            try { chart.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
+                        }
                     });
                 }
 
@@ -3604,12 +3673,18 @@ import { createClient } from '@supabase/supabase-js';
                         activeToolRef.current = null;
                         setActiveTool(null);
                         if (containerRef.current) containerRef.current.style.cursor = '';
+                        // 繪製完成:恢復圖表平移/縮放
+                        try { chart.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
                     }
                 };
                 chart.subscribeClick(onClick);
 
                 // ─── Touch → mouse polyfill so the drawing manager's mouse-only
-                //     anchor-drag handlers also respond to finger drags on mobile. ───
+                //     anchor-drag handlers also respond to finger drags on mobile.
+                //     只在「拖曳」且有作用對象(繪製中/已選取標註)時才合成滑鼠事件:
+                //     - 純點按交給瀏覽器的相容性事件(否則合成+相容性事件重複觸發,
+                //       點一下標註會「選取後立刻取消選取」)
+                //     - 一般單指平移圖表時不合成,避免跟繪圖管理器互搶手勢 ───
                 const container = containerRef.current;
                 const dispatchMouse = (type, t) => {
                     const ev = new MouseEvent(type, {
@@ -3619,17 +3694,26 @@ import { createClient } from '@supabase/supabase-js';
                     });
                     container.dispatchEvent(ev);
                 };
+                let touchDrag = null; // { startT, dragging }
                 const onTouchStart = (e) => {
-                    if (e.touches.length !== 1) return;
-                    dispatchMouse('mousedown', e.touches[0]);
+                    if (e.touches.length !== 1) { touchDrag = null; return; }
+                    touchDrag = { startT: e.touches[0], dragging: false };
                 };
                 const onTouchMove = (e) => {
-                    if (e.touches.length !== 1) return;
+                    if (!touchDrag || e.touches.length !== 1) return;
+                    if (!activeToolRef.current && !selectedDrawingIdRef.current) return;
+                    if (!touchDrag.dragging) {
+                        dispatchMouse('mousedown', touchDrag.startT);
+                        touchDrag.dragging = true;
+                    }
                     dispatchMouse('mousemove', e.touches[0]);
                 };
                 const onTouchEnd = (e) => {
-                    const t = e.changedTouches[0];
-                    if (t) dispatchMouse('mouseup', t);
+                    if (touchDrag && touchDrag.dragging) {
+                        const t = e.changedTouches[0];
+                        if (t) dispatchMouse('mouseup', t);
+                    }
+                    touchDrag = null;
                 };
                 container.addEventListener('touchstart', onTouchStart, { passive: true });
                 container.addEventListener('touchmove', onTouchMove, { passive: true });
@@ -3642,6 +3726,7 @@ import { createClient } from '@supabase/supabase-js';
                             pendingAnchorsRef.current = [];
                             setActiveTool(null);
                             if (containerRef.current) containerRef.current.style.cursor = '';
+                            try { chart.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
                         } else {
                             onClose && onClose();
                         }
@@ -3653,6 +3738,10 @@ import { createClient } from '@supabase/supabase-js';
                             drawingsRef.current = drawingsRef.current.filter(x => x !== id);
                             selectedDrawingIdRef.current = null;
                             setHasSelection(false);
+                            // 程式移除不會觸發 deselected 事件,手動解鎖平移
+                            if (!activeToolRef.current) {
+                                try { chart.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
+                            }
                         }
                     }
                 };
@@ -3672,6 +3761,7 @@ import { createClient } from '@supabase/supabase-js';
                     markersPluginRef.current = null;
                     emaSeriesRef.current = [];
                     ma200SeriesRef.current = null;
+                    rpSeriesRef.current = null;
                     rsiSeriesRef.current = null;
                     macdRefs.current = { dif: null, dea: null, hist: null };
                 };
@@ -3685,18 +3775,6 @@ import { createClient } from '@supabase/supabase-js';
                 series.setData(candleData);
                 try { chart.timeScale().fitContent(); } catch {}
             }, [candleData]);
-
-            // Re-balance pane heights whenever the sub-pane mix changes (so the time
-            // axis under the MACD pane always has comfortable room to render).
-            useEffect(() => {
-                const chart = chartRef.current;
-                if (!chart || !chart.panes) return;
-                const panes = chart.panes();
-                const apply = (i, f) => { try { panes[i] && panes[i].setStretchFactor(f); } catch {} };
-                apply(0, 6);   // main candle pane gets the bulk
-                apply(1, 2);   // RSI
-                apply(2, 2);   // MACD
-            }, [showRSI, showMACD, candleData]);
 
             // ─── EMA Ribbon (6 lines on main pane) — per-segment color flip ───
             // Each EMA line is split into bull / bear segments at every fast×slow
@@ -3781,7 +3859,8 @@ import { createClient } from '@supabase/supabase-js';
                 const chart = chartRef.current;
                 if (!chart) return;
                 if (ma200SeriesRef.current) { try { chart.removeSeries(ma200SeriesRef.current); } catch {} ma200SeriesRef.current = null; }
-                if (!showMA200 || candleData.length < 50) return;
+                // crypto 一律不畫 MA200(K 棒最多 1000 根,MA200 沒參考性;主圖改用 Realized Price)
+                if (!showMA200 || isCryptoType || candleData.length < 50) return;
                 const period = 200;
                 const closes = candleData.map(d => d.close);
                 if (closes.length < period) return;
@@ -3807,111 +3886,159 @@ import { createClient } from '@supabase/supabase-js';
                 ma200SeriesRef.current = s;
             }, [showMA200, candleData]);
 
-            // ─── RSI (pane 1) with 70 / 50 / 30 reference lines + cross markers ───
-            // LONG marker: RSI crosses UP through 30 (oversold rebound)
-            // SHORT marker: RSI crosses DOWN through 70 (overbought reversal)
+            // ─── Realized Price 線(主圖,crypto 限定)───
+            // 鏈上平均成本線:價格跌破 = 歷史級抄底區。資料為日頻,
+            // 依 K 棒時間對齊取「當日或之前最近」的值(週線也能正確對齊)。
+            useEffect(() => {
+                const chart = chartRef.current;
+                if (!chart) return;
+                if (rpSeriesRef.current) { try { chart.removeSeries(rpSeriesRef.current); } catch {} rpSeriesRef.current = null; }
+                if (!showRP || !cmAsset || candleData.length === 0 || cmData.length === 0) return;
+                const data = [];
+                let di = 0, lastRp = null;
+                for (const bar of candleData) {
+                    const ds = new Date(bar.time * 1000).toISOString().slice(0, 10);
+                    while (di < cmData.length && cmData[di].date <= ds) { lastRp = cmData[di].rp; di++; }
+                    if (lastRp != null) data.push({ time: bar.time, value: lastRp });
+                }
+                if (!data.length) return;
+                const s = chart.addSeries(window.LightweightCharts.LineSeries, {
+                    color: '#f59e0b',
+                    lineWidth: 2,
+                    priceLineVisible: false,
+                    lastValueVisible: true,
+                    title: 'Realized Price',
+                }, 0);
+                s.setData(data);
+                rpSeriesRef.current = s;
+            }, [showRP, cmAsset, cmData, candleData]);
+
+            // ─── RSI + MACD 副圖(pane 動態配置)───
+            // lightweight-charts v5 在某個 pane 的最後一條 series 被移除後,
+            // 後面的 pane 會往前遞補;因此不能寫死「RSI=pane1、MACD=pane2」——
+            // 舊寫法在「關 RSI 再開」時會把 RSI 加進 MACD 佔用的 pane,兩個指標重疊。
+            // 改為單一 effect:先移除兩者、清掉空 pane,再依開關「依序」分配索引,
+            // 並在 series 建立之後才設定 pane 高度比例(舊版在建立前設定,無效)。
             useEffect(() => {
                 const chart = chartRef.current;
                 const LWC = window.LightweightCharts;
                 if (!chart) return;
+
+                // 1) 移除既有 RSI / MACD series
                 if (rsiSeriesRef.current) { try { chart.removeSeries(rsiSeriesRef.current); } catch {} rsiSeriesRef.current = null; }
                 rsiMarkersRef.current = null;
-                if (!showRSI || candleData.length === 0) return;
-                const period = 14;
-                const closes = candleData.map(d => d.close);
-                if (closes.length <= period) return;
-                let gains = 0, losses = 0;
-                for (let i = 1; i <= period; i++) {
-                    const d = closes[i] - closes[i - 1];
-                    if (d > 0) gains += d; else losses -= d;
-                }
-                let avgGain = gains / period;
-                let avgLoss = losses / period;
-                const out = [];
-                const pushRsi = (idx) => {
-                    const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss;
-                    const rsi = avgLoss === 0 ? 100 : 100 - 100 / (1 + rs);
-                    out.push({ time: candleData[idx].time, value: rsi });
-                };
-                pushRsi(period);
-                for (let i = period + 1; i < closes.length; i++) {
-                    const d = closes[i] - closes[i - 1];
-                    const gain = d > 0 ? d : 0;
-                    const loss = d < 0 ? -d : 0;
-                    avgGain = (avgGain * (period - 1) + gain) / period;
-                    avgLoss = (avgLoss * (period - 1) + loss) / period;
-                    pushRsi(i);
-                }
-                const s = chart.addSeries(LWC.LineSeries, {
-                    color: '#a78bfa',  // purple — bull / bear is conveyed by the cross markers, not the line
-                    lineWidth: 1.5,
-                    priceLineVisible: false, lastValueVisible: true, title: 'RSI(14)',
-                }, 1);
-                s.setData(out);
-                try { s.createPriceLine({ price: 70, color: 'rgba(255,91,110,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
-                try { s.createPriceLine({ price: 50, color: 'rgba(255,255,255,0.18)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
-                try { s.createPriceLine({ price: 30, color: 'rgba(0,214,143,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
-                rsiSeriesRef.current = s;
-
-                // Cross markers on the RSI line itself
-                if (typeof LWC.createSeriesMarkers === 'function') {
-                    const markers = [];
-                    for (let i = 1; i < out.length; i++) {
-                        const prev = out[i - 1].value, cur = out[i].value;
-                        if (prev <= 30 && cur > 30) {
-                            markers.push({ time: out[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
-                        } else if (prev >= 70 && cur < 70) {
-                            markers.push({ time: out[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
-                        }
-                    }
-                    try { rsiMarkersRef.current = LWC.createSeriesMarkers(s, markers); } catch {}
-                }
-            }, [showRSI, candleData]);
-
-            // ─── MACD (pane 2) + DIF×DEA golden / death cross markers on DIF line ───
-            useEffect(() => {
-                const chart = chartRef.current;
-                const LWC = window.LightweightCharts;
-                if (!chart) return;
                 ['dif', 'dea', 'hist'].forEach(k => {
                     if (macdRefs.current[k]) { try { chart.removeSeries(macdRefs.current[k]); } catch {} macdRefs.current[k] = null; }
                 });
                 macdMarkersRef.current = null;
-                if (!showMACD || candleData.length === 0) return;
-                const closes = candleData.map(d => d.close);
-                const macd = computeMACD(closes);
-                const histData = [];
-                const difData = [];
-                const deaData = [];
-                for (let i = 0; i < closes.length; i++) {
-                    const t = candleData[i].time;
-                    if (macd.histogram[i] != null) histData.push({ time: t, value: macd.histogram[i], color: macd.histogram[i] >= 0 ? 'rgba(0,214,143,0.75)' : 'rgba(255,91,110,0.75)' });
-                    if (macd.dif[i] != null) difData.push({ time: t, value: macd.dif[i] });
-                    if (macd.dea[i] != null) deaData.push({ time: t, value: macd.dea[i] });
-                }
-                macdRefs.current.hist = chart.addSeries(LWC.HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, 2);
-                macdRefs.current.hist.setData(histData);
-                macdRefs.current.dif = chart.addSeries(LWC.LineSeries, { color: '#3b82f6', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DIF' }, 2);
-                macdRefs.current.dif.setData(difData);
-                macdRefs.current.dea = chart.addSeries(LWC.LineSeries, { color: '#fbbf24', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DEA' }, 2);
-                macdRefs.current.dea.setData(deaData);
 
-                // Cross markers anchored on the DIF line
-                if (typeof LWC.createSeriesMarkers === 'function') {
-                    const markers = [];
-                    for (let i = 1; i < closes.length; i++) {
-                        const dPrev = macd.dif[i - 1], dCur = macd.dif[i];
-                        const ePrev = macd.dea[i - 1], eCur = macd.dea[i];
-                        if (dPrev == null || dCur == null || ePrev == null || eCur == null) continue;
-                        if (dPrev <= ePrev && dCur > eCur) {
-                            markers.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
-                        } else if (dPrev >= ePrev && dCur < eCur) {
-                            markers.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
-                        }
+                // 2) 清掉殘留的空副圖 pane,讓索引從乾淨狀態開始分配
+                try {
+                    const panes = chart.panes();
+                    for (let i = panes.length - 1; i >= 1; i--) {
+                        const series = panes[i].getSeries ? panes[i].getSeries() : [];
+                        if (!series || series.length === 0) chart.removePane(i);
                     }
-                    try { macdMarkersRef.current = LWC.createSeriesMarkers(macdRefs.current.dif, markers); } catch {}
+                } catch {}
+
+                if (candleData.length === 0) return;
+                const closes = candleData.map(d => d.close);
+                let nextPane = 1;
+
+                // 3) RSI — 70 / 50 / 30 參考線 + 上穿30 △ / 下穿70 ▽ 標記
+                if (showRSI && closes.length > 14) {
+                    const period = 14;
+                    let gains = 0, losses = 0;
+                    for (let i = 1; i <= period; i++) {
+                        const d = closes[i] - closes[i - 1];
+                        if (d > 0) gains += d; else losses -= d;
+                    }
+                    let avgGain = gains / period;
+                    let avgLoss = losses / period;
+                    const out = [];
+                    const pushRsi = (idx) => {
+                        const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss;
+                        const rsi = avgLoss === 0 ? 100 : 100 - 100 / (1 + rs);
+                        out.push({ time: candleData[idx].time, value: rsi });
+                    };
+                    pushRsi(period);
+                    for (let i = period + 1; i < closes.length; i++) {
+                        const d = closes[i] - closes[i - 1];
+                        const gain = d > 0 ? d : 0;
+                        const loss = d < 0 ? -d : 0;
+                        avgGain = (avgGain * (period - 1) + gain) / period;
+                        avgLoss = (avgLoss * (period - 1) + loss) / period;
+                        pushRsi(i);
+                    }
+                    const s = chart.addSeries(LWC.LineSeries, {
+                        color: '#a78bfa',  // purple — bull / bear is conveyed by the cross markers, not the line
+                        lineWidth: 1.5,
+                        priceLineVisible: false, lastValueVisible: true, title: 'RSI(14)',
+                    }, nextPane);
+                    s.setData(out);
+                    try { s.createPriceLine({ price: 70, color: 'rgba(255,91,110,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
+                    try { s.createPriceLine({ price: 50, color: 'rgba(255,255,255,0.18)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
+                    try { s.createPriceLine({ price: 30, color: 'rgba(0,214,143,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
+                    rsiSeriesRef.current = s;
+
+                    if (typeof LWC.createSeriesMarkers === 'function') {
+                        const markers = [];
+                        for (let i = 1; i < out.length; i++) {
+                            const prev = out[i - 1].value, cur = out[i].value;
+                            if (prev <= 30 && cur > 30) {
+                                markers.push({ time: out[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
+                            } else if (prev >= 70 && cur < 70) {
+                                markers.push({ time: out[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
+                            }
+                        }
+                        try { rsiMarkersRef.current = LWC.createSeriesMarkers(s, markers); } catch {}
+                    }
+                    nextPane++;
                 }
-            }, [showMACD, candleData]);
+
+                // 4) MACD — DIF×DEA 金叉 △ / 死叉 ▽ 標記在 DIF 線上
+                if (showMACD) {
+                    const macd = computeMACD(closes);
+                    const histData = [];
+                    const difData = [];
+                    const deaData = [];
+                    for (let i = 0; i < closes.length; i++) {
+                        const t = candleData[i].time;
+                        if (macd.histogram[i] != null) histData.push({ time: t, value: macd.histogram[i], color: macd.histogram[i] >= 0 ? 'rgba(0,214,143,0.75)' : 'rgba(255,91,110,0.75)' });
+                        if (macd.dif[i] != null) difData.push({ time: t, value: macd.dif[i] });
+                        if (macd.dea[i] != null) deaData.push({ time: t, value: macd.dea[i] });
+                    }
+                    macdRefs.current.hist = chart.addSeries(LWC.HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, nextPane);
+                    macdRefs.current.hist.setData(histData);
+                    macdRefs.current.dif = chart.addSeries(LWC.LineSeries, { color: '#3b82f6', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DIF' }, nextPane);
+                    macdRefs.current.dif.setData(difData);
+                    macdRefs.current.dea = chart.addSeries(LWC.LineSeries, { color: '#fbbf24', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DEA' }, nextPane);
+                    macdRefs.current.dea.setData(deaData);
+
+                    if (typeof LWC.createSeriesMarkers === 'function') {
+                        const markers = [];
+                        for (let i = 1; i < closes.length; i++) {
+                            const dPrev = macd.dif[i - 1], dCur = macd.dif[i];
+                            const ePrev = macd.dea[i - 1], eCur = macd.dea[i];
+                            if (dPrev == null || dCur == null || ePrev == null || eCur == null) continue;
+                            if (dPrev <= ePrev && dCur > eCur) {
+                                markers.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
+                            } else if (dPrev >= ePrev && dCur < eCur) {
+                                markers.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
+                            }
+                        }
+                        try { macdMarkersRef.current = LWC.createSeriesMarkers(macdRefs.current.dif, markers); } catch {}
+                    }
+                    nextPane++;
+                }
+
+                // 5) pane 高度比例:主圖 6、每個副圖 2(此時 pane 一定已存在才會生效)
+                try {
+                    const panes = chart.panes();
+                    if (panes[0]) panes[0].setStretchFactor(6);
+                    for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(2);
+                } catch {}
+            }, [showRSI, showMACD, candleData]);
 
             // FNG dot markers (crypto / US only) — combined later with EMA cross markers
             const fngMarkers = useMemo(() => {
@@ -4010,8 +4137,8 @@ import { createClient } from '@supabase/supabase-js';
                     }
                 }
 
-                // 200MA
-                if (showMA200 && closes.length >= 200) {
+                // 200MA(非 crypto 限定)
+                if (showMA200 && !isCryptoType && closes.length >= 200) {
                     let sum = 0;
                     for (let i = closes.length - 200; i < closes.length; i++) sum += closes[i];
                     const ma200 = sum / 200;
@@ -4019,8 +4146,19 @@ import { createClient } from '@supabase/supabase-js';
                     out.push({ key: 'ma200', name: 'MA200', tone: bull ? 'bull' : 'bear', label: bull ? '價格站上' : '價格跌破' });
                 }
 
+                // MVRV + Realized Price(crypto 限定,鏈上估值)
+                if (cmAsset && cmData.length) {
+                    const last = cmData[cmData.length - 1];
+                    const cls = mvrvClassify(last.mvrv);
+                    if (cls) out.push({ key: 'mvrv', name: 'MVRV', tone: cls.tone, label: `${last.mvrv.toFixed(2)} ${cls.label}` });
+                    if (showRP && last.rp != null) {
+                        const above = lastPrice >= last.rp;
+                        out.push({ key: 'rp', name: 'R.Price', tone: above ? 'bull' : 'bear', label: above ? '價格站上' : '跌破(抄底區)' });
+                    }
+                }
+
                 return out;
-            }, [candleData, fngHistory, signalSource, showEMA, showRSI, showMACD, showMA200, showComposite]);
+            }, [candleData, fngHistory, signalSource, showEMA, showRSI, showMACD, showMA200, showComposite, cmAsset, cmData, showRP]);
 
             // ─── Tool picker handlers ───
             const pickTool = (tool) => {
@@ -4029,12 +4167,20 @@ import { createClient } from '@supabase/supabase-js';
                 setActiveTool({ type: tool.type, name: tool.name, requiredAnchors: tool.a, collected: 0 });
                 setOpenCategory(null);
                 if (containerRef.current) containerRef.current.style.cursor = 'crosshair';
+                // 繪製期間鎖住平移/縮放:點錨點時圖表不會跟著滑動,下錨更準
+                try { chartRef.current && chartRef.current.applyOptions({ handleScroll: false, handleScale: false }); } catch {}
             };
             const cancelTool = () => {
                 activeToolRef.current = null;
                 pendingAnchorsRef.current = [];
                 setActiveTool(null);
                 if (containerRef.current) containerRef.current.style.cursor = '';
+                try { chartRef.current && chartRef.current.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
+            };
+            // 程式移除標註不會觸發 deselected 事件 → 手動解鎖圖表平移/縮放
+            const unlockChart = () => {
+                if (activeToolRef.current) return;
+                try { chartRef.current && chartRef.current.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
             };
             const clearAllDrawings = () => {
                 const m = drawingManagerRef.current;
@@ -4044,6 +4190,7 @@ import { createClient } from '@supabase/supabase-js';
                 drawingsRef.current = [];
                 selectedDrawingIdRef.current = null;
                 setHasSelection(false);
+                unlockChart();
             };
             const deleteSelected = () => {
                 const m = drawingManagerRef.current;
@@ -4053,6 +4200,7 @@ import { createClient } from '@supabase/supabase-js';
                 drawingsRef.current = drawingsRef.current.filter(x => x !== id);
                 selectedDrawingIdRef.current = null;
                 setHasSelection(false);
+                unlockChart();
             };
             const resetZoom = () => { try { chartRef.current && chartRef.current.timeScale().fitContent(); } catch {} };
 
@@ -4101,7 +4249,7 @@ import { createClient } from '@supabase/supabase-js';
 
             // ─── Layout ───
             return (
-                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
                     {/* Top bar */}
                     <div className="shrink-0 flex flex-col gap-2 px-3 md:px-4 pt-3 pb-2" style={{ borderBottom: '1px solid var(--line)' }}>
                         {/* Row 1: title + status + help/reset/close */}
@@ -4171,7 +4319,11 @@ import { createClient } from '@supabase/supabase-js';
                                 <EyeToggle label="FNG 信號" checked={showFearSignal} onChange={setShowFearSignal} color={DOWN_COLOR} />
                             )}
                             <EyeToggle label="EMA Ribbon" checked={showEMA} onChange={setShowEMA} color="#3b82f6" />
-                            <EyeToggle label="MA200" checked={showMA200} onChange={setShowMA200} color="#f97316" />
+                            {cmAsset ? (
+                                <EyeToggle label="Realized Price" checked={showRP} onChange={setShowRP} color="#f59e0b" />
+                            ) : !isCryptoType ? (
+                                <EyeToggle label="MA200" checked={showMA200} onChange={setShowMA200} color="#f97316" />
+                            ) : null}
                             <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
                             <EyeToggle label="MACD" checked={showMACD} onChange={setShowMACD} color="#fbbf24" />
                             <EyeToggle label="綜合信號" checked={showComposite} onChange={setShowComposite} color={UP_COLOR} />
@@ -4357,12 +4509,430 @@ import { createClient } from '@supabase/supabase-js';
                                     <p><strong className="text-white">畫線工具</strong>：左側工具列共 8 分類、68 種工具。點分類圖示打開選單，挑選工具後在圖表上任意位置點擊指定數量的錨點即完成（自由位置，不會吸到 K 棒）。</p>
                                     <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊已完成的標註可選取，拖曳錨點微調；按 Delete 或左側垃圾桶刪除；Esc 取消當前繪製。手機可用單指拖曳錨點。</p>
                                     <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20 / 27 / 34 / 41 / 48 / 55（fast=20、slow=55）。線段顏色逐段切換 — fast 站上 slow 該段顯綠、跌破則紅；K 棒下方綠 △ = 金叉（多），K 棒上方紅 ▽ = 死叉（空）。</p>
-                                    <p><strong className="text-white">RSI / MACD / MA200</strong>：RSI 紫線恆色，加 70 / 50 / 30 參考線，上穿 30 標 △、下穿 70 標 ▽；MACD DIF×DEA 金叉 △、死叉 ▽；MA200 線色隨價格站上 / 跌破切換。</p>
+                                    <p><strong className="text-white">RSI / MACD</strong>：RSI 紫線恆色，加 70 / 50 / 30 參考線，上穿 30 標 △、下穿 70 標 ▽；MACD DIF×DEA 金叉 △、死叉 ▽。</p>
+                                    <p><strong className="text-white">Realized Price / MVRV</strong>（加密貨幣）：橘線為鏈上平均持倉成本（Realized Price），價格跌破 = 歷史級抄底區；MVRV = 市值 ÷ 實現市值，&lt;1 低估、&gt;2.4 過熱。資料源 CoinMetrics（BTC / ETH / LINK / DOGE）。美股 / 台股則顯示 MA200。</p>
                                     <p><strong className="text-white">信號總覽</strong>：右上角面板獨立列出各指標的多 / 空狀態，不做綜合判斷；可隨時收起。</p>
                                 </div>
                             </div>
                         </div>
                     )}
+                </div>
+            );
+        };
+
+        // ═══════════════════════════════════════════════
+        // OnChainDashboard — 鏈上數據頁
+        //   1. MVRV & Realized Price(CoinMetrics 社群 API,免金鑰)
+        //   2. 美國現貨 ETF 淨流入(SoSoValue 公開端點,免金鑰)
+        //   3. 穩定幣市值與淨流入(DefiLlama,免金鑰)
+        // ═══════════════════════════════════════════════
+        const ONCHAIN_MVRV_ASSETS = [
+            { id: 'btc', label: 'BTC' },
+            { id: 'eth', label: 'ETH' },
+            { id: 'link', label: 'LINK' },
+            { id: 'doge', label: 'DOGE' },
+            { id: 'sol', label: 'SOL', unsupported: true },
+            { id: 'hype', label: 'HYPE', unsupported: true },
+        ];
+        // SoSoValue type 全列出:目前僅 BTC/ETH/SOL 有資料,其餘回空陣列;
+        // 之後 SoSoValue 開放新幣種時這裡不用改就會自動亮起來。
+        const ETF_TYPES = [
+            { id: 'us-btc-spot', label: 'BTC' },
+            { id: 'us-eth-spot', label: 'ETH' },
+            { id: 'us-sol-spot', label: 'SOL' },
+            { id: 'us-xrp-spot', label: 'XRP' },
+            { id: 'us-doge-spot', label: 'DOGE' },
+            { id: 'us-bnb-spot', label: 'BNB' },
+            { id: 'us-link-spot', label: 'LINK' },
+            { id: 'us-hype-spot', label: 'HYPE' },
+        ];
+        const fmtUsdCompact = (v) => {
+            if (v == null || !isFinite(v)) return '—';
+            const abs = Math.abs(v);
+            const sign = v < 0 ? '-' : '';
+            if (abs >= 1e12) return `${sign}$${(abs / 1e12).toFixed(2)}T`;
+            if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
+            if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(1)}M`;
+            if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(1)}K`;
+            return `${sign}$${abs.toFixed(2)}`;
+        };
+
+        // 通用 Chart.js 容器:data 變了就重建(沿用全站深色主題預設)
+        const OnChainChart = ({ build, deps, height = 260 }) => {
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+            useEffect(() => {
+                if (!canvasRef.current || typeof Chart === 'undefined') return;
+                if (chartRef.current) { try { chartRef.current.destroy(); } catch {} chartRef.current = null; }
+                const cfg = build();
+                if (!cfg) return;
+                chartRef.current = new Chart(canvasRef.current.getContext('2d'), cfg);
+                return () => { if (chartRef.current) { try { chartRef.current.destroy(); } catch {} chartRef.current = null; } };
+            }, deps); // eslint-disable-line
+            return <div style={{ height }} className="relative"><canvas ref={canvasRef}></canvas></div>;
+        };
+
+        const OnChainDashboard = () => {
+            // ── 1. MVRV / Realized Price ──
+            const [mvrvAsset, setMvrvAsset] = useState('btc');
+            const [mvrvRange, setMvrvRange] = useState('4y'); // 1y | 2y | 4y | all
+            const [mvrvData, setMvrvData] = useState([]);
+            const [mvrvLoading, setMvrvLoading] = useState(true);
+            const [mvrvError, setMvrvError] = useState(null);
+
+            useEffect(() => {
+                let cancelled = false;
+                (async () => {
+                    setMvrvLoading(true);
+                    setMvrvError(null);
+                    try {
+                        const arr = await fetchCoinMetrics(mvrvAsset);
+                        if (!cancelled) setMvrvData(arr);
+                    } catch (e) {
+                        if (!cancelled) { setMvrvError(String(e.message || e)); setMvrvData([]); }
+                    } finally {
+                        if (!cancelled) setMvrvLoading(false);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [mvrvAsset]);
+
+            const mvrvView = useMemo(() => {
+                if (!mvrvData.length) return [];
+                const days = mvrvRange === '1y' ? 365 : mvrvRange === '2y' ? 730 : mvrvRange === '4y' ? 1461 : Infinity;
+                const sliced = days === Infinity ? mvrvData : mvrvData.slice(-days);
+                // ALL 範圍點太多會拖慢 Chart.js → 週抽樣
+                if (sliced.length > 1500) return sliced.filter((_, i) => i % 7 === 0 || i === sliced.length - 1);
+                return sliced;
+            }, [mvrvData, mvrvRange]);
+
+            const mvrvLast = mvrvData.length ? mvrvData[mvrvData.length - 1] : null;
+            const mvrvCls = mvrvLast ? mvrvClassify(mvrvLast.mvrv) : null;
+
+            // ── 2. ETF 淨流入 ──
+            const [etfType, setEtfType] = useState('us-btc-spot');
+            const [etfRange, setEtfRange] = useState('3mo'); // 1mo | 3mo | 1y | all
+            const [etfData, setEtfData] = useState([]);       // asc by date
+            const [etfLoading, setEtfLoading] = useState(true);
+            const [etfError, setEtfError] = useState(null);
+            const etfCacheRef = useRef({});
+
+            useEffect(() => {
+                let cancelled = false;
+                (async () => {
+                    setEtfLoading(true);
+                    setEtfError(null);
+                    try {
+                        let rows = etfCacheRef.current[etfType];
+                        if (!rows) {
+                            const res = await fetch('https://api.sosovalue.xyz/openapi/v2/etf/historicalInflowChart', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ type: etfType }),
+                            });
+                            const json = await res.json();
+                            rows = (json.data || [])
+                                .map(d => ({
+                                    date: d.date,
+                                    flow: parseFloat(d.totalNetInflow),
+                                    cum: parseFloat(d.cumNetInflow),
+                                    assets: parseFloat(d.totalNetAssets),
+                                }))
+                                .filter(d => d.date && isFinite(d.flow))
+                                .sort((a, b) => a.date < b.date ? -1 : 1);
+                            etfCacheRef.current[etfType] = rows;
+                        }
+                        if (!cancelled) setEtfData(rows);
+                    } catch (e) {
+                        if (!cancelled) { setEtfError(String(e.message || e)); setEtfData([]); }
+                    } finally {
+                        if (!cancelled) setEtfLoading(false);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [etfType]);
+
+            const etfView = useMemo(() => {
+                if (!etfData.length) return [];
+                const days = etfRange === '1mo' ? 30 : etfRange === '3mo' ? 90 : etfRange === '1y' ? 365 : Infinity;
+                return days === Infinity ? etfData : etfData.slice(-days);
+            }, [etfData, etfRange]);
+
+            const etfLast = etfData.length ? etfData[etfData.length - 1] : null;
+
+            // ── 3. 穩定幣(DefiLlama)──
+            const [stableView, setStableView] = useState('all'); // all | usdt
+            const [stableRange, setStableRange] = useState('1y'); // 3mo | 1y | all
+            const [stableData, setStableData] = useState({ all: null, usdt: null });
+            const [stableLoading, setStableLoading] = useState(true);
+
+            useEffect(() => {
+                let cancelled = false;
+                (async () => {
+                    setStableLoading(true);
+                    try {
+                        const parse = (json) => (json || [])
+                            .map(d => ({ date: new Date(Number(d.date) * 1000).toISOString().slice(0, 10), mcap: d.totalCirculatingUSD?.peggedUSD }))
+                            .filter(d => d.mcap != null && isFinite(d.mcap));
+                        const [allRes, usdtRes] = await Promise.all([
+                            fetch('https://stablecoins.llama.fi/stablecoincharts/all').then(r => r.json()),
+                            fetch('https://stablecoins.llama.fi/stablecoincharts/all?stablecoin=1').then(r => r.json()),
+                        ]);
+                        if (cancelled) return;
+                        setStableData({ all: parse(allRes), usdt: parse(usdtRes) });
+                    } catch (e) {
+                        console.warn('DefiLlama fetch failed:', e);
+                        if (!cancelled) setStableData({ all: [], usdt: [] });
+                    } finally {
+                        if (!cancelled) setStableLoading(false);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, []);
+
+            const stableSeries = stableData[stableView] || [];
+            const stableViewData = useMemo(() => {
+                if (!stableSeries.length) return [];
+                const days = stableRange === '3mo' ? 90 : stableRange === '1y' ? 365 : Infinity;
+                let arr = days === Infinity ? stableSeries : stableSeries.slice(-days);
+                if (arr.length > 1500) arr = arr.filter((_, i) => i % 7 === 0 || i === arr.length - 1);
+                // 淨流入 = 市值日變化
+                return arr.map((d, i) => ({ ...d, flow: i > 0 ? d.mcap - arr[i - 1].mcap : 0 }));
+            }, [stableSeries, stableRange]);
+
+            const stableStats = useMemo(() => {
+                const s = stableSeries;
+                if (!s || s.length < 31) return null;
+                const last = s[s.length - 1];
+                return {
+                    mcap: last.mcap,
+                    d7: last.mcap - s[s.length - 8].mcap,
+                    d30: last.mcap - s[s.length - 31].mcap,
+                };
+            }, [stableSeries]);
+
+            // ── UI atoms ──
+            const pills = (items, active, onPick) => (
+                <div className="flex gap-0.5 p-0.5 rounded-lg shrink-0 overflow-x-auto no-scrollbar" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+                    {items.map(it => (
+                        <button key={it.key}
+                            onClick={() => !it.disabled && onPick(it.key)}
+                            disabled={it.disabled}
+                            title={it.disabled ? '暫無資料' : undefined}
+                            className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${active === it.key ? 'pill-grad' : it.disabled ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/[0.08]'}`}
+                            style={active === it.key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >{it.label}</button>
+                    ))}
+                </div>
+            );
+            const statCard = (label, value, color) => (
+                <div className="rounded-xl p-3" style={{ background: 'var(--bg-soft)', border: '1px solid var(--line)' }}>
+                    <p className="label">{label}</p>
+                    <p className="text-base md:text-lg font-extrabold num mt-0.5" style={{ color: color || 'var(--text)' }}>{value}</p>
+                </div>
+            );
+            const spinner = (
+                <div className="text-center py-12">
+                    <div className="inline-block w-7 h-7 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-1)' }}></div>
+                </div>
+            );
+            const gridColor = 'rgba(255,255,255,0.05)';
+
+            return (
+                <div className="space-y-4">
+                    {/* Header */}
+                    <div className="rounded-2xl ring-soft p-5" style={{ background: 'var(--surface)' }}>
+                        <p className="label">ON-CHAIN DATA</p>
+                        <h2 className="text-2xl font-extrabold text-white mt-1 tracking-tight">鏈上數據</h2>
+                        <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>MVRV 估值 · 美國現貨 ETF 資金流 · 穩定幣供給（資料源：CoinMetrics / SoSoValue / DefiLlama）</p>
+                    </div>
+
+                    {/* ── 1. MVRV / Realized Price ── */}
+                    <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <h3 className="font-bold text-white">MVRV & Realized Price</h3>
+                            <div className="flex gap-2 flex-wrap">
+                                {pills(ONCHAIN_MVRV_ASSETS.map(a => ({ key: a.id, label: a.label, disabled: a.unsupported })), mvrvAsset, setMvrvAsset)}
+                                {pills([{ key: '1y', label: '1Y' }, { key: '2y', label: '2Y' }, { key: '4y', label: '4Y' }, { key: 'all', label: 'ALL' }], mvrvRange, setMvrvRange)}
+                            </div>
+                        </div>
+                        <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                            Realized Price = 全網平均持倉成本；價格跌破橘線 = 鏈上持有者整體虧損，歷史上是週期底部區。MVRV &lt; 1 低估（綠區）、&gt; 2.4 過熱。SOL / HYPE 無公開 MVRV 資料。
+                        </p>
+                        {mvrvLoading ? spinner : mvrvError ? (
+                            <p className="text-sm py-6 text-center" style={{ color: 'var(--down)' }}>讀取失敗：{mvrvError}</p>
+                        ) : mvrvView.length === 0 ? (
+                            <p className="text-sm py-6 text-center" style={{ color: 'var(--text-3)' }}>此資產暫無 MVRV 資料</p>
+                        ) : (
+                            <>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    {statCard('現價', mvrvLast?.price != null ? fmtUsdCompact(mvrvLast.price) : '—')}
+                                    {statCard('Realized Price', mvrvLast?.rp != null ? fmtUsdCompact(mvrvLast.rp) : '—', '#f59e0b')}
+                                    {statCard('MVRV', mvrvLast ? mvrvLast.mvrv.toFixed(2) : '—')}
+                                    {statCard('估值狀態', mvrvCls ? mvrvCls.label : '—', mvrvCls ? (mvrvCls.tone === 'bull' ? 'var(--up)' : mvrvCls.tone === 'bear' ? 'var(--down)' : 'var(--text-2)') : undefined)}
+                                </div>
+                                <OnChainChart
+                                    height={280}
+                                    deps={[mvrvView]}
+                                    build={() => ({
+                                        type: 'line',
+                                        data: {
+                                            labels: mvrvView.map(d => d.date),
+                                            datasets: [
+                                                { label: '價格', data: mvrvView.map(d => d.price), borderColor: '#e2e8f0', borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+                                                { label: 'Realized Price', data: mvrvView.map(d => d.rp), borderColor: '#f59e0b', borderWidth: 2, pointRadius: 0, tension: 0.2 },
+                                            ],
+                                        },
+                                        options: {
+                                            responsive: true, maintainAspectRatio: false, animation: false,
+                                            interaction: { mode: 'index', intersect: false },
+                                            plugins: { legend: { display: true, labels: { boxWidth: 10, boxHeight: 2 } } },
+                                            scales: {
+                                                x: { ticks: { maxTicksLimit: 7, maxRotation: 0 }, grid: { color: gridColor } },
+                                                y: { type: 'logarithmic', grid: { color: gridColor }, ticks: { callback: (v) => fmtUsdCompact(v) } },
+                                            },
+                                        },
+                                    })}
+                                />
+                                <OnChainChart
+                                    height={160}
+                                    deps={[mvrvView]}
+                                    build={() => ({
+                                        type: 'line',
+                                        data: {
+                                            labels: mvrvView.map(d => d.date),
+                                            datasets: [{
+                                                label: 'MVRV',
+                                                data: mvrvView.map(d => d.mvrv),
+                                                borderColor: '#a78bfa', borderWidth: 1.5, pointRadius: 0, tension: 0.2,
+                                                fill: { target: { value: 1 }, above: 'rgba(0,0,0,0)', below: 'rgba(0,214,143,0.15)' },
+                                            }],
+                                        },
+                                        options: {
+                                            responsive: true, maintainAspectRatio: false, animation: false,
+                                            interaction: { mode: 'index', intersect: false },
+                                            plugins: { legend: { display: false }, title: { display: true, text: 'MVRV（<1 低估 · >2.4 過熱）', font: { size: 11 } } },
+                                            scales: {
+                                                x: { ticks: { maxTicksLimit: 7, maxRotation: 0 }, grid: { color: gridColor } },
+                                                y: { grid: { color: gridColor } },
+                                            },
+                                        },
+                                    })}
+                                />
+                            </>
+                        )}
+                    </div>
+
+                    {/* ── 2. ETF 淨流入 ── */}
+                    <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <h3 className="font-bold text-white">美國現貨 ETF 淨流入</h3>
+                            <div className="flex gap-2 flex-wrap">
+                                {pills(ETF_TYPES.map(t => ({ key: t.id, label: t.label })), etfType, setEtfType)}
+                                {pills([{ key: '1mo', label: '1M' }, { key: '3mo', label: '3M' }, { key: '1y', label: '1Y' }, { key: 'all', label: 'ALL' }], etfRange, setEtfRange)}
+                            </div>
+                        </div>
+                        {etfLoading ? spinner : etfError ? (
+                            <p className="text-sm py-6 text-center" style={{ color: 'var(--down)' }}>讀取失敗：{etfError}</p>
+                        ) : etfView.length === 0 ? (
+                            <p className="text-sm py-6 text-center" style={{ color: 'var(--text-3)' }}>此幣種的美國現貨 ETF 尚無資料（SoSoValue 開放後會自動顯示）</p>
+                        ) : (
+                            <>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    {statCard('最新單日淨流入', fmtUsdCompact(etfLast?.flow), etfLast && etfLast.flow >= 0 ? 'var(--up)' : 'var(--down)')}
+                                    {statCard('累計淨流入', fmtUsdCompact(etfLast?.cum))}
+                                    {statCard('ETF 總淨資產', fmtUsdCompact(etfLast?.assets))}
+                                    {statCard('資料日期', etfLast?.date || '—')}
+                                </div>
+                                <OnChainChart
+                                    height={280}
+                                    deps={[etfView]}
+                                    build={() => ({
+                                        data: {
+                                            labels: etfView.map(d => d.date),
+                                            datasets: [
+                                                {
+                                                    type: 'bar', label: '單日淨流入', data: etfView.map(d => d.flow),
+                                                    backgroundColor: etfView.map(d => d.flow >= 0 ? 'rgba(0,214,143,0.7)' : 'rgba(255,91,110,0.7)'),
+                                                    yAxisID: 'y',
+                                                },
+                                                {
+                                                    type: 'line', label: '累計淨流入', data: etfView.map(d => d.cum),
+                                                    borderColor: '#e2e8f0', borderWidth: 1.5, pointRadius: 0, tension: 0.2, yAxisID: 'y1',
+                                                },
+                                            ],
+                                        },
+                                        options: {
+                                            responsive: true, maintainAspectRatio: false, animation: false,
+                                            interaction: { mode: 'index', intersect: false },
+                                            plugins: { legend: { display: true, labels: { boxWidth: 10, boxHeight: 2 } } },
+                                            scales: {
+                                                x: { ticks: { maxTicksLimit: 7, maxRotation: 0 }, grid: { color: gridColor } },
+                                                y: { position: 'left', grid: { color: gridColor }, ticks: { callback: (v) => fmtUsdCompact(v) } },
+                                                y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { callback: (v) => fmtUsdCompact(v) } },
+                                            },
+                                        },
+                                    })}
+                                />
+                            </>
+                        )}
+                    </div>
+
+                    {/* ── 3. 穩定幣 ── */}
+                    <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <h3 className="font-bold text-white">穩定幣供給（購買力指標）</h3>
+                            <div className="flex gap-2 flex-wrap">
+                                {pills([{ key: 'all', label: '全部穩定幣' }, { key: 'usdt', label: 'USDT' }], stableView, setStableView)}
+                                {pills([{ key: '3mo', label: '3M' }, { key: '1y', label: '1Y' }, { key: 'all', label: 'ALL' }], stableRange, setStableRange)}
+                            </div>
+                        </div>
+                        <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                            穩定幣市值持續增加 = 場外資金進場待命（利多）；持續縮水 = 資金撤出。綠柱 / 紅柱為每日淨增發 / 淨贖回。
+                        </p>
+                        {stableLoading ? spinner : stableViewData.length === 0 ? (
+                            <p className="text-sm py-6 text-center" style={{ color: 'var(--text-3)' }}>讀取失敗，稍後再試</p>
+                        ) : (
+                            <>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    {statCard(stableView === 'usdt' ? 'USDT 市值' : '穩定幣總市值', fmtUsdCompact(stableStats?.mcap))}
+                                    {statCard('7 天淨流入', fmtUsdCompact(stableStats?.d7), stableStats && stableStats.d7 >= 0 ? 'var(--up)' : 'var(--down)')}
+                                    {statCard('30 天淨流入', fmtUsdCompact(stableStats?.d30), stableStats && stableStats.d30 >= 0 ? 'var(--up)' : 'var(--down)')}
+                                    {statCard('資料日期', stableSeries.length ? stableSeries[stableSeries.length - 1].date : '—')}
+                                </div>
+                                <OnChainChart
+                                    height={280}
+                                    deps={[stableViewData]}
+                                    build={() => ({
+                                        data: {
+                                            labels: stableViewData.map(d => d.date),
+                                            datasets: [
+                                                {
+                                                    type: 'bar', label: '淨流入', data: stableViewData.map(d => d.flow),
+                                                    backgroundColor: stableViewData.map(d => d.flow >= 0 ? 'rgba(0,214,143,0.7)' : 'rgba(255,91,110,0.7)'),
+                                                    yAxisID: 'y1',
+                                                },
+                                                {
+                                                    type: 'line', label: '市值', data: stableViewData.map(d => d.mcap),
+                                                    borderColor: '#e2e8f0', borderWidth: 1.5, pointRadius: 0, tension: 0.2, yAxisID: 'y',
+                                                },
+                                            ],
+                                        },
+                                        options: {
+                                            responsive: true, maintainAspectRatio: false, animation: false,
+                                            interaction: { mode: 'index', intersect: false },
+                                            plugins: { legend: { display: true, labels: { boxWidth: 10, boxHeight: 2 } } },
+                                            scales: {
+                                                x: { ticks: { maxTicksLimit: 7, maxRotation: 0 }, grid: { color: gridColor } },
+                                                y: { position: 'left', grid: { color: gridColor }, ticks: { callback: (v) => fmtUsdCompact(v) } },
+                                                y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { callback: (v) => fmtUsdCompact(v) } },
+                                            },
+                                        },
+                                    })}
+                                />
+                            </>
+                        )}
+                    </div>
                 </div>
             );
         };
@@ -6962,6 +7532,23 @@ import { createClient } from '@supabase/supabase-js';
                             </button>
 
                             <button
+                                onClick={() => setActiveTab('onchain')}
+                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
+                                    activeTab === 'onchain'
+                                        ? 'pill-grad text-white shadow-lg'
+                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
+                                }`}
+                                style={activeTab === 'onchain' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="8" y="14" width="8" height="8" rx="1"/>
+                                    <path d="M6 10v2a2 2 0 0 0 2 2"/><path d="M18 10v2a2 2 0 0 1-2 2"/>
+                                </svg>
+                                <span className="hidden md:inline">鏈上數據</span>
+                                <span className="md:hidden">鏈上</span>
+                            </button>
+
+                            <button
                                 onClick={() => setActiveTab('stock')}
                                 className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
                                     activeTab === 'stock'
@@ -7041,6 +7628,7 @@ import { createClient } from '@supabase/supabase-js';
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                         />
                                     )}
+                                    {activeTab === 'onchain' && <OnChainDashboard />}
                                     {activeTab === 'stock' && (
                                         <StockDashboard
                                             notificationsEnabled={notificationsEnabled}

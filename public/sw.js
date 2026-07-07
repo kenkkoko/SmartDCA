@@ -2,7 +2,7 @@
 // - Push notification support (JSON or plain text)
 // - Network-first fetch with offline fallback (required by Chrome to install PWA)
 
-const CACHE_NAME = "smartdca-v4";
+const CACHE_NAME = "smartdca-v5"; // v5: Vite bundle + cross-origin 不再攔截
 const SHELL_FILES = [
     "./",
     "./index.html",
@@ -33,28 +33,29 @@ self.addEventListener("activate", (event) => {
 
 // Network-first fetch handler (required for Chrome PWA install criteria)
 self.addEventListener("fetch", (event) => {
-    // Only handle GET requests on same origin
+    // Only handle same-origin GET requests. Cross-origin(CDN、行情/鏈上 API)
+    // 一律不攔截:舊版失敗時會回傳快取的 index.html,前端 JSON.parse 收到
+    // HTML 便噴 "Unexpected token '<'",還把真正的網路錯誤蓋掉。
     if (event.request.method !== "GET") return;
 
     const url = new URL(event.request.url);
-    // Skip API/Edge Function calls — always go to network
-    if (url.hostname.includes("supabase.co") ||
-        url.hostname.includes("googleapis.com") ||
-        url.hostname.includes("query1.finance.yahoo.com")) {
-        return;
-    }
+    if (url.origin !== self.location.origin) return;
 
     event.respondWith(
         fetch(event.request)
             .then((res) => {
-                // Only cache successful same-origin requests
-                if (res.ok && url.origin === self.location.origin) {
+                if (res.ok) {
                     const clone = res.clone();
                     caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone).catch(() => {}));
                 }
                 return res;
             })
-            .catch(() => caches.match(event.request).then((c) => c || caches.match("./index.html")))
+            .catch(() => caches.match(event.request).then((c) => {
+                if (c) return c;
+                // 只有「頁面導航」才 fallback 到 app shell
+                if (event.request.mode === "navigate") return caches.match("./index.html");
+                return Response.error();
+            }))
     );
 });
 
