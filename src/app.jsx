@@ -2662,28 +2662,28 @@ import { createClient } from '@supabase/supabase-js';
                         })}
                     </EditableCardGrid>
 
-                    {/* 子分頁:行情 / 鏈上數據 */}
-                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
-                        <button
-                            onClick={() => setCryptoView('market')}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${cryptoView === 'market' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                            style={cryptoView === 'market' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                        >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                            行情
-                        </button>
-                        <button
-                            onClick={() => setCryptoView('onchain')}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${cryptoView === 'onchain' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                            style={cryptoView === 'onchain' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                        >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="8" y="14" width="8" height="8" rx="1"/><path d="M6 10v2a2 2 0 0 0 2 2"/><path d="M18 10v2a2 2 0 0 1-2 2"/></svg>
-                            鏈上數據
-                        </button>
+                    {/* 子分頁:行情 / 鏈上估值 / 合約數據(單層,不再巢狀) */}
+                    <div className="flex gap-1 p-1 rounded-full glass overflow-x-auto no-scrollbar" style={{ width: 'fit-content', maxWidth: '100%' }}>
+                        {[
+                            { key: 'market', label: '行情' },
+                            { key: 'valuation', label: '鏈上估值' },
+                            { key: 'deriv', label: '合約數據' },
+                        ].map(v => (
+                            <button
+                                key={v.key}
+                                onClick={() => setCryptoView(v.key)}
+                                className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all shrink-0 ${cryptoView === v.key ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                style={cryptoView === v.key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                            >
+                                {v.label}
+                            </button>
+                        ))}
                     </div>
 
-                    {cryptoView === 'onchain' ? (
+                    {cryptoView === 'valuation' ? (
                         <OnChainDashboard defaultAsset={selectedCoin} />
+                    ) : cryptoView === 'deriv' ? (
+                        <DerivativesPanel defaultAsset={selectedCoin} />
                     ) : loading && !historicalData.length ? (
                         <div className="h-64 flex flex-col items-center justify-center text-slate-500 gap-4"><RefreshCw className="animate-spin" size={32} /><p>正在同步 CoinMarketCap 數據...</p></div>
                     ) : error ? (
@@ -4900,7 +4900,6 @@ import { createClient } from '@supabase/supabase-js';
         };
 
         const OnChainDashboard = ({ defaultAsset }) => {
-            const [ocView, setOcView] = useState('valuation'); // 'valuation' | 'deriv'
             // ── 1. MVRV / Realized Price ──
             // 預設跟隨加密分頁選中的幣;不支援 MVRV 的幣(SOL/HYPE)則退回 BTC
             const [mvrvAsset, setMvrvAsset] = useState(() => CM_ASSET_MAP[String(defaultAsset || '').toLowerCase()] || 'btc');
@@ -5076,21 +5075,6 @@ import { createClient } from '@supabase/supabase-js';
 
             return (
                 <div className="space-y-4">
-                    {/* 檢視切換:鏈上估值(MVRV/ETF/穩定幣) vs 合約數據(Binance 永續) */}
-                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
-                        <button
-                            onClick={() => setOcView('valuation')}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${ocView === 'valuation' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                            style={ocView === 'valuation' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                        >鏈上估值</button>
-                        <button
-                            onClick={() => setOcView('deriv')}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${ocView === 'deriv' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                            style={ocView === 'deriv' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                        >合約數據</button>
-                    </div>
-
-                    {ocView === 'deriv' ? <DerivativesPanel defaultAsset={defaultAsset} /> : (<>
                     {/* ── 1. MVRV / Realized Price ── */}
                     <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
                         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -5283,7 +5267,6 @@ import { createClient } from '@supabase/supabase-js';
                     </div>
 
                     <p className="text-[11px] px-1 pt-1" style={{ color: 'var(--text-3)' }}>MVRV 估值 · 美國現貨 ETF 資金流 · 穩定幣供給（資料源：CoinMetrics / SoSoValue / DefiLlama）</p>
-                    </>)}
                 </div>
             );
         };
