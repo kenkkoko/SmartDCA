@@ -2392,6 +2392,7 @@ import { createClient } from '@supabase/supabase-js';
             ];
             const cryptoCards = useEditableCards('crypto-dashboard-cards', cryptoDefaults);
             const [cryptoEditMode, setCryptoEditMode] = useState(false);
+            const [cryptoView, setCryptoView] = useState('market'); // 'market' | 'onchain'
 
             // Fetch current prices from Binance (no key, CORS-friendly, same source as history)
             const fetchCurrentPrices = async (slugs = ['bitcoin', 'ethereum']) => {
@@ -2661,7 +2662,29 @@ import { createClient } from '@supabase/supabase-js';
                         })}
                     </EditableCardGrid>
 
-                    {loading && !historicalData.length ? (
+                    {/* 子分頁:行情 / 鏈上數據 */}
+                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
+                        <button
+                            onClick={() => setCryptoView('market')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${cryptoView === 'market' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            style={cryptoView === 'market' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                            行情
+                        </button>
+                        <button
+                            onClick={() => setCryptoView('onchain')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${cryptoView === 'onchain' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                            style={cryptoView === 'onchain' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="8" y="14" width="8" height="8" rx="1"/><path d="M6 10v2a2 2 0 0 0 2 2"/><path d="M18 10v2a2 2 0 0 1-2 2"/></svg>
+                            鏈上數據
+                        </button>
+                    </div>
+
+                    {cryptoView === 'onchain' ? (
+                        <OnChainDashboard defaultAsset={selectedCoin} />
+                    ) : loading && !historicalData.length ? (
                         <div className="h-64 flex flex-col items-center justify-center text-slate-500 gap-4"><RefreshCw className="animate-spin" size={32} /><p>正在同步 CoinMarketCap 數據...</p></div>
                     ) : error ? (
                         <div className="bg-red-900/20 border border-red-500/50 text-red-200 p-6 rounded-xl flex items-center gap-4"><AlertTriangle size={24} /><div><h3 className="font-bold text-lg">載入失敗</h3><p className="text-sm opacity-90 my-2">{error}</p><button onClick={fetchData} className="px-4 py-2 bg-red-800 rounded">重試</button></div></div>
@@ -4534,17 +4557,12 @@ import { createClient } from '@supabase/supabase-js';
             { id: 'sol', label: 'SOL', unsupported: true },
             { id: 'hype', label: 'HYPE', unsupported: true },
         ];
-        // SoSoValue type 全列出:目前僅 BTC/ETH/SOL 有資料,其餘回空陣列;
-        // 之後 SoSoValue 開放新幣種時這裡不用改就會自動亮起來。
+        // 只列出實際有現貨 ETF 資料的幣種(SoSoValue 目前僅 BTC/ETH/SOL 有);
+        // 其餘(XRP/DOGE/BNB/LINK/HYPE)回空陣列,不列出以免版面溢出。
         const ETF_TYPES = [
             { id: 'us-btc-spot', label: 'BTC' },
             { id: 'us-eth-spot', label: 'ETH' },
             { id: 'us-sol-spot', label: 'SOL' },
-            { id: 'us-xrp-spot', label: 'XRP' },
-            { id: 'us-doge-spot', label: 'DOGE' },
-            { id: 'us-bnb-spot', label: 'BNB' },
-            { id: 'us-link-spot', label: 'LINK' },
-            { id: 'us-hype-spot', label: 'HYPE' },
         ];
         const fmtUsdCompact = (v) => {
             if (v == null || !isFinite(v)) return '—';
@@ -4557,8 +4575,9 @@ import { createClient } from '@supabase/supabase-js';
             return `${sign}$${abs.toFixed(2)}`;
         };
 
-        // 通用 Chart.js 容器:data 變了就重建(沿用全站深色主題預設)
-        const OnChainChart = ({ build, deps, height = 260 }) => {
+        // 低階 Chart.js 畫布:data 變了就重建(沿用全站深色主題預設)。
+        // withZoom = true 時掛上滾輪/雙指縮放 + 拖曳平移(僅放大檢視用)。
+        const ChartCanvas = ({ build, deps, withZoom, onChart }) => {
             const canvasRef = useRef(null);
             const chartRef = useRef(null);
             useEffect(() => {
@@ -4566,15 +4585,77 @@ import { createClient } from '@supabase/supabase-js';
                 if (chartRef.current) { try { chartRef.current.destroy(); } catch {} chartRef.current = null; }
                 const cfg = build();
                 if (!cfg) return;
-                chartRef.current = new Chart(canvasRef.current.getContext('2d'), cfg);
+                if (withZoom) {
+                    cfg.options = cfg.options || {};
+                    cfg.options.plugins = cfg.options.plugins || {};
+                    cfg.options.plugins.zoom = {
+                        pan: { enabled: true, mode: 'x' },
+                        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+                    };
+                }
+                const c = new Chart(canvasRef.current.getContext('2d'), cfg);
+                chartRef.current = c;
+                onChart && onChart(c);
                 return () => { if (chartRef.current) { try { chartRef.current.destroy(); } catch {} chartRef.current = null; } };
             }, deps); // eslint-disable-line
-            return <div style={{ height }} className="relative"><canvas ref={canvasRef}></canvas></div>;
+            return <canvas ref={canvasRef}></canvas>;
         };
 
-        const OnChainDashboard = () => {
+        // 通用鏈上圖:內嵌小圖 + 右上角「放大」→ 全螢幕可縮放檢視
+        const OnChainChart = ({ build, deps, height = 260, title }) => {
+            const [expanded, setExpanded] = useState(false);
+            const modalChartRef = useRef(null);
+            return (
+                <>
+                    <div className="relative">
+                        <div style={{ height }} className="relative"><ChartCanvas build={build} deps={deps} /></div>
+                        <button
+                            onClick={() => setExpanded(true)}
+                            className="absolute top-1 right-1 w-7 h-7 rounded-md flex items-center justify-center backdrop-blur hover:bg-white/[0.12]"
+                            style={{ background: 'rgba(18,20,28,0.8)', border: '1px solid var(--line)', color: 'var(--text-2)' }}
+                            title="放大檢視"
+                        >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>
+                            </svg>
+                        </button>
+                    </div>
+                    {expanded && (
+                        <div
+                            className="fixed inset-0 z-[130] flex flex-col p-3"
+                            style={{ background: 'var(--bg)', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' }}
+                        >
+                            <div className="flex items-center justify-between mb-2 px-1 gap-2">
+                                <span className="text-sm font-bold text-white truncate">{title || '圖表'}</span>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <span className="hidden sm:inline text-[10px]" style={{ color: 'var(--text-3)' }}>滾輪 / 雙指縮放 · 拖曳平移</span>
+                                    <button
+                                        onClick={() => { try { modalChartRef.current && modalChartRef.current.resetZoom(); } catch {} }}
+                                        className="h-7 px-2 rounded-md text-[11px] hover:bg-white/[0.08]"
+                                        style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }}
+                                    >⤾ 重置</button>
+                                    <button
+                                        onClick={() => setExpanded(false)}
+                                        className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-white/10"
+                                        style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }}
+                                    >✕</button>
+                                </div>
+                            </div>
+                            <div className="flex-1 min-h-0 relative">
+                                <div className="absolute inset-0">
+                                    <ChartCanvas build={build} deps={deps} withZoom onChart={(c) => { modalChartRef.current = c; }} />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </>
+            );
+        };
+
+        const OnChainDashboard = ({ defaultAsset }) => {
             // ── 1. MVRV / Realized Price ──
-            const [mvrvAsset, setMvrvAsset] = useState('btc');
+            // 預設跟隨加密分頁選中的幣;不支援 MVRV 的幣(SOL/HYPE)則退回 BTC
+            const [mvrvAsset, setMvrvAsset] = useState(() => CM_ASSET_MAP[String(defaultAsset || '').toLowerCase()] || 'btc');
             const [mvrvRange, setMvrvRange] = useState('4y'); // 1y | 2y | 4y | all
             const [mvrvData, setMvrvData] = useState([]);
             const [mvrvLoading, setMvrvLoading] = useState(true);
@@ -4671,15 +4752,22 @@ import { createClient } from '@supabase/supabase-js';
                 (async () => {
                     setStableLoading(true);
                     try {
-                        const parse = (json) => (json || [])
+                        // 全部穩定幣:/stablecoincharts/all(每筆 totalCirculatingUSD)
+                        const parseAll = (json) => (json || [])
                             .map(d => ({ date: new Date(Number(d.date) * 1000).toISOString().slice(0, 10), mcap: d.totalCirculatingUSD?.peggedUSD }))
+                            .filter(d => d.mcap != null && isFinite(d.mcap));
+                        // USDT:改用 /stablecoin/1(tokens[].circulating)。
+                        // /stablecoincharts/all?stablecoin=1 的 CDN 會回傳「重複的
+                        // Access-Control-Allow-Origin」標頭,瀏覽器判定無效而擋掉。
+                        const parseCoin = (json) => ((json && json.tokens) || [])
+                            .map(d => ({ date: new Date(Number(d.date) * 1000).toISOString().slice(0, 10), mcap: d.circulating?.peggedUSD }))
                             .filter(d => d.mcap != null && isFinite(d.mcap));
                         const [allRes, usdtRes] = await Promise.all([
                             fetch('https://stablecoins.llama.fi/stablecoincharts/all').then(r => r.json()),
-                            fetch('https://stablecoins.llama.fi/stablecoincharts/all?stablecoin=1').then(r => r.json()),
+                            fetch('https://stablecoins.llama.fi/stablecoin/1').then(r => r.json()),
                         ]);
                         if (cancelled) return;
-                        setStableData({ all: parse(allRes), usdt: parse(usdtRes) });
+                        setStableData({ all: parseAll(allRes), usdt: parseCoin(usdtRes) });
                     } catch (e) {
                         console.warn('DefiLlama fetch failed:', e);
                         if (!cancelled) setStableData({ all: [], usdt: [] });
@@ -4740,12 +4828,7 @@ import { createClient } from '@supabase/supabase-js';
 
             return (
                 <div className="space-y-4">
-                    {/* Header */}
-                    <div className="rounded-2xl ring-soft p-5" style={{ background: 'var(--surface)' }}>
-                        <p className="label">ON-CHAIN DATA</p>
-                        <h2 className="text-2xl font-extrabold text-white mt-1 tracking-tight">鏈上數據</h2>
-                        <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>MVRV 估值 · 美國現貨 ETF 資金流 · 穩定幣供給（資料源：CoinMetrics / SoSoValue / DefiLlama）</p>
-                    </div>
+                    <p className="text-xs px-1" style={{ color: 'var(--text-3)' }}>MVRV 估值 · 美國現貨 ETF 資金流 · 穩定幣供給（資料源：CoinMetrics / SoSoValue / DefiLlama）</p>
 
                     {/* ── 1. MVRV / Realized Price ── */}
                     <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
@@ -4773,6 +4856,7 @@ import { createClient } from '@supabase/supabase-js';
                                 </div>
                                 <OnChainChart
                                     height={280}
+                                    title={`${mvrvAsset.toUpperCase()} · 價格 vs Realized Price`}
                                     deps={[mvrvView]}
                                     build={() => ({
                                         type: 'line',
@@ -4796,6 +4880,7 @@ import { createClient } from '@supabase/supabase-js';
                                 />
                                 <OnChainChart
                                     height={160}
+                                    title={`${mvrvAsset.toUpperCase()} · MVRV`}
                                     deps={[mvrvView]}
                                     build={() => ({
                                         type: 'line',
@@ -4846,6 +4931,7 @@ import { createClient } from '@supabase/supabase-js';
                                 </div>
                                 <OnChainChart
                                     height={280}
+                                    title={`${(ETF_TYPES.find(t => t.id === etfType) || {}).label || ''} 現貨 ETF 淨流入`}
                                     deps={[etfView]}
                                     build={() => ({
                                         data: {
@@ -4902,6 +4988,7 @@ import { createClient } from '@supabase/supabase-js';
                                 </div>
                                 <OnChainChart
                                     height={280}
+                                    title={stableView === 'usdt' ? 'USDT 市值與淨流入' : '穩定幣總市值與淨流入'}
                                     deps={[stableViewData]}
                                     build={() => ({
                                         data: {
@@ -7532,23 +7619,6 @@ import { createClient } from '@supabase/supabase-js';
                             </button>
 
                             <button
-                                onClick={() => setActiveTab('onchain')}
-                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
-                                    activeTab === 'onchain'
-                                        ? 'pill-grad text-white shadow-lg'
-                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
-                                }`}
-                                style={activeTab === 'onchain' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
-                            >
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="8" y="14" width="8" height="8" rx="1"/>
-                                    <path d="M6 10v2a2 2 0 0 0 2 2"/><path d="M18 10v2a2 2 0 0 1-2 2"/>
-                                </svg>
-                                <span className="hidden md:inline">鏈上數據</span>
-                                <span className="md:hidden">鏈上</span>
-                            </button>
-
-                            <button
                                 onClick={() => setActiveTab('stock')}
                                 className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
                                     activeTab === 'stock'
@@ -7628,7 +7698,6 @@ import { createClient } from '@supabase/supabase-js';
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                         />
                                     )}
-                                    {activeTab === 'onchain' && <OnChainDashboard />}
                                     {activeTab === 'stock' && (
                                         <StockDashboard
                                             notificationsEnabled={notificationsEnabled}
