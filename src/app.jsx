@@ -2429,9 +2429,9 @@ import { createClient } from '@supabase/supabase-js';
                 fetchCurrentPrices(slugs);
 
                 try {
-                    // 1. Fetch FNG (Alternative.me)
-                    const fngResponse = await fetch('https://api.alternative.me/fng/?limit=365');
-                    const fngJson = await fngResponse.json();
+                    // 1. Fetch FNG (CoinMarketCap 優先,失敗退回 alternative.me)
+                    const fngList = await fetchCryptoFNG(365);
+                    const fngJson = { data: fngList };
 
                     // 2. Process FNG (must happen before history merge)
                     const fngMap = new Map();
@@ -2749,7 +2749,7 @@ import { createClient } from '@supabase/supabase-js';
                                 {!newsLoading && !newsError && newsData.length > 0 && <><NewsAIAnalysis newsItems={newsData} isLocked={!userInfo.isPremium} /><NewsSummary news={newsData} /></>}
                                 <NewsSection news={newsData} loading={newsLoading} error={newsError} />
                             </div>
-                            <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 mt-6"><h3 className="font-bold text-slate-200 mb-3 flex items-center gap-2"><Info size={18} />關於數據來源</h3><div className="text-sm text-slate-400 space-y-2"><p><strong>價格數據:</strong> CoinMarketCap (即時), CoinGecko (歷史)</p><p><strong>情緒指標:</strong> Alternative.me Crypto Fear & Greed Index</p></div></div>
+                            <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 mt-6"><h3 className="font-bold text-slate-200 mb-3 flex items-center gap-2"><Info size={18} />關於數據來源</h3><div className="text-sm text-slate-400 space-y-2"><p><strong>價格數據:</strong> CoinMarketCap (即時), Binance (歷史)</p><p><strong>情緒指標:</strong> CoinMarketCap Crypto Fear &amp; Greed Index (無法取得時退回 Alternative.me)</p></div></div>
                         </>
                     )}
                     {showAdvanced && (
@@ -3358,6 +3358,39 @@ import { createClient } from '@supabase/supabase-js';
             return { tone: 'bear', label: '過熱' };
         };
 
+        // ─── 加密貨幣恐懼與貪婪指數 ───
+        // 主來源改用 CoinMarketCap(方法學與 SoSoValue 相近,較不會長期卡在「極度恐懼」;
+        // 且全站價格已用 CMC,來源一致)。CMC 這支端點無 CORS,經 cors 代理取用
+        // (代理僅允許正式站 origin,本機預覽會失敗)→ 失敗時退回 alternative.me。
+        // 回傳與 alternative.me 相同格式:最新在前的 [{value, value_classification, timestamp(秒)}]。
+        const FNG_NAME_NORM = {
+            'extreme fear': 'Extreme Fear', 'fear': 'Fear', 'neutral': 'Neutral',
+            'greed': 'Greed', 'extreme greed': 'Extreme Greed',
+        };
+        async function fetchCryptoFNG(days = 365) {
+            try {
+                const now = Math.floor(Date.now() / 1000);
+                const start = now - (days + 5) * 86400;
+                const cmcUrl = `https://api.coinmarketcap.com/data-api/v3/fear-greed/chart?start=${start}&end=${now}`;
+                const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(cmcUrl));
+                if (res.ok) {
+                    const json = await res.json();
+                    const list = json && json.data && json.data.dataList;
+                    if (Array.isArray(list) && list.length) {
+                        // dataList 為最舊在前 → 反轉成最新在前(與 alternative.me 一致)
+                        return list.map(d => ({
+                            value: String(d.score),
+                            value_classification: FNG_NAME_NORM[String(d.name).toLowerCase()] || d.name,
+                            timestamp: String(d.timestamp),
+                        })).reverse();
+                    }
+                }
+            } catch (e) { /* fall through to alternative.me */ }
+            const res = await fetch(`https://api.alternative.me/fng/?limit=${days}`);
+            const json = await res.json();
+            return json.data || [];
+        }
+
         // FNG → bull/bear/neutral classification (mirrors the dashboard's DCA suggestion)
         const fngClassify = (v) => {
             if (v == null || isNaN(v)) return null;
@@ -3492,10 +3525,9 @@ import { createClient } from '@supabase/supabase-js';
                         const days = r === '1mo' ? 30 : r === '3mo' ? 90 : r === '6mo' ? 180 :
                                      r === '1y' ? 365 : r === '2y' ? 730 : r === 'max' ? 1825 : 365;
                         if (type === 'CRYPTO' || type === 'crypto') {
-                            const res = await fetch(`https://api.alternative.me/fng/?limit=${days}&format=json`);
-                            const json = await res.json();
+                            const data = await fetchCryptoFNG(days);
                             if (cancelled) return;
-                            const arr = (json.data || []).map(d => ({
+                            const arr = data.map(d => ({
                                 date: new Date(Number(d.timestamp) * 1000).toISOString().slice(0, 10),
                                 fng: parseInt(d.value, 10),
                             })).reverse();
@@ -4828,8 +4860,6 @@ import { createClient } from '@supabase/supabase-js';
 
             return (
                 <div className="space-y-4">
-                    <p className="text-xs px-1" style={{ color: 'var(--text-3)' }}>MVRV 估值 · 美國現貨 ETF 資金流 · 穩定幣供給（資料源：CoinMetrics / SoSoValue / DefiLlama）</p>
-
                     {/* ── 1. MVRV / Realized Price ── */}
                     <div className="rounded-2xl ring-soft p-4 md:p-5 space-y-3" style={{ background: 'var(--surface)' }}>
                         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -5020,6 +5050,8 @@ import { createClient } from '@supabase/supabase-js';
                             </>
                         )}
                     </div>
+
+                    <p className="text-[11px] px-1 pt-1" style={{ color: 'var(--text-3)' }}>MVRV 估值 · 美國現貨 ETF 資金流 · 穩定幣供給（資料源：CoinMetrics / SoSoValue / DefiLlama）</p>
                 </div>
             );
         };
