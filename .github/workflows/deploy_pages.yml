@@ -23,27 +23,35 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Inject Supabase Config
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build (Vite)
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: npm run build
+      - name: Verify config injection
         run: |
-          sed -i 's|__SUPABASE_URL_PLACEHOLDER__|${{ secrets.SUPABASE_URL }}|g' index.html
-          sed -i 's|__SUPABASE_ANON_KEY_PLACEHOLDER__|${{ secrets.SUPABASE_ANON_KEY }}|g' index.html
-      - name: Verify Injection
-        run: |
-          if grep -q "__SUPABASE_URL_PLACEHOLDER__" index.html; then
-            echo "::error::SUPABASE_URL placeholder not replaced! Add SUPABASE_URL to repo secrets."
+          if grep -rq "__SUPABASE_URL_PLACEHOLDER__" dist/assets/; then
+            echo "::error::SUPABASE_URL was not injected! Check the SUPABASE_URL repo secret."
             exit 1
           fi
-          if grep -q "__SUPABASE_ANON_KEY_PLACEHOLDER__" index.html; then
-            echo "::error::SUPABASE_ANON_KEY placeholder not replaced! Add SUPABASE_ANON_KEY to repo secrets."
+          if grep -rq "__SUPABASE_ANON_KEY_PLACEHOLDER__" dist/assets/; then
+            echo "::error::SUPABASE_ANON_KEY was not injected! Check the SUPABASE_ANON_KEY repo secret."
             exit 1
           fi
           echo "Supabase config injection verified."
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: 'dist'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

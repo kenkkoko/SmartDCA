@@ -19,7 +19,7 @@
 
 | 層 | 技術 |
 |---|---|
-| 前端 | React 18（UMD）+ Tailwind CSS，單頁應用，部署於 GitHub Pages |
+| 前端 | React 18 + Vite + Tailwind CSS，單頁應用，部署於 GitHub Pages |
 | 圖表 | Chart.js 4（走勢 / 縮放）+ TradingView Lightweight Charts 5（K 線 + 繪圖工具） |
 | 後端 | Supabase（Auth / Postgres + RLS / Storage / Edge Functions） |
 | Edge Functions | `gemini-proxy`（AI 分析，伺服器端驗證 Premium）、`price-proxy`、`cmc-proxy` |
@@ -27,7 +27,7 @@
 
 ## 🔐 金鑰管理
 
-- Supabase URL / anon key 由 GitHub Actions 於部署時注入（`__SUPABASE_URL_PLACEHOLDER__`）
+- Supabase URL / anon key 由 GitHub Actions 建置時以 Vite 環境變數注入（`VITE_SUPABASE_URL`）
 - Gemini API Key 只存在 Edge Function 環境變數，前端拿不到；使用者也可自帶金鑰（BYOK）
 - Premium 權限於伺服器端（service role + `user_profiles`）驗證，不信任前端旗標
 
@@ -36,10 +36,11 @@
 ```bash
 git clone https://github.com/kenkkoko/SmartDCA.git
 cd SmartDCA
+npm install
 # 建立 local-config.js（已被 .gitignore 忽略）：
 #   window.__LOCAL_CONFIG__ = { SUPABASE_URL: '...', SUPABASE_ANON_KEY: '...' };
-python -m http.server 8000
-# 開啟 http://localhost:8000
+npm run dev      # 開發模式(HMR),開啟 http://localhost:5173
+npm run build    # 產出 dist/
 ```
 
 ## 📄 License
