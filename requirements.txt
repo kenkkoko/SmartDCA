@@ -5,3 +5,4 @@ yfinance
 google-generativeai
 supabase
 pywebpush
+tzdata

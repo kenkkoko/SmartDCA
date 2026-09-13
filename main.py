@@ -18,6 +18,14 @@ import json
 import uuid
 import datetime
 
+from macro import (
+    fetch_macro_snapshot,
+    format_calendar_section,
+    format_macro_section,
+    get_macro_context,
+    save_macro_snapshot,
+)
+
 # --- Configuration ---
 # ⚠️ Critical: Read tokens from environment variables for security
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
@@ -160,7 +168,7 @@ def get_status_text(value, is_rsi=False):
         return "RSI偏低" if is_rsi else "恐懼"
     return "安全/貪婪"
 
-def generate_ai_advice(market_status_list):
+def generate_ai_advice(market_status_list, macro_context=""):
     """Generates DCA advice using Gemini AI"""
     if not GEMINI_API_KEY:
         return "⚠️ AI 建議無法產生 (未設定 API Key)"
@@ -172,12 +180,15 @@ def generate_ai_advice(market_status_list):
         prompt = f"""
         你是一位極度穩健的 DCA (平均成本法) 投資顧問。你的核心策略是嚴格遵守「在市場情緒極度恐懼時才強力買入」的紀律。
 
-        請根據以下觸發的市場數據，提供一個**簡潔、明確**的操作建議 (50字以內)。
+        請根據以下觸發的市場數據，提供一個**簡潔、明確**的操作建議 (80字以內)。
 
         核心任務：
         1. 分析當前的 FNG/RSI 數值所代表的市場情緒強度。
         2. 根據情緒強度，結合資產名稱和當前價格，**相較於最近一年的價格波動 (參考最高/最低價)**，判斷現在的價格是否具有吸引力？(注意：小幣種價格可能包含多位小數)。
         3. 根據以下行動邏輯，生成一段富有洞察力和鼓勵性的建議。
+        4. 參考總經背景修正建議的力道：殖利率快速上升、CPI 連續升溫時語氣應更保守；
+           24 小時內有高影響事件 (CPI、非農、FOMC) 時，提醒把單筆投入拆到事件公布後。
+           情緒指數仍是主要依據，總經只調整力道與時機，不要推翻行動邏輯。
 
         行動邏輯：
         - 極度恐懼 (<= 25): 立即建議「強力分批買入」或「執行最大額度投入」。
@@ -187,6 +198,9 @@ def generate_ai_advice(market_status_list):
 
         當前觸發的市場狀態:
         {chr(10).join(market_status_list)}
+
+        總經背景與經濟日曆:
+        {macro_context or "（今日無總經資料）"}
 
         根據以上資訊，你的行動建議是？
         """
@@ -400,6 +414,19 @@ def main():
     print(f"US Stock: {us_stock_fng}")
     print(f"TW Stock (RSI): {tw_stock_rsi}")
 
+    # --- Macro data (Alpha Vantage) + Economic calendar ---
+    print("Fetching macro data...")
+    macro_snapshot = fetch_macro_snapshot(ALPHA_VANTAGE_KEY)
+    print(f"Macro: {macro_snapshot}")
+    macro_text = format_macro_section(macro_snapshot)
+    calendar_text = format_calendar_section(macro_snapshot)
+    macro_context = get_macro_context(macro_snapshot)
+    if SUPABASE_URL and SUPABASE_KEY:
+        try:
+            save_macro_snapshot(create_client(SUPABASE_URL, SUPABASE_KEY), macro_snapshot)
+        except Exception as e:
+            print(f"Error creating Supabase client for macro_snapshot: {e}")
+
     # Collect status for ALL markets
     market_status_list = []
     has_buy_signal = False
@@ -467,7 +494,11 @@ def main():
     # Construct Message
     message_text = f"{header}\n\n"
     message_text += "\n\n".join(market_status_list)
-    
+    if macro_text:
+        message_text += f"\n\n{macro_text}"
+    if calendar_text:
+        message_text += f"\n\n{calendar_text}"
+
     # Generate News Summary
     print("Fetching and summarizing news...")
     # Fetch both Crypto and Finance/Stock news
@@ -479,7 +510,7 @@ def main():
 
     # Generate AI Advice (Always generate)
     print("Generating AI advice...")
-    ai_advice = generate_ai_advice(market_status_list)
+    ai_advice = generate_ai_advice(market_status_list, macro_context)
     message_text += f"\n\n🤖 AI 投資顧問建議:\n{ai_advice}"
     
     if has_buy_signal:

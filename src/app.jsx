@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
+import economicCalendar from '../economic_calendar.json';
 
         const { useState, useEffect, useMemo, useRef } = React;
 
@@ -281,10 +282,23 @@ import { createClient } from '@supabase/supabase-js';
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                 </IconBase>
+            ),
+            CalendarDays: (props) => (
+                <IconBase {...props}>
+                    <rect width="18" height="18" x="3" y="4" rx="2" />
+                    <path d="M16 2v4" />
+                    <path d="M8 2v4" />
+                    <path d="M3 10h18" />
+                    <path d="M8 14h.01" />
+                    <path d="M12 14h.01" />
+                    <path d="M16 14h.01" />
+                    <path d="M8 18h.01" />
+                    <path d="M12 18h.01" />
+                </IconBase>
             )
         };
 
-        const { Bell, TrendingUp, AlertTriangle, Info, RefreshCw, Smartphone, ArrowUp, ArrowDown, Newspaper, Sparkles, ExternalLink, Bot, Globe, Activity, BellRing, BellOff, LogOut, User, Lock } = Icons;
+        const { Bell, TrendingUp, AlertTriangle, Info, RefreshCw, Smartphone, ArrowUp, ArrowDown, Newspaper, Sparkles, ExternalLink, Bot, Globe, Activity, BellRing, BellOff, LogOut, User, Lock, CalendarDays } = Icons;
 
         // --- Auth Component ---
         const AuthComponent = ({ user, setUser, isPremium, onOpenSettings, userProfile }) => {
@@ -600,7 +614,8 @@ import { createClient } from '@supabase/supabase-js';
         };
 
         // --- Gemini API Helper (via Supabase Edge Function) ---
-        const fetchGeminiAdvice = async (prompt) => {
+        // opts.macro: 讓 gemini-proxy 在伺服器端附上最新總經數據與經濟日曆
+        const fetchGeminiAdvice = async (prompt, opts = {}) => {
             if (!supabase || SUPABASE_URL.includes('PLACEHOLDER')) {
                 return 'WARNING: AI not available (Supabase not configured)';
             }
@@ -612,7 +627,7 @@ import { createClient } from '@supabase/supabase-js';
                 const res = await fetch(SUPABASE_URL + '/functions/v1/gemini-proxy', {
                     method: 'POST',
                     headers: hdrs,
-                    body: JSON.stringify({ prompt, apiKey: userKey })
+                    body: JSON.stringify({ prompt, apiKey: userKey, macro: !!opts.macro })
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Proxy error');
@@ -658,7 +673,7 @@ import { createClient } from '@supabase/supabase-js';
 
                 建議風格: 理性、穩健、鼓勵分批進場。請用繁體中文回答。
                 `;
-                fetchGeminiAdvice(prompt).then(text => {
+                fetchGeminiAdvice(prompt, { macro: true }).then(text => {
                     setAdvice(text);
                     setLoading(false);
                 });
@@ -759,6 +774,138 @@ import { createClient } from '@supabase/supabase-js';
                         <p className="text-sm leading-relaxed" style={{ color: 'var(--text-2)' }}>
                             {advice}
                         </p>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- 經濟日曆 (讀 repo 根目錄 economic_calendar.json,由 py/gen_calendar.py 產生) ---
+        // JSON 只存美東時間;這裡依美國日光節約時間換算成台灣時間
+        const NY_PARTS = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York', hourCycle: 'h23',
+            year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+        });
+        const etToDate = (dateStr, timeStr) => {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const [hh, mm] = timeStr.split(':').map(Number);
+            const guess = Date.UTC(y, m - 1, d, hh, mm);
+            const p = Object.fromEntries(NY_PARTS.formatToParts(new Date(guess)).map(x => [x.type, x.value]));
+            const nyAsUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+            return new Date(guess - (nyAsUtc - guess));
+        };
+        const TW_DAY = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', month: 'numeric', day: 'numeric', weekday: 'short' });
+        const TW_TIME = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+        const TW_KEY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' });
+        const CALENDAR_EVENTS = (economicCalendar.events || [])
+            .map(e => ({ ...e, at: etToDate(e.date, e.time_et) }))
+            .sort((a, b) => a.at - b.at);
+        const IMPACT_STYLE = {
+            high: { color: '#ff5b6e', label: '高' },
+            medium: { color: '#f59e0b', label: '中' },
+            low: { color: '#6b7080', label: '低' },
+        };
+        const hasHighImpactSoon = (now = Date.now()) =>
+            CALENDAR_EVENTS.some(e => e.impact === 'high' && e.at > now && e.at - now < 24 * 3600 * 1000);
+
+        const relativeLabel = (at, now) => {
+            const hours = (at - now) / 3600000;
+            if (hours < 1) return '即將公布';
+            if (hours < 24) return `${Math.round(hours)} 小時後`;
+            return `${Math.round(hours / 24)} 天後`;
+        };
+
+        const EconomicCalendarModal = ({ onClose }) => {
+            const [onlyHigh, setOnlyHigh] = useState(false);
+            const [days, setDays] = useState(30);
+            const now = Date.now();
+            const upcoming = CALENDAR_EVENTS.filter(e =>
+                e.at > now - 2 * 3600 * 1000 &&
+                e.at - now < days * 86400 * 1000 &&
+                (!onlyHigh || e.impact === 'high')
+            );
+            const hasMore = CALENDAR_EVENTS.some(e => e.at - now >= days * 86400 * 1000);
+            const groups = [];
+            upcoming.forEach(e => {
+                const key = TW_KEY.format(e.at);
+                if (!groups.length || groups[groups.length - 1].key !== key) groups.push({ key, items: [] });
+                groups[groups.length - 1].items.push(e);
+            });
+            const todayKey = TW_KEY.format(now);
+
+            return (
+                <div className="fixed inset-0 flex items-center justify-center z-[110] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }} onClick={onClose}>
+                    <div className="glass-strong rounded-3xl shadow-2xl max-w-lg w-full relative max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 border-b" style={{ borderColor: 'var(--line)' }}>
+                            <button
+                                onClick={onClose}
+                                className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                                style={{ color: 'var(--text-3)' }}
+                            >
+                                ✕
+                            </button>
+                            <p className="label">ECONOMIC CALENDAR</p>
+                            <h3 className="text-base font-extrabold text-white mt-1">美國經濟日曆</h3>
+                            <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>台灣時間 · 已自動換算美國日光節約時間</p>
+                            <div className="flex gap-2 mt-3">
+                                {[[false, '全部'], [true, '僅高影響']].map(([val, label]) => (
+                                    <button
+                                        key={label}
+                                        onClick={() => setOnlyHigh(val)}
+                                        className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${onlyHigh === val ? 'pill-grad text-white' : 'bg-white/5 hover:bg-white/10'}`}
+                                        style={onlyHigh === val ? {} : { color: 'var(--text-2)' }}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
+                            {groups.length === 0 && (
+                                <p className="text-sm text-center py-8" style={{ color: 'var(--text-3)' }}>這段期間沒有符合條件的事件</p>
+                            )}
+                            {groups.map(g => (
+                                <div key={g.key}>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className="text-xs font-bold" style={{ color: g.key === todayKey ? '#a78bfa' : 'var(--text-2)' }}>
+                                            {TW_DAY.format(g.items[0].at)}{g.key === todayKey ? ' · 今天' : ''}
+                                        </span>
+                                        <div className="h-px flex-1" style={{ background: 'var(--line)' }}></div>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        {g.items.map(e => {
+                                            const s = IMPACT_STYLE[e.impact] || IMPACT_STYLE.low;
+                                            const past = e.at <= now;
+                                            return (
+                                                <div key={e.date + e.type + e.title} className={`flex items-center gap-3 p-2.5 rounded-xl ${past ? 'opacity-50' : ''}`} style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }}></span>
+                                                    <span className="text-sm font-bold num w-12 shrink-0 text-white">{TW_TIME.format(e.at)}</span>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="text-sm text-white leading-snug">
+                                                            {e.title}
+                                                            {!e.confirmed && <span className="ml-1.5 text-[10px]" style={{ color: 'var(--text-3)' }}>暫定</span>}
+                                                        </div>
+                                                        {e.note && <div className="text-[11px]" style={{ color: 'var(--text-3)' }}>{e.note}</div>}
+                                                    </div>
+                                                    <span className="text-[11px] mono shrink-0" style={{ color: past ? 'var(--text-3)' : s.color }}>
+                                                        {past ? '已公布' : relativeLabel(e.at, now)}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ))}
+                            {hasMore && (
+                                <button onClick={() => setDays(d => d + 60)} className="w-full py-2 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 transition-colors" style={{ color: 'var(--text-2)' }}>
+                                    顯示更多
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="p-3 text-center border-t" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,0.02)' }}>
+                            <p className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>SOURCE · FED / BLS / BEA / CENSUS · 暫定=依規則推估</p>
+                        </div>
                     </div>
                 </div>
             );
@@ -7732,6 +7879,7 @@ import { createClient } from '@supabase/supabase-js';
 
             // Notification Center State
             const [showNotificationDropdown, setShowNotificationDropdown] = React.useState(false);
+            const [showCalendar, setShowCalendar] = React.useState(false);
             const [notificationHistory, setNotificationHistory] = React.useState([]);
             const [unreadCount, setUnreadCount] = React.useState(0);
 
@@ -7824,6 +7972,18 @@ import { createClient } from '@supabase/supabase-js';
                                         <Smartphone size={16} style={{ color: 'var(--brand-1)' }} />
                                     </button>
                                 )}
+
+                                {/* Economic Calendar */}
+                                <button
+                                    onClick={() => setShowCalendar(true)}
+                                    className="relative w-10 h-10 rounded-full flex items-center justify-center glass hover:bg-white/[0.08] transition-colors"
+                                    title="經濟日曆"
+                                >
+                                    <CalendarDays size={18} className="text-slate-300" />
+                                    {hasHighImpactSoon() && (
+                                        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse" style={{ background: '#f59e0b', boxShadow: '0 0 0 2px #07080c' }}></span>
+                                    )}
+                                </button>
 
                                 {/* Notification Center */}
                                 <div className="relative z-[100]">
@@ -8027,6 +8187,8 @@ import { createClient } from '@supabase/supabase-js';
                                 onClose={() => setShowInstallHelp(false)}
                             />
                         )}
+
+                        {showCalendar && <EconomicCalendarModal onClose={() => setShowCalendar(false)} />}
 
                         {/* Settings Modal */}
                         {showSettings && user && (

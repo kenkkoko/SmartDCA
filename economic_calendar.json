@@ -1,0 +1,753 @@
+{
+  "meta": {
+    "generated_at": "2026-09-14",
+    "timezone": "America/New_York",
+    "range": [
+      "2026-09-01",
+      "2027-12-31"
+    ],
+    "next_review": "2026-12-15",
+    "note": "time_et 為美東時間;confirmed=false 為依規則推估,官方時程公布後請更新 py/gen_calendar.py 並重跑"
+  },
+  "events": [
+    {
+      "date": "2026-09-04",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 8 月非農就業",
+      "impact": "high",
+      "confirmed": true
+    },
+    {
+      "date": "2026-09-11",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 8 月 CPI",
+      "impact": "high",
+      "confirmed": true
+    },
+    {
+      "date": "2026-09-16",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 8 月零售銷售",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2026-09-16",
+      "time_et": "14:00",
+      "type": "FOMC",
+      "title": "FOMC 利率決議(含經濟預測 SEP)",
+      "impact": "high",
+      "confirmed": true,
+      "note": "決議公布 30 分鐘後主席記者會"
+    },
+    {
+      "date": "2026-09-30",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q2 GDP 終值",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2026-09-30",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 8 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2026-10-02",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 9 月非農就業",
+      "impact": "high",
+      "confirmed": true
+    },
+    {
+      "date": "2026-10-14",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 9 月 CPI",
+      "impact": "high",
+      "confirmed": true
+    },
+    {
+      "date": "2026-10-15",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 9 月零售銷售",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2026-10-28",
+      "time_et": "14:00",
+      "type": "FOMC",
+      "title": "FOMC 利率決議",
+      "impact": "high",
+      "confirmed": true,
+      "note": "決議公布 30 分鐘後主席記者會"
+    },
+    {
+      "date": "2026-10-29",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q3 GDP 初值",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2026-10-29",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 9 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2026-11-06",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 10 月非農就業",
+      "impact": "high",
+      "confirmed": true
+    },
+    {
+      "date": "2026-11-10",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 10 月 CPI",
+      "impact": "high",
+      "confirmed": true
+    },
+    {
+      "date": "2026-11-17",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 10 月零售銷售",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2026-11-25",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q3 GDP 修正值",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2026-11-25",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 10 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2026-12-04",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 11 月非農就業",
+      "impact": "high",
+      "confirmed": true
+    },
+    {
+      "date": "2026-12-09",
+      "time_et": "14:00",
+      "type": "FOMC",
+      "title": "FOMC 利率決議(含經濟預測 SEP)",
+      "impact": "high",
+      "confirmed": true,
+      "note": "決議公布 30 分鐘後主席記者會"
+    },
+    {
+      "date": "2026-12-10",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 11 月 CPI",
+      "impact": "high",
+      "confirmed": true
+    },
+    {
+      "date": "2026-12-16",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 11 月零售銷售",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2026-12-23",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q3 GDP 終值",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2026-12-23",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 11 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": true
+    },
+    {
+      "date": "2027-01-08",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 12 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-01-13",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 12 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-01-15",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 12 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-01-27",
+      "time_et": "14:00",
+      "type": "FOMC",
+      "title": "FOMC 利率決議",
+      "impact": "high",
+      "confirmed": true,
+      "note": "決議公布 30 分鐘後主席記者會"
+    },
+    {
+      "date": "2027-01-28",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q4 GDP 初值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-01-28",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 12 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-02-05",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 1 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-02-10",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 1 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-02-16",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 1 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-02-25",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q4 GDP 修正值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-02-25",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 1 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-03-05",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 2 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-03-10",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 2 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-03-15",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 2 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-03-17",
+      "time_et": "14:00",
+      "type": "FOMC",
+      "title": "FOMC 利率決議(含經濟預測 SEP)",
+      "impact": "high",
+      "confirmed": true,
+      "note": "決議公布 30 分鐘後主席記者會"
+    },
+    {
+      "date": "2027-03-25",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q4 GDP 終值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-03-25",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 2 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-04-02",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 3 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-04-12",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 3 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-04-15",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 3 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-04-28",
+      "time_et": "14:00",
+      "type": "FOMC",
+      "title": "FOMC 利率決議",
+      "impact": "high",
+      "confirmed": true,
+      "note": "決議公布 30 分鐘後主席記者會"
+    },
+    {
+      "date": "2027-04-29",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q1 GDP 初值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-04-29",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 3 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-05-07",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 4 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-05-12",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 4 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-05-17",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 4 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-05-27",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q1 GDP 修正值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-05-27",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 4 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-06-04",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 5 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-06-09",
+      "time_et": "14:00",
+      "type": "FOMC",
+      "title": "FOMC 利率決議(含經濟預測 SEP)",
+      "impact": "high",
+      "confirmed": true,
+      "note": "決議公布 30 分鐘後主席記者會"
+    },
+    {
+      "date": "2027-06-10",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 5 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-06-15",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 5 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-06-24",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q1 GDP 終值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-06-24",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 5 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-07-02",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 6 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-07-12",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 6 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-07-15",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 6 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-07-28",
+      "time_et": "14:00",
+      "type": "FOMC",
+      "title": "FOMC 利率決議",
+      "impact": "high",
+      "confirmed": true,
+      "note": "決議公布 30 分鐘後主席記者會"
+    },
+    {
+      "date": "2027-07-29",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q2 GDP 初值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-07-29",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 6 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-08-06",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 7 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-08-11",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 7 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-08-16",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 7 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-08-26",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q2 GDP 修正值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-08-26",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 7 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-09-03",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 8 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-09-10",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 8 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-09-15",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 8 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-09-15",
+      "time_et": "14:00",
+      "type": "FOMC",
+      "title": "FOMC 利率決議(含經濟預測 SEP)",
+      "impact": "high",
+      "confirmed": true,
+      "note": "決議公布 30 分鐘後主席記者會"
+    },
+    {
+      "date": "2027-09-30",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q2 GDP 終值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-09-30",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 8 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-10-08",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 9 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-10-13",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 9 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-10-15",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 9 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-10-27",
+      "time_et": "14:00",
+      "type": "FOMC",
+      "title": "FOMC 利率決議",
+      "impact": "high",
+      "confirmed": true,
+      "note": "決議公布 30 分鐘後主席記者會"
+    },
+    {
+      "date": "2027-10-28",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q3 GDP 初值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-10-28",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 9 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-11-05",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 10 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-11-10",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 10 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-11-15",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 10 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-11-24",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q3 GDP 修正值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-11-24",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 10 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-12-03",
+      "time_et": "08:30",
+      "type": "NFP",
+      "title": "美國 11 月非農就業",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-12-08",
+      "time_et": "14:00",
+      "type": "FOMC",
+      "title": "FOMC 利率決議(含經濟預測 SEP)",
+      "impact": "high",
+      "confirmed": true,
+      "note": "決議公布 30 分鐘後主席記者會"
+    },
+    {
+      "date": "2027-12-10",
+      "time_et": "08:30",
+      "type": "CPI",
+      "title": "美國 11 月 CPI",
+      "impact": "high",
+      "confirmed": false
+    },
+    {
+      "date": "2027-12-15",
+      "time_et": "08:30",
+      "type": "RETAIL",
+      "title": "美國 11 月零售銷售",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-12-23",
+      "time_et": "08:30",
+      "type": "GDP",
+      "title": "美國 Q3 GDP 終值",
+      "impact": "medium",
+      "confirmed": false
+    },
+    {
+      "date": "2027-12-23",
+      "time_et": "08:30",
+      "type": "PCE",
+      "title": "美國 11 月 PCE 物價",
+      "impact": "medium",
+      "confirmed": false
+    }
+  ]
+}
