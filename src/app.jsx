@@ -1995,6 +1995,46 @@ import economicCalendar from '../economic_calendar.json';
             );
         };
 
+        // --- Google News RSS ---
+        // rss2json 已抓不到 Google News(約 7 秒後回 500),改走自家 CORS proxy + DOMParser,
+        // 失敗才退回 rss2json。回傳 [{ title, link, pubDate, thumbnail }]
+        const fetchWithTimeout = async (url, ms) => {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), ms);
+            try {
+                return await fetch(url, { signal: ctrl.signal });
+            } finally {
+                clearTimeout(timer);
+            }
+        };
+        const fetchGoogleNews = async (query, limit = 6) => {
+            const rssUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(query) + '&hl=zh-TW&gl=TW&ceid=TW:zh-Hant';
+            try {
+                const res = await fetchWithTimeout('https://cors.hellokai07.com/?' + encodeURIComponent(rssUrl), 8000);
+                if (res.ok) {
+                    const doc = new DOMParser().parseFromString(await res.text(), 'text/xml');
+                    const items = [...doc.querySelectorAll('item')].slice(0, limit).map(item => ({
+                        title: item.querySelector('title')?.textContent || '',
+                        link: item.querySelector('link')?.textContent || '',
+                        pubDate: item.querySelector('pubDate')?.textContent || '',
+                        thumbnail: '',
+                    }));
+                    if (items.length) return items;
+                }
+            } catch (e) {
+                console.warn('Google News via proxy failed:', e);
+            }
+            const res = await fetchWithTimeout(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`, 8000);
+            const json = await res.json();
+            if (json.status !== 'ok' || !Array.isArray(json.items)) throw new Error(json.message || '新聞來源暫時無法使用');
+            return json.items.slice(0, limit).map(item => ({
+                title: item.title || '',
+                link: item.link || '',
+                pubDate: item.pubDate || '',
+                thumbnail: item.thumbnail || item.enclosure?.link || '',
+            }));
+        };
+
         // --- RSI 計算與分類工具 ---
         const calculateRSI = (prices, period = 14) => {
             if (prices.length < period + 1) return [];
@@ -2043,6 +2083,7 @@ import economicCalendar from '../economic_calendar.json';
             const [rsiData, setRsiData] = useState(null);
             const [indices, setIndices] = useState({});
             const [news, setNews] = useState([]);
+            const [newsLoading, setNewsLoading] = useState(true);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
             const [dataSource, setDataSource] = useState('Yahoo');
@@ -2198,36 +2239,6 @@ import economicCalendar from '../economic_calendar.json';
                     });
 
 
-                    // 3. 獲取臺股新聞 — 用 rss2json（跟美股 / 加密同一個 service，比 DOMParser+CORS proxy 穩）
-                    try {
-                        const rssUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(`${selectedSymbol} 股票新聞`) + '&hl=zh-TW&gl=TW&ceid=TW:zh-Hant';
-                        const newsResponse = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
-                        const newsJson = await newsResponse.json();
-                        if (newsJson.status === 'ok' && Array.isArray(newsJson.items)) {
-                            const newsItems = newsJson.items.slice(0, 6).map(item => {
-                                // rss2json sometimes returns thumbnail/enclosure; fall back to parsing description
-                                let thumbnail = item.thumbnail || item.enclosure?.link || '';
-                                if (!thumbnail && item.description) {
-                                    const m = item.description.match(/src="([^"]+)"/);
-                                    if (m) thumbnail = m[1];
-                                }
-                                return {
-                                    title: item.title || '',
-                                    link: item.link || '',
-                                    pubDate: item.pubDate || '',
-                                    thumbnail,
-                                };
-                            });
-                            setNews(newsItems);
-                        } else {
-                            console.warn('TW news rss2json failed:', newsJson?.message);
-                            setNews([]);
-                        }
-                    } catch (newsErr) {
-                        console.warn('TW news fetch error:', newsErr);
-                        setNews([]);
-                    }
-
                 } catch (e) {
                     console.error("Taiwan data error:", e);
                     setError(`無法獲取 ${selectedSymbol} 數據: ${e.message}`);
@@ -2236,9 +2247,26 @@ import economicCalendar from '../economic_calendar.json';
                 }
             };
 
+            // 臺股新聞獨立抓取,不阻塞 RSI / 圖表的載入
+            const fetchNews = async () => {
+                setNewsLoading(true);
+                try {
+                    setNews(await fetchGoogleNews(`${selectedSymbol} 股票新聞`));
+                } catch (e) {
+                    console.warn('TW news fetch error:', e);
+                    setNews([]);
+                } finally {
+                    setNewsLoading(false);
+                }
+            };
+
             useEffect(() => {
                 fetchData();
             }, [selectedSymbol, timeRange]);
+
+            useEffect(() => {
+                fetchNews();
+            }, [selectedSymbol]);
 
             // Refetch just the card prices when the user edits the card list
             useEffect(() => {
@@ -2497,7 +2525,7 @@ import economicCalendar from '../economic_calendar.json';
                             </>
                         )}
 
-                        <NewsSection news={news} loading={loading} error={error} />
+                        <NewsSection news={news} loading={newsLoading} error={null} />
                     </div>
 
                     <div className="text-center text-slate-600 text-xs mt-8 pb-4">
@@ -2642,10 +2670,7 @@ import economicCalendar from '../economic_calendar.json';
             const fetchNews = async () => {
                 setNewsLoading(true);
                 try {
-                    const rssUrl = 'https://news.google.com/rss/search?q=加密貨幣&hl=zh-TW&gl=TW&ceid=TW:zh-Hant';
-                    const response = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
-                    const data = await response.json();
-                    if (data.status === 'ok') setNewsData(data.items);
+                    setNewsData(await fetchGoogleNews('加密貨幣'));
                 } catch (e) {
                     setNewsError(e.message);
                 } finally {
