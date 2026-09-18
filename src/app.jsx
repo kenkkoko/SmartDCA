@@ -1881,8 +1881,14 @@ import economicCalendar from '../economic_calendar.json';
                         ))}
                     </EditableCardGrid>
 
-                    <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl flex flex-col items-center text-center">
-                        <h2 className="text-xl font-bold text-slate-200 mb-2">美股恐懼與貪婪指數</h2>
+                    <SentimentToggleCard
+                        storageKey="us-sentiment-view"
+                        fngTitle="美股恐懼與貪婪指數"
+                        macdTitle={`週線 MACD 背離（${selectedSymbol}）`}
+                        market="us"
+                        symbol={selectedSymbol}
+                        label={selectedSymbol}
+                    >
                         {loading ? (
                             <div className="py-12"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>
                         ) : error ? (
@@ -1901,7 +1907,7 @@ import economicCalendar from '../economic_calendar.json';
                                 )}
                             </div>
                         )}
-                    </div>
+                    </SentimentToggleCard>
 
                     {suggestion && (
                         <div className={`p-6 rounded-2xl border ${suggestion.border} ${suggestion.bg} relative overflow-hidden transition-all duration-500`}>
@@ -2412,12 +2418,20 @@ import economicCalendar from '../economic_calendar.json';
                     </EditableCardGrid>
 
                     {/* 標題區 */}
-                    <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl flex flex-col items-center text-center">
-                        <h2 className="text-xl font-bold text-slate-200 mb-2">臺股情緒指標 (基於 {selectedSymbol} RSI)</h2>
-                        <p className="text-xs text-slate-500 mb-4 max-w-md">
-                            此指標並非恐懼貪婪指數。數值由『{selectedSymbol}』的 14 日 RSI 強弱指標計算得出。RSI 低於 30 代表市場超賣 (恐懼)，高於 70 代表市場超買 (貪婪)。
-                            <span className="block mt-1 text-slate-600">數據來源: {dataSource}</span>
-                        </p>
+                    <SentimentToggleCard
+                        storageKey="tw-sentiment-view"
+                        fngTitle={`臺股情緒指標 (基於 ${selectedSymbol} RSI)`}
+                        macdTitle={`週線 MACD 背離（${selectedSymbol}）`}
+                        market="tw"
+                        symbol={selectedSymbol}
+                        label={selectedSymbol}
+                        subtitle={
+                            <p className="text-xs text-slate-500 mt-2 max-w-md">
+                                此指標並非恐懼貪婪指數。數值由『{selectedSymbol}』的 14 日 RSI 強弱指標計算得出。RSI 低於 30 代表市場超賣 (恐懼)，高於 70 代表市場超買 (貪婪)。
+                                <span className="block mt-1 text-slate-600">數據來源: {dataSource}</span>
+                            </p>
+                        }
+                    >
                         <div className="w-full flex flex-col items-center">
                             {rsiData && (
                                 <FearGreedGauge
@@ -2435,7 +2449,7 @@ import economicCalendar from '../economic_calendar.json';
                                 </div>
                             )}
                         </div>
-                    </div>
+                    </SentimentToggleCard>
 
                     {/* 策略建議區 */}
                     {suggestion && (
@@ -2862,11 +2876,17 @@ import economicCalendar from '../economic_calendar.json';
                         <div className="bg-red-900/20 border border-red-500/50 text-red-200 p-6 rounded-xl flex items-center gap-4"><AlertTriangle size={24} /><div><h3 className="font-bold text-lg">載入失敗</h3><p className="text-sm opacity-90 my-2">{error}</p><button onClick={fetchData} className="px-4 py-2 bg-red-800 rounded">重試</button></div></div>
                     ) : (
                         <>
-                            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-700 shadow-xl flex flex-col items-center">
-                                <h2 className="text-xl font-bold text-slate-200 mb-4">加密貨幣恐懼與貪婪指數</h2>
+                            <SentimentToggleCard
+                                storageKey="crypto-sentiment-view"
+                                fngTitle="加密貨幣恐懼與貪婪指數"
+                                macdTitle={`週線 MACD 背離（${selectedCoin.toUpperCase()}）`}
+                                market="crypto"
+                                symbol={selectedCoin}
+                                label={selectedCoin.toUpperCase()}
+                            >
                                 <FearGreedGauge fngValue={currentFNG?.value} classification={suggestion.title.split(' ')[0]} />
                                 {historicalData.length > 0 && <div className="w-full max-w-2xl mt-4 px-4"><SentimentScarcityBar data={historicalData.map(d => d.fng)} title="過去 365 天機會分佈" /></div>}
-                            </div>
+                            </SentimentToggleCard>
                             <div className={`p-6 rounded-2xl border ${suggestion.border} ${suggestion.bg} relative overflow-hidden`}>
                                 <div className="relative z-10 flex flex-col md:flex-row justify-between w-full max-w-lg mx-auto">
                                     <div className="flex flex-col"><div className="text-sm opacity-70">DCA 策略</div><span className={`text-2xl font-bold ${suggestion.text}`}>{suggestion.title}</span><p className="mt-2 text-slate-300 text-sm max-w-lg">{suggestion.desc}</p></div>
@@ -3336,6 +3356,386 @@ import economicCalendar from '../economic_calendar.json';
             // Heuristic: short alphanumeric (likely a ticker like 'pepe' or 'ada') → try LOWERUSDT
             if (/^[a-z0-9]{2,7}$/.test(lower)) return lower.toUpperCase() + 'USDT';
             return null;
+        };
+
+        // ─────────────────────────────────────────────
+        // 週線 MACD 背離
+        // 主頁情緒卡片的第二個檢視:用「價格新低 / MACD 沒有新低」這類背離
+        // 當作買入的輔助判讀。DCA 進出場訊號仍以原本的恐懼貪婪 / RSI 為主。
+        // ─────────────────────────────────────────────
+        const MACD_DIV_CFG = {
+            pivotSpan: 2,      // 樞紐:左右各 2 根週 K 都沒有更低/更高
+            minGap: 4,         // 兩個樞紐至少相隔 4 週,太近沒有意義
+            maxGap: 52,        // 最多比對 52 週內的前一個樞紐
+            activeWithin: 8,   // 右樞紐落在最近 8 週內 → 視為仍在進行
+            minBars: 60,       // 至少 60 根週 K 才算得出穩定的 MACD
+        };
+
+        // 找出序列中的轉折點(左右 span 根都沒有更極端的值)
+        const findPivotIndices = (values, span, kind) => {
+            const out = [];
+            for (let i = span; i < values.length - span; i++) {
+                const v = values[i];
+                if (v == null) continue;
+                let ok = true;
+                for (let j = i - span; j <= i + span; j++) {
+                    if (j === i || values[j] == null) continue;
+                    if (kind === 'low' ? values[j] < v : values[j] > v) { ok = false; break; }
+                }
+                if (ok) out.push(i);
+            }
+            return out;
+        };
+
+        // bars: [{ t, high, low, close }] — 由舊到新的週 K
+        const detectMACDDivergence = (bars) => {
+            const { pivotSpan, minGap, maxGap, activeWithin, minBars } = MACD_DIV_CFG;
+            if (!bars || bars.length < minBars) return null;
+
+            const closes = bars.map(b => b.close);
+            const { dif, dea, histogram } = computeMACD(closes);
+            const lows  = bars.map(b => (b.low  != null ? b.low  : b.close));
+            const highs = bars.map(b => (b.high != null ? b.high : b.close));
+            const n = bars.length;
+
+            const scan = (kind) => {
+                const isBull = kind === 'bullish';
+                const series = isBull ? lows : highs;
+                const pivots = findPivotIndices(series, pivotSpan, isBull ? 'low' : 'high')
+                    .filter(i => dif[i] != null);
+
+                for (let b = pivots.length - 1; b >= 1; b--) {
+                    const i2 = pivots[b];
+                    for (let a = b - 1; a >= 0; a--) {
+                        const i1 = pivots[a];
+                        const gap = i2 - i1;
+                        if (gap < minGap) continue;
+                        if (gap > maxGap) break;
+                        const priceDiverges = isBull ? series[i2] < series[i1] : series[i2] > series[i1];
+                        const macdDiverges  = isBull ? dif[i2]   > dif[i1]     : dif[i2]   < dif[i1];
+                        if (priceDiverges && macdDiverges) {
+                            return {
+                                kind,
+                                i1, i2,
+                                t1: bars[i1].t, t2: bars[i2].t,
+                                price1: series[i1], price2: series[i2],
+                                dif1: dif[i1], dif2: dif[i2],
+                                weeks: gap,
+                                barsSince: n - 1 - i2,
+                                // 底背離出現在零軸下方 / 頂背離在零軸上方,參考價值較高
+                                strong: isBull ? dif[i2] < 0 : dif[i2] > 0,
+                            };
+                        }
+                    }
+                }
+                return null;
+            };
+
+            const bullish = scan('bullish');
+            const bearish = scan('bearish');
+
+            let active = null;
+            const candidates = [bullish, bearish].filter(d => d && d.barsSince <= activeWithin);
+            if (candidates.length) {
+                active = candidates.reduce((a, b) => (b.i2 > a.i2 ? b : a));
+            }
+
+            // 最近一次 DIF × DEA 交叉
+            let cross = null;
+            for (let i = n - 1; i >= 1; i--) {
+                if (dif[i] == null || dea[i] == null || dif[i - 1] == null || dea[i - 1] == null) break;
+                const prev = dif[i - 1] - dea[i - 1];
+                const cur  = dif[i] - dea[i];
+                if (prev <= 0 && cur > 0) { cross = { type: 'golden', index: i, t: bars[i].t, weeksAgo: n - 1 - i }; break; }
+                if (prev >= 0 && cur < 0) { cross = { type: 'death',  index: i, t: bars[i].t, weeksAgo: n - 1 - i }; break; }
+            }
+
+            return {
+                bars, dif, dea, histogram,
+                bullish, bearish, active, cross,
+                last: {
+                    dif: dif[n - 1], dea: dea[n - 1], hist: histogram[n - 1],
+                    close: closes[n - 1], t: bars[n - 1].t,
+                },
+            };
+        };
+
+        // 抓週 K:美股/台股走 Yahoo(經自家 CORS proxy),加密走 Binance
+        const fetchWeeklyBars = async (market, symbol) => {
+            if (market === 'crypto') {
+                const binSym = getBinanceSymbol(symbol);
+                if (!binSym) throw new Error('此幣種不在 Binance 上,無法取得週線');
+                const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1w&limit=260`);
+                if (!res.ok) throw new Error('Binance 週線取得失敗');
+                const kl = await res.json();
+                if (!Array.isArray(kl) || !kl.length) throw new Error('查無週線資料');
+                return kl.map(k => ({ t: k[0], high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]) }));
+            }
+
+            const ticker = market === 'tw'
+                ? (symbol.includes('.') || symbol.startsWith('^') ? symbol : `${symbol}.TW`)
+                : symbol;
+            const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1wk&range=5y`;
+            const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yahooUrl));
+            if (!res.ok) throw new Error('Yahoo 週線取得失敗');
+            const json = await res.json();
+            const result = json?.chart?.result?.[0];
+            const quote = result?.indicators?.quote?.[0];
+            if (!result || !quote || !result.timestamp) throw new Error('查無此代號的週線資料');
+            return result.timestamp
+                .map((t, i) => ({ t: t * 1000, high: quote.high?.[i], low: quote.low?.[i], close: quote.close?.[i] }))
+                .filter(b => b.close != null);
+        };
+
+        const useWeeklyMacd = (market, symbol) => {
+            const [state, setState] = useState({ loading: true, error: null, data: null });
+            useEffect(() => {
+                if (!symbol) return;
+                let cancelled = false;
+                setState({ loading: true, error: null, data: null });
+                (async () => {
+                    try {
+                        const bars = await fetchWeeklyBars(market, symbol);
+                        const data = detectMACDDivergence(bars);
+                        if (cancelled) return;
+                        if (!data) throw new Error(`週線資料不足(需至少 ${MACD_DIV_CFG.minBars} 週)`);
+                        setState({ loading: false, error: null, data });
+                    } catch (e) {
+                        if (!cancelled) setState({ loading: false, error: e.message || '載入失敗', data: null });
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [market, symbol]);
+            return state;
+        };
+
+        const fmtWeek = (t) => {
+            const d = new Date(t);
+            return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+        };
+        const fmtNum = (v, digits = 2) => (v == null || Number.isNaN(v) ? '—' : v.toFixed(digits));
+
+        const MACD_VIEW_BARS = 80; // 圖上顯示最近 80 週
+
+        const WeeklyMacdPanel = ({ market, symbol, label }) => {
+            const { loading, error, data } = useWeeklyMacd(market, symbol);
+
+            const charts = React.useMemo(() => {
+                if (!data) return null;
+                const total = data.bars.length;
+                const start = Math.max(0, total - MACD_VIEW_BARS);
+                const slice = data.bars.slice(start);
+                const labels = slice.map(b => fmtWeek(b.t));
+                const markIdx = {};
+                [data.bullish, data.bearish].forEach(d => {
+                    if (!d) return;
+                    if (d.i1 >= start) markIdx[d.i1 - start] = d.kind;
+                    if (d.i2 >= start) markIdx[d.i2 - start] = d.kind;
+                });
+                const pointColor = (i) => (
+                    markIdx[i] === 'bullish' ? CHART.up : markIdx[i] === 'bearish' ? CHART.down : 'rgba(0,0,0,0)'
+                );
+                const pointRadius = slice.map((_, i) => (markIdx[i] ? 5 : 0));
+
+                const priceData = {
+                    labels,
+                    datasets: [{
+                        label: '週收盤',
+                        data: slice.map(b => b.close),
+                        borderColor: CHART.line,
+                        backgroundColor: 'rgba(59,130,246,0.08)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.25,
+                        pointRadius,
+                        pointBackgroundColor: slice.map((_, i) => pointColor(i)),
+                        pointBorderColor: slice.map((_, i) => pointColor(i)),
+                    }],
+                };
+
+                const macdData = {
+                    labels,
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: '柱狀圖',
+                            data: data.histogram.slice(start),
+                            backgroundColor: data.histogram.slice(start).map(v => (v >= 0 ? 'rgba(0,214,143,0.55)' : 'rgba(255,91,110,0.55)')),
+                            borderWidth: 0,
+                            order: 3,
+                        },
+                        {
+                            type: 'line',
+                            label: 'DIF',
+                            data: data.dif.slice(start),
+                            borderColor: '#3b82f6',
+                            borderWidth: 1.8,
+                            pointRadius,
+                            pointBackgroundColor: slice.map((_, i) => pointColor(i)),
+                            pointBorderColor: slice.map((_, i) => pointColor(i)),
+                            tension: 0.25,
+                            order: 1,
+                        },
+                        {
+                            type: 'line',
+                            label: 'DEA',
+                            data: data.dea.slice(start),
+                            borderColor: '#fbbf24',
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            tension: 0.25,
+                            order: 2,
+                        },
+                    ],
+                };
+
+                const baseOptions = {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { display: false }, tooltip: { enabled: true } },
+                    scales: {
+                        x: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, maxTicksLimit: 6 } },
+                        y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick } },
+                    },
+                };
+
+                return {
+                    priceData,
+                    macdData,
+                    priceOptions: baseOptions,
+                    macdOptions: {
+                        ...baseOptions,
+                        plugins: { legend: { display: true, labels: { color: CHART.tick, boxWidth: 10, font: { size: 10 } } }, tooltip: { enabled: true } },
+                    },
+                };
+            }, [data]);
+
+            if (loading) {
+                return <div className="py-12 flex justify-center"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>;
+            }
+            if (error) {
+                return (
+                    <div className="flex flex-col items-center gap-2 py-8 text-center">
+                        <AlertTriangle className="text-red-400" size={28} />
+                        <div className="text-red-400 text-sm">{error}</div>
+                    </div>
+                );
+            }
+            if (!data) return null;
+
+            const act = data.active;
+            const status = act
+                ? (act.kind === 'bullish'
+                    ? { emoji: '🟢', title: '週線 MACD 底背離', desc: '價格創新低、MACD 沒有跟著創新低 — 下跌動能轉弱,分批買入的參考點。', color: 'text-emerald-400', border: 'border-emerald-500/60', bg: 'bg-emerald-900/20' }
+                    : { emoji: '🔴', title: '週線 MACD 頂背離', desc: '價格創新高、MACD 沒有跟著創新高 — 上漲動能轉弱,加碼前留意風險。', color: 'text-red-400', border: 'border-red-500/60', bg: 'bg-red-900/20' })
+                : { emoji: '⚪', title: '目前無明顯背離', desc: '最近幾週價格與 MACD 同向,沒有偵測到有效背離。', color: 'text-slate-300', border: 'border-slate-700', bg: 'bg-slate-800/40' };
+
+            const history = [data.bullish, data.bearish]
+                .filter(d => d && (!act || d !== act))
+                .sort((a, b) => b.i2 - a.i2);
+
+            return (
+                <div className="w-full flex flex-col gap-4">
+                    <div className={`w-full rounded-xl border ${status.border} ${status.bg} p-4 text-left`}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-2xl">{status.emoji}</span>
+                            <span className={`text-lg font-bold ${status.color}`}>{status.title}</span>
+                            {act && act.strong && (
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full border border-current opacity-80 ${status.color}`}>
+                                    {act.kind === 'bullish' ? '零軸下方，參考性較高' : '零軸上方，參考性較高'}
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-sm text-slate-300 mt-2">{status.desc}</p>
+                        {act && (
+                            <div className="mt-3 text-xs text-slate-400 space-y-1">
+                                <div>
+                                    比較區間：{fmtWeek(act.t1)} → {fmtWeek(act.t2)}（相隔 {act.weeks} 週，{act.barsSince === 0 ? '本週' : `${act.barsSince} 週前`}成形）
+                                </div>
+                                <div>
+                                    {act.kind === 'bullish' ? '低點' : '高點'} {fmtNum(act.price1, 2)} → {fmtNum(act.price2, 2)}　|
+                                    DIF {fmtNum(act.dif1, 3)} → {fmtNum(act.dif2, 3)}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 w-full">
+                        {[
+                            { k: 'DIF', v: fmtNum(data.last.dif, 3) },
+                            { k: 'DEA', v: fmtNum(data.last.dea, 3) },
+                            { k: '柱狀圖', v: fmtNum(data.last.hist, 3) },
+                            {
+                                k: '最近交叉',
+                                v: data.cross
+                                    ? `${data.cross.type === 'golden' ? '金叉' : '死叉'} · ${data.cross.weeksAgo} 週前`
+                                    : '—',
+                            },
+                        ].map(item => (
+                            <div key={item.k} className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-left">
+                                <div className="text-[11px] text-slate-500">{item.k}</div>
+                                <div className="text-sm font-mono text-slate-200 truncate">{item.v}</div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {charts && (
+                        <>
+                            <div className="w-full">
+                                <div className="text-xs text-slate-500 mb-1 text-left">{label} 週線收盤（標記＝背離的兩個轉折點）</div>
+                                <div className="h-[180px] w-full"><ChartComponent data={charts.priceData} options={charts.priceOptions} /></div>
+                            </div>
+                            <div className="w-full">
+                                <div className="text-xs text-slate-500 mb-1 text-left">週線 MACD (12, 26, 9)</div>
+                                <div className="h-[180px] w-full"><ChartComponent data={charts.macdData} options={charts.macdOptions} type="bar" /></div>
+                            </div>
+                        </>
+                    )}
+
+                    {history.length > 0 && (
+                        <div className="text-xs text-slate-500 text-left">
+                            較早的背離：{history.map(d => `${d.kind === 'bullish' ? '底背離' : '頂背離'} ${fmtWeek(d.t2)}（${d.barsSince} 週前）`).join('、')}
+                        </div>
+                    )}
+
+                    <p className="text-[11px] text-slate-500 text-left leading-relaxed">
+                        背離＝價格與動能不同步：價格破前低但 MACD 的 DIF 沒破前低為「底背離」，反之為「頂背離」。
+                        這裡用週線、12/26/9 參數，轉折點需左右各 2 根週 K 確認，所以最新一週的訊號可能還會變動。
+                        <span className="text-slate-400">買賣訊號仍以原本的恐懼貪婪 / RSI 判讀為主，此指標僅作輔助。</span>
+                    </p>
+                </div>
+            );
+        };
+
+        // 情緒卡片外殼:恐懼貪婪 ⇄ 週線 MACD 切換
+        const SentimentToggleCard = ({ storageKey, fngTitle, macdTitle, market, symbol, label, subtitle, children }) => {
+            const [view, setView] = useLocalState(storageKey, 'fng');
+            return (
+                <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+                        <div className="text-left">
+                            <h2 className="text-xl font-bold text-slate-200">{view === 'fng' ? fngTitle : macdTitle}</h2>
+                            {view === 'fng' && subtitle}
+                        </div>
+                        <div className="flex gap-1 p-1 rounded-full glass shrink-0" style={{ width: 'fit-content' }}>
+                            {[{ k: 'fng', l: '恐懼貪婪' }, { k: 'macd', l: '週線 MACD' }].map(o => (
+                                <button
+                                    key={o.k}
+                                    onClick={() => setView(o.k)}
+                                    className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${view === o.k ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                    style={view === o.k ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                                >
+                                    {o.l}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    {view === 'fng'
+                        ? <div className="w-full flex flex-col items-center text-center">{children}</div>
+                        : <WeeklyMacdPanel market={market} symbol={symbol} label={label} />}
+                </div>
+            );
         };
 
         // Days lookup shared by price + FNG fetchers

@@ -786,6 +786,12 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
       published: publishedFlag,
     };
 
+    // 排程 notify_new_posts.py 靠 notification_sent 決定要推播哪幾篇。
+    // 草稿第一次轉為發佈時把旗標歸零,否則那篇文章永遠不會進推播佇列。
+    if (publishedFlag && !(mode === 'edit' && origPublished)) {
+      payload.notification_sent = false;
+    }
+
     let result;
     if (mode === 'edit') {
       result = await supabase
