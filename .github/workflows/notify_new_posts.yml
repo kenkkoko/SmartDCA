@@ -6,6 +6,11 @@ on:
     - cron: '*/30 * * * *'
   # Manual trigger from Actions UI
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只診斷不發送 (印出待推播文章與訂閱人數)'
+        type: boolean
+        default: false
 
 # Don't run multiple instances concurrently
 concurrency:
@@ -32,5 +37,7 @@ jobs:
           SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY:               ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN:  ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID:               ${{ secrets.LINE_USER_ID }}
           SITE_URL:                   https://dca.hellokai07.com
+          DRY_RUN:                    ${{ inputs.dry_run && '1' || '' }}
         run: python notify_new_posts.py
