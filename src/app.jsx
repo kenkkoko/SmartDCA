@@ -6892,6 +6892,144 @@ import economicCalendar from '../economic_calendar.json';
             return raw * (parseFloat(e.leverage) || 1);
         };
 
+        // ─── 開倉邏輯(Wyckoff 結構 + 全倉風控)────────────────────────────
+        // 結構清單:只在「最後一點」進場,因為它自帶客觀的失效價,止損才不是用猜的。
+        const WYCKOFF_SETUPS = [
+            { v: 'lps', label: 'LPS｜最後支撐點', dir: 'long', desc: '吸籌區 Spring / SOS 之後最後一次回踩不破,買方最後接手處。失效價 = 該回踩低點。' },
+            { v: 'lpsy', label: 'LPSY｜最後供給點', dir: 'short', desc: '派發區 UTAD / SOW 之後的無力反彈高點,賣方最後出貨處。失效價 = 該反彈高點。' },
+            { v: 'spring', label: 'Spring｜破底翻甩測', dir: 'long', desc: '跌破區間下沿後快速收回,掃掉散戶止損拿走流動性。通常等它之後的 LPS 更穩。' },
+            { v: 'utad', label: 'UTAD｜假突破出貨', dir: 'short', desc: '突破區間上沿後迅速跌回,誘多後派發。通常等它之後的 LPSY 更穩。' },
+            { v: 'sos_bu', label: 'SOS 後 BU 回踩', dir: 'long', desc: '強勢上攻(SOS)後回踩前緣不破(Back Up),屬於 LPS 的一種型態。' },
+            { v: 'sow_retest', label: 'SOW 後反抽回測', dir: 'short', desc: '破位下跌(SOW)後反抽回測破位處,屬於 LPSY 的一種型態。' },
+            { v: 'other', label: '其他 / 非結構單', dir: null, desc: '不是 LPS / LPSY 的進場。請在下面理由欄寫清楚依據,事後才檢討得出東西。' },
+        ];
+        const setupMeta = (v) => WYCKOFF_SETUPS.find(s => s.v === v) || null;
+
+        // 一筆單的完整風險體檢:名目、有效槓桿、單筆風險佔淨值、強平距離 + 警示
+        const calcJournalRisk = (f) => {
+            const n = (v) => { const x = parseFloat(v); return isNaN(x) ? null : x; };
+            const entry = n(f.entry_price), sl = n(f.stop_loss), tp = n(f.take_profit);
+            const lev = n(f.leverage) || 1;
+            const margin = n(f.position_size);
+            const equity = n(f.account_equity);
+            const liq = n(f.liq_price);
+            const isLong = f.direction === 'long';
+
+            const notional = (margin != null && margin > 0) ? margin * lev : null;
+            const effLev = (notional != null && equity > 0) ? notional / equity : null;
+            const slDistPct = (entry > 0 && sl != null) ? Math.abs(entry - sl) / entry * 100 : null;
+            const riskAmt = (notional != null && slDistPct != null) ? notional * slDistPct / 100 : null;
+            const riskPctEquity = (riskAmt != null && equity > 0) ? riskAmt / equity * 100 : null;
+            const liqDistPct = (entry > 0 && liq != null && liq > 0) ? Math.abs(entry - liq) / entry * 100 : null;
+            const rr = calcJournalRR(f);
+            // 反推:照 1% / 2% 風險原則,這個止損距離應該下多少名目
+            const sizing = (equity > 0 && slDistPct > 0)
+                ? { r1: equity * 0.01 / (slDistPct / 100), r2: equity * 0.02 / (slDistPct / 100) }
+                : null;
+
+            const warn = [];
+            const st = setupMeta(f.setup);
+            if (sl == null) warn.push({ lv: 'bad', t: '沒有止損 → 等於把強平價當止損,全倉時這是帳戶歸零的走法。' });
+            if (st && st.dir && st.dir !== f.direction) warn.push({ lv: 'warn', t: `${st.label} 是${st.dir === 'long' ? '做多' : '做空'}結構,和目前方向不一致。` });
+            if (sl != null && entry > 0) {
+                const slWrongSide = isLong ? sl >= entry : sl <= entry;
+                if (slWrongSide) warn.push({ lv: 'bad', t: '止損放在錯誤的一側,這筆單一進場就是虧的。' });
+            }
+            if (riskPctEquity != null) {
+                if (riskPctEquity > 2) warn.push({ lv: 'bad', t: `單筆風險 ${riskPctEquity.toFixed(2)}% 淨值,超過 2% 上限 → 把名目降到 ${sizing ? sizing.r2.toFixed(0) : '—'} U 以下。` });
+                else if (riskPctEquity > 1) warn.push({ lv: 'warn', t: `單筆風險 ${riskPctEquity.toFixed(2)}% 淨值,已超過 1% 的舒適區。` });
+            }
+            if (effLev != null) {
+                if (effLev > 3) warn.push({ lv: 'bad', t: `有效槓桿 ${effLev.toFixed(2)}x 超過 3x 上限。槓桿檔位可以高,實際曝險不行。` });
+                else if (effLev > 2) warn.push({ lv: 'warn', t: `有效槓桿 ${effLev.toFixed(2)}x,接近 3x 上限。` });
+            }
+            if (liqDistPct != null) {
+                if (liqDistPct < 25) warn.push({ lv: 'bad', t: `強平價只距離 ${liqDistPct.toFixed(1)}%,一根插針就到。全倉的意義就是把它推到 30% 以外。` });
+                else if (liqDistPct < 35) warn.push({ lv: 'warn', t: `強平距離 ${liqDistPct.toFixed(1)}%,極端行情仍有風險。` });
+            }
+            if (rr != null && rr < 2) warn.push({ lv: 'warn', t: `R:R 只有 1:${rr.toFixed(2)},低於 1:2 的話勝率要很高才划算。` });
+            if (f.margin_mode === 'cross' && equity == null) warn.push({ lv: 'warn', t: '全倉沒填帳戶淨值 → 算不出有效槓桿,等於沒有風控。' });
+            if (tp == null) warn.push({ lv: 'warn', t: '沒設止盈目標,出場容易變成憑感覺。' });
+
+            return { notional, effLev, slDistPct, riskAmt, riskPctEquity, liqDistPct, rr, sizing, warn, equity, margin, lev };
+        };
+
+        // 側邊說明:老師整套開倉邏輯(結構 → 全倉 → 部位 → 防線 → 常見死法)
+        const ENTRY_LOGIC_GUIDE = [
+            {
+                k: 'structure', icon: '①', title: '只打結構的「最後一點」',
+                body: [
+                    'LPS(Last Point of Support)= 吸籌區裡買方最後一次接手的回踩;LPSY(Last Point of Supply)= 派發區裡賣方最後一次出貨的反彈。',
+                    '為什麼只打這兩個點:它們自帶一個客觀的失效價。LPS 的低點被跌破,做多的邏輯就死了 —— 止損不是憑感覺畫的,是結構告訴你的。',
+                    '順序不能跳:① 先框出交易區間(TR)與階段 → ② 等 Spring / UTAD 拿走流動性 → ③ 等 SOS / SOW 確認方向 → ④ 回踩 LPS、反彈 LPSY 才進場。沒有 ①②③ 就沒有 ④。',
+                ],
+            },
+            {
+                k: 'cross', icon: '②', title: '槓桿倍數 ≠ 風險:全倉真正的用法',
+                body: [
+                    '平台上的 50x 只決定這筆「佔用多少起始保證金」(IM = 名目 ÷ 槓桿檔位),它完全不改變你賺賠多少。',
+                    '真正的風險是 有效槓桿 = 名目部位 ÷ 帳戶淨值。實單案例:名目 30 萬鎂、帳戶淨值約 17 萬鎂 → 有效槓桿只有 1.7x,強平價落在 -33% 之外,而不是 50x 教科書上的 -2%。',
+                    '全倉(Cross)的作用,是讓整個錢包替這個倉位墊底,把強平價推到極端行情也掃不到的地方。',
+                    '代價:全倉是共命的,一個倉位爆 = 全部一起爆。所以全倉的前提永遠是「倉位夠小 + 一定掛主動止損」。',
+                    '強平價不是止損,它只是最後一道牆。碰到牆等於整個帳戶結束,不是這筆單結束。',
+                ],
+            },
+            {
+                k: 'sizing', icon: '③', title: '部位是算出來的,不是想出來的',
+                body: [
+                    '1. 單筆可虧金額 R = 帳戶淨值 × 1%~2%',
+                    '2. 止損距離 d = |進場價 − 止損價| ÷ 進場價',
+                    '3. 名目部位 = R ÷ d',
+                    '4. 實際下的保證金 = 名目部位 ÷ 槓桿檔位',
+                    '例:淨值 10,000U、單筆風險 1%(100U)、LPS 止損距離 2.5% → 名目 = 100 ÷ 0.025 = 4,000U。用 20x 檔位下單只佔 200U 保證金,有效槓桿 0.4x,但打到止損就是賠 100U,不多不少。',
+                ],
+            },
+            {
+                k: 'guards', icon: '④', title: '四道防線,缺一不可',
+                body: [
+                    '1. 結構失效止損:LPS 低點下方 / LPSY 高點上方,進場的同時就掛。',
+                    '2. 單筆風險 ≤ 淨值 2%(理想 1%)。',
+                    '3. 有效槓桿 ≤ 3x,不看平台顯示的倍數。',
+                    '4. 強平價距離 ≥ 25~30%,這是全倉唯一的意義。',
+                ],
+            },
+            {
+                k: 'traps', icon: '⑤', title: '最常見的四種死法',
+                body: [
+                    'ROE 爽度加倉:+247% 是對起始保證金算的虛榮數字,對帳戶淨值其實只有 +10%。看淨值,不看 ROE。',
+                    '浮盈加倉:賺錢後淨值變大、有效槓桿自然下降;順手加倉等於把它推回原點,前面的風控全部作廢。',
+                    '不掛止損想靠全倉硬扛:扛到最後不是賠這筆,是賠整個帳戶。',
+                    '幣本位雙重曝險:抵押品是 BTC、部位又做多 BTC,跌的時候兩邊一起縮,強平來得比線性計算更快。要玩幣本位,有效槓桿再砍半(≤1.5x)。',
+                ],
+            },
+        ];
+
+        const EntryLogicGuide = () => (
+            <div className="space-y-3">
+                <div className="rounded-xl p-3" style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)' }}>
+                    <p className="text-xs font-extrabold mb-1" style={{ color: 'var(--brand-1)' }}>這套邏輯一句話</p>
+                    <p className="text-xs leading-relaxed" style={{ color: 'var(--text-2)' }}>
+                        用 Wyckoff 的 LPS / LPSY 決定「在哪裡進場、止損放哪」,再用全倉把強平價推遠、用有效槓桿決定「下多大」。結構給你失效點,風控給你活下來的次數。
+                    </p>
+                </div>
+                {ENTRY_LOGIC_GUIDE.map(sec => (
+                    <details key={sec.k} open={sec.k === 'structure' || sec.k === 'cross'} className="rounded-xl overflow-hidden" style={{ background: 'var(--bg-soft)', border: '1px solid var(--line)' }}>
+                        <summary className="px-3 py-2 cursor-pointer text-xs font-extrabold text-white select-none">
+                            <span style={{ color: 'var(--brand-2)' }}>{sec.icon}</span> {sec.title}
+                        </summary>
+                        <div className="px-3 pb-3 space-y-1.5">
+                            {sec.body.map((p, i) => (
+                                <p key={i} className="text-xs leading-relaxed" style={{ color: 'var(--text-2)' }}>{p}</p>
+                            ))}
+                        </div>
+                    </details>
+                ))}
+                <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                    ※ 這是課程筆記整理出來的交易紀律框架,不是投資建議。市場沒有任何方法能保證獲利,參數請照自己的資金與承受度調整。
+                </p>
+            </div>
+        );
+
         // ISO 時間 → datetime-local 欄位值(本地時區,非 UTC)
         const toLocalDatetimeValue = (iso) => {
             const d = iso ? new Date(iso) : new Date();
@@ -6914,14 +7052,20 @@ import economicCalendar from '../economic_calendar.json';
                 exit_price: editing?.exit_price ?? '',
                 review: editing?.review || '',
                 entry_at: toLocalDatetimeValue(editing?.entry_at),
+                setup: editing?.setup || '',
+                wyckoff_phase: editing?.wyckoff_phase || '',
+                margin_mode: editing?.margin_mode || 'cross',
+                account_equity: editing?.account_equity ?? '',
+                liq_price: editing?.liq_price ?? '',
             }));
             const [saving, setSaving] = useState(false);
+            const [showGuide, setShowGuide] = useState(true);
             const set = (k) => (ev) => setForm(f => ({ ...f, [k]: ev.target.value }));
 
             const rr = calcJournalRR(form);
-            const entryP = parseFloat(form.entry_price), slP = parseFloat(form.stop_loss);
-            const riskPct = (entryP && slP && entryP > 0) ? Math.abs(entryP - slP) / entryP * 100 * (parseFloat(form.leverage) || 1) : null;
+            const risk = calcJournalRisk(form);
             const pnlPct = form.status === 'closed' ? calcJournalPnlPct(form) : null;
+            const fmt = (v, d = 2) => (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: d });
 
             const handleSave = async () => {
                 if (!form.symbol.trim() || !form.entry_price) { alert('標的與進場價為必填。'); return; }
@@ -6943,13 +7087,24 @@ import economicCalendar from '../economic_calendar.json';
                     review: form.review.trim() || null,
                     entry_at: new Date(form.entry_at).toISOString(),
                     closed_at: form.status === 'closed' ? (editing?.closed_at || new Date().toISOString()) : null,
+                    setup: form.setup || null,
+                    wyckoff_phase: form.wyckoff_phase || null,
+                    margin_mode: form.margin_mode || null,
+                    account_equity: num(form.account_equity),
+                    liq_price: num(form.liq_price),
                 };
                 const q = isEdit
                     ? supabase.from('trade_journal').update(row).eq('id', editing.id)
                     : supabase.from('trade_journal').insert(row);
                 const { error: err } = await q;
                 setSaving(false);
-                if (err) { alert('儲存失敗：' + err.message); return; }
+                if (err) {
+                    // 還沒跑過 supabase/trade_journal_risk.sql 時,新欄位會找不到
+                    if (/column|schema cache/i.test(err.message || '')) {
+                        alert('儲存失敗：資料表還沒有風控欄位。\n請到 Supabase → SQL Editor 執行 supabase/trade_journal_risk.sql 後再試一次。\n\n原始訊息：' + err.message);
+                    } else alert('儲存失敗：' + err.message);
+                    return;
+                }
                 onSaved();
             };
 
@@ -6959,11 +7114,17 @@ import economicCalendar from '../economic_calendar.json';
 
             return (
                 <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center p-4 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
-                    <div className="rounded-2xl ring-soft p-5 w-full max-w-lg my-8" style={{ background: 'var(--surface)' }} onClick={ev => ev.stopPropagation()}>
-                        <div className="flex items-center justify-between mb-4">
+                    <div className="rounded-2xl ring-soft p-5 w-full max-w-4xl my-8" style={{ background: 'var(--surface)' }} onClick={ev => ev.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-4 gap-2">
                             <h3 className="text-lg font-extrabold text-white">{isEdit ? '編輯開單紀錄' : '新增開單紀錄'}</h3>
-                            <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">×</button>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setShowGuide(v => !v)} className="px-2.5 py-1 rounded-lg text-xs font-bold" style={{ background: showGuide ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.06)', color: showGuide ? 'var(--brand-2)' : 'var(--text-3)', border: '1px solid var(--line)' }} title="開倉邏輯說明">
+                                    📖 開倉邏輯
+                                </button>
+                                <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">×</button>
+                            </div>
                         </div>
+                        <div className={"grid gap-4 " + (showGuide ? "lg:grid-cols-[minmax(0,1fr)_320px]" : "grid-cols-1")}>
                         <div className="space-y-3">
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
@@ -6979,6 +7140,27 @@ import economicCalendar from '../economic_calendar.json';
                                 </div>
                             </div>
                             <div className="grid grid-cols-3 gap-3">
+                                <div className="col-span-2">
+                                    <label className={labelCls}>進場結構(Wyckoff)</label>
+                                    <select className={inputCls} style={inputStyle} value={form.setup} onChange={set('setup')}>
+                                        <option value="">— 選擇進場結構 —</option>
+                                        {WYCKOFF_SETUPS.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className={labelCls}>階段</label>
+                                    <select className={inputCls} style={inputStyle} value={form.wyckoff_phase} onChange={set('wyckoff_phase')}>
+                                        <option value="">—</option>
+                                        {['A', 'B', 'C', 'D', 'E'].map(p => <option key={p} value={p}>Phase {p}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                            {setupMeta(form.setup) && (
+                                <p className="text-xs leading-relaxed -mt-1 px-1" style={{ color: 'var(--text-3)' }}>
+                                    {setupMeta(form.setup).desc}
+                                </p>
+                            )}
+                            <div className="grid grid-cols-3 gap-3">
                                 <div>
                                     <label className={labelCls}>進場價 *</label>
                                     <input type="number" step="any" className={inputCls + " num"} style={inputStyle} value={form.entry_price} onChange={set('entry_price')} />
@@ -6988,8 +7170,8 @@ import economicCalendar from '../economic_calendar.json';
                                     <input type="number" step="any" className={inputCls + " num"} style={inputStyle} placeholder="10" value={form.leverage} onChange={set('leverage')} />
                                 </div>
                                 <div>
-                                    <label className={labelCls}>倉位 (USDT)</label>
-                                    <input type="number" step="any" className={inputCls + " num"} style={inputStyle} placeholder="保證金" value={form.position_size} onChange={set('position_size')} />
+                                    <label className={labelCls}>保證金 (USDT)</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={inputStyle} placeholder="這筆佔用" value={form.position_size} onChange={set('position_size')} />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
@@ -7002,19 +7184,65 @@ import economicCalendar from '../economic_calendar.json';
                                     <input type="number" step="any" className={inputCls + " num"} style={{ ...inputStyle, borderColor: 'rgba(0,214,143,0.3)' }} value={form.take_profit} onChange={set('take_profit')} />
                                 </div>
                             </div>
-                            {(rr || riskPct) && (
-                                <div className="flex gap-2 flex-wrap">
-                                    {rr && (
-                                        <span className="px-2.5 py-1 rounded-full text-xs font-bold mono" style={{ background: rr >= 2 ? 'rgba(0,214,143,0.15)' : 'rgba(245,158,11,0.15)', color: rr >= 2 ? 'var(--up)' : 'var(--warn)' }}>
-                                            R:R ≈ 1 : {rr.toFixed(2)}{rr < 2 ? '（低於 1:2，想清楚再進）' : ''}
-                                        </span>
-                                    )}
-                                    {riskPct != null && (
-                                        <span className="px-2.5 py-1 rounded-full text-xs font-bold mono" style={{ background: 'rgba(255,91,110,0.12)', color: riskPct > 30 ? 'var(--down)' : 'var(--text-2)' }}>
-                                            打損失去保證金 {riskPct.toFixed(1)}%
+                            <div className="grid grid-cols-3 gap-3">
+                                <div>
+                                    <label className={labelCls}>保證金模式</label>
+                                    <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-soft)', border: '1px solid var(--line)' }}>
+                                        <button onClick={() => setForm(f => ({ ...f, margin_mode: 'cross' }))} className="flex-1 py-1 rounded-lg text-xs font-bold transition-all" style={form.margin_mode === 'cross' ? { background: 'rgba(59,130,246,0.18)', color: 'var(--brand-1)' } : { color: 'var(--text-3)' }}>全倉</button>
+                                        <button onClick={() => setForm(f => ({ ...f, margin_mode: 'isolated' }))} className="flex-1 py-1 rounded-lg text-xs font-bold transition-all" style={form.margin_mode === 'isolated' ? { background: 'rgba(255,255,255,0.1)', color: 'var(--text)' } : { color: 'var(--text-3)' }}>逐倉</button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className={labelCls}>帳戶淨值 (USDT)</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={inputStyle} placeholder="算有效槓桿用" value={form.account_equity} onChange={set('account_equity')} />
+                                </div>
+                                <div>
+                                    <label className={labelCls}>強平價</label>
+                                    <input type="number" step="any" className={inputCls + " num"} style={inputStyle} placeholder="平台顯示" value={form.liq_price} onChange={set('liq_price')} />
+                                </div>
+                            </div>
+
+                            {/* ── 風險體檢:有效槓桿才是真槓桿 ── */}
+                            {!!form.entry_price && (
+                            <div className="rounded-xl p-3 space-y-2.5" style={{ background: 'var(--bg-soft)', border: '1px solid var(--line)' }}>
+                                <div className="flex items-center justify-between">
+                                    <p className="label">風險體檢</p>
+                                    {risk.effLev != null && (
+                                        <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold mono" style={{ background: risk.effLev > 3 ? 'rgba(255,91,110,0.15)' : risk.effLev > 2 ? 'rgba(245,158,11,0.15)' : 'rgba(0,214,143,0.15)', color: risk.effLev > 3 ? 'var(--down)' : risk.effLev > 2 ? 'var(--warn)' : 'var(--up)' }}>
+                                            有效槓桿 {risk.effLev.toFixed(2)}x
                                         </span>
                                     )}
                                 </div>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <div><p className="label">名目部位</p><p className="text-sm font-bold num text-white mt-0.5">{risk.notional != null ? fmt(risk.notional, 0) : '—'}</p></div>
+                                    <div><p className="label">止損距離</p><p className="text-sm font-bold num mt-0.5" style={{ color: 'var(--text-2)' }}>{risk.slDistPct != null ? risk.slDistPct.toFixed(2) + '%' : '—'}</p></div>
+                                    <div>
+                                        <p className="label">單筆風險 / 淨值</p>
+                                        <p className="text-sm font-bold num mt-0.5" style={{ color: risk.riskPctEquity == null ? 'var(--text-3)' : risk.riskPctEquity > 2 ? 'var(--down)' : risk.riskPctEquity > 1 ? 'var(--warn)' : 'var(--up)' }}>
+                                            {risk.riskAmt != null ? fmt(risk.riskAmt, 0) : '—'}{risk.riskPctEquity != null ? ` · ${risk.riskPctEquity.toFixed(2)}%` : ''}
+                                        </p>
+                                    </div>
+                                    <div><p className="label">R:R</p><p className="text-sm font-bold num text-white mt-0.5">{rr ? `1 : ${rr.toFixed(2)}` : '—'}</p></div>
+                                    <div><p className="label">距強平</p><p className="text-sm font-bold num mt-0.5" style={{ color: risk.liqDistPct == null ? 'var(--text-3)' : risk.liqDistPct < 25 ? 'var(--down)' : risk.liqDistPct < 35 ? 'var(--warn)' : 'var(--up)' }}>{risk.liqDistPct != null ? risk.liqDistPct.toFixed(1) + '%' : '—'}</p></div>
+                                    <div><p className="label">槓桿檔位佔用</p><p className="text-sm font-bold num text-white mt-0.5">{risk.margin != null ? fmt(risk.margin, 0) : '—'}</p></div>
+                                </div>
+                                {risk.sizing && (
+                                    <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-3)' }}>
+                                        照這個止損距離,1% 風險的名目應為 <span className="num" style={{ color: 'var(--text-2)' }}>{fmt(risk.sizing.r1, 0)}</span> U、
+                                        2% 上限為 <span className="num" style={{ color: 'var(--text-2)' }}>{fmt(risk.sizing.r2, 0)}</span> U
+                                        {risk.lev ? `(÷ ${risk.lev}x = 保證金 ${fmt(risk.sizing.r1 / risk.lev, 0)} ~ ${fmt(risk.sizing.r2 / risk.lev, 0)} U)` : ''}。
+                                    </p>
+                                )}
+                                {risk.warn.length > 0 && (
+                                    <div className="space-y-1 pt-1" style={{ borderTop: '1px solid var(--line)' }}>
+                                        {risk.warn.map((w, i) => (
+                                            <p key={i} className="text-xs leading-relaxed flex gap-1.5" style={{ color: w.lv === 'bad' ? 'var(--down)' : 'var(--warn)' }}>
+                                                <span>{w.lv === 'bad' ? '⛔' : '⚠️'}</span><span style={{ color: 'var(--text-2)' }}>{w.t}</span>
+                                            </p>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                             )}
                             <div>
                                 <label className={labelCls}>為什麼進場？（技術依據）</label>
@@ -7056,6 +7284,13 @@ import economicCalendar from '../economic_calendar.json';
                                 <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }}>取消</button>
                                 <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded-xl text-sm font-bold pill-grad glow-brand">{saving ? '儲存中…' : '儲存'}</button>
                             </div>
+                        </div>
+                        {showGuide && (
+                            <div className="rounded-xl p-3 lg:max-h-[70vh] lg:overflow-y-auto" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--line)' }}>
+                                <p className="text-sm font-extrabold text-white mb-2">開倉邏輯 · Wyckoff + 全倉風控</p>
+                                <EntryLogicGuide />
+                            </div>
+                        )}
                         </div>
                     </div>
                 </div>
@@ -7167,6 +7402,8 @@ import economicCalendar from '../economic_calendar.json';
                         const rr = calcJournalRR(e);
                         const isLong = e.direction === 'long';
                         const pnl = e.pnl;
+                        const er = calcJournalRisk(e);
+                        const st = setupMeta(e.setup);
                         return (
                             <div key={e.id} className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)', borderLeft: `3px solid ${e.status === 'open' ? 'var(--warn)' : pnl == null ? 'var(--line-2)' : pnl >= 0 ? 'var(--up)' : 'var(--down)'}` }}>
                                 <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
@@ -7175,6 +7412,16 @@ import economicCalendar from '../economic_calendar.json';
                                         <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={isLong ? { background: 'rgba(0,214,143,0.15)', color: 'var(--up)' } : { background: 'rgba(255,91,110,0.15)', color: 'var(--down)' }}>
                                             {isLong ? '多' : '空'}{e.leverage ? ` ${e.leverage}x` : ''}
                                         </span>
+                                        {st && (
+                                            <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={{ background: 'rgba(139,92,246,0.15)', color: 'var(--brand-2)' }} title={st.desc}>
+                                                {st.label.split('｜')[0]}{e.wyckoff_phase ? ` · ${e.wyckoff_phase}` : ''}
+                                            </span>
+                                        )}
+                                        {e.margin_mode && (
+                                            <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-3)' }}>
+                                                {e.margin_mode === 'cross' ? '全倉' : '逐倉'}
+                                            </span>
+                                        )}
                                         <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={e.status === 'open' ? { background: 'rgba(245,158,11,0.15)', color: 'var(--warn)' } : { background: 'rgba(255,255,255,0.08)', color: 'var(--text-2)' }}>
                                             {e.status === 'open' ? '持倉中' : '已平倉'}
                                         </span>
@@ -7193,12 +7440,23 @@ import economicCalendar from '../economic_calendar.json';
                                         <button onClick={() => handleDelete(e.id)} className="px-2 py-1 rounded-lg text-xs" style={{ color: 'var(--text-3)' }} title="刪除">✕</button>
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-3">
+                                <div className="grid grid-cols-3 md:grid-cols-7 gap-3 mb-3">
                                     <div><p className="label">進場</p><p className="text-sm font-bold num text-white mt-0.5">{e.entry_price}</p></div>
                                     <div><p className="label">止損</p><p className="text-sm font-bold num mt-0.5" style={{ color: 'var(--down)' }}>{e.stop_loss ?? '—'}</p></div>
                                     <div><p className="label">止盈</p><p className="text-sm font-bold num mt-0.5" style={{ color: 'var(--up)' }}>{e.take_profit ?? '—'}</p></div>
                                     <div><p className="label">R:R</p><p className="text-sm font-bold num text-white mt-0.5">{rr ? `1:${rr.toFixed(1)}` : '—'}</p></div>
-                                    <div><p className="label">倉位</p><p className="text-sm font-bold num text-white mt-0.5">{e.position_size ?? '—'}</p></div>
+                                    <div>
+                                        <p className="label">有效槓桿</p>
+                                        <p className="text-sm font-bold num mt-0.5" style={{ color: er.effLev == null ? 'var(--text-3)' : er.effLev > 3 ? 'var(--down)' : er.effLev > 2 ? 'var(--warn)' : 'var(--up)' }}>
+                                            {er.effLev != null ? `${er.effLev.toFixed(2)}x` : '—'}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <p className="label">風險/淨值</p>
+                                        <p className="text-sm font-bold num mt-0.5" style={{ color: er.riskPctEquity == null ? 'var(--text-3)' : er.riskPctEquity > 2 ? 'var(--down)' : er.riskPctEquity > 1 ? 'var(--warn)' : 'var(--up)' }}>
+                                            {er.riskPctEquity != null ? `${er.riskPctEquity.toFixed(2)}%` : '—'}
+                                        </p>
+                                    </div>
                                     <div><p className="label">出場</p><p className="text-sm font-bold num text-white mt-0.5">{e.exit_price ?? '—'}</p></div>
                                 </div>
                                 {e.entry_reason && (
