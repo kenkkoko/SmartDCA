@@ -91,14 +91,14 @@ const PostCard = ({ post, onOpen }) => {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex flex-wrap gap-1.5">
           {(post.tags || []).slice(0, 5).map((t) => (
-            <span key={t} className="text-[11px] px-2 py-0.5 rounded-md mono" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-2)' }}>
+            <span key={t} className="text-[11px] px-2 py-0.5 rounded-md mono" style={{ background: 'var(--wash)', color: 'var(--text-2)' }}>
               #{t}
             </span>
           ))}
         </div>
         <div className="flex items-center gap-1.5 text-[11px] mono" style={{ color: 'var(--text-3)' }}>
           <span>{dateStr}</span>
-          <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
+          <span style={{ color: 'var(--rule)' }}>·</span>
           <span>{timeStr}</span>
         </div>
       </div>
@@ -173,7 +173,7 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
   };
   const filtersActive = searchQuery || selectedTags.length > 0 || draftsOnly;
 
-  const inputStyle = { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', color: 'var(--text)' };
+  const inputStyle = { background: 'var(--wash)', border: '1px solid var(--line)', color: 'var(--text)' };
 
   return (
     <div className="space-y-4">
@@ -191,7 +191,7 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
               placeholder="搜尋標題 / 內容 / 標籤..."
               className="w-full rounded-xl pl-9 pr-8 py-2.5 text-sm outline-none transition-colors"
               style={inputStyle}
-              onFocus={(e) => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+              onFocus={(e) => e.target.style.borderColor = 'var(--ink)'}
               onBlur={(e) => e.target.style.borderColor = 'var(--line)'}
             />
             {searchQuery && (
@@ -231,8 +231,7 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
         {isAdmin && (
           <button
             onClick={() => navigate('#/forum/new')}
-            className="px-4 py-2.5 rounded-xl text-white text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap glow-brand"
-            style={{ background: 'linear-gradient(135deg,#8b5cf6,#ec4899)' }}
+            className="fs-btn solid whitespace-nowrap"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" />
@@ -254,8 +253,8 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
                 onClick={() => toggleTag(tag)}
                 className="px-2.5 py-1 rounded-md transition-colors mono"
                 style={active
-                  ? { background: 'linear-gradient(135deg,#8b5cf6,#ec4899)', color: '#fff' }
-                  : { background: 'rgba(255,255,255,0.04)', color: 'var(--text-2)', border: '1px solid var(--line)' }
+                  ? { background: 'var(--ink)', color: 'var(--paper)' }
+                  : { background: 'var(--wash)', color: 'var(--text-2)', border: '1px solid var(--line)' }
                 }
               >
                 #{tag} <span className="opacity-60">×{count}</span>
@@ -277,18 +276,18 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
       {!loading && !error && posts.length > 0 && (
         <p className="text-xs mono" style={{ color: 'var(--text-3)' }}>
           顯示 <span className="text-white font-bold">{visiblePosts.length}</span> / {posts.length} 篇
-          {filtersActive && <span className="ml-2" style={{ color: '#c4b5fd' }}>· 已套用篩選</span>}
+          {filtersActive && <span className="ml-2" style={{ color: 'var(--accent)' }}>· 已套用篩選</span>}
         </p>
       )}
 
       {loading && (
         <div className="text-center py-16">
-          <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: '#8b5cf6' }}></div>
+          <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--rule)', borderTopColor: 'var(--ink)' }}></div>
           <p className="mt-3 text-sm mono" style={{ color: 'var(--text-3)' }}>LOADING POSTS...</p>
         </div>
       )}
       {error && (
-        <div className="text-sm rounded-xl p-4" style={{ background: 'rgba(255,91,110,0.08)', border: '1px solid rgba(255,91,110,0.2)', color: '#ff7d8c' }}>
+        <div className="text-sm rounded-xl p-4" style={{ background: 'rgba(255,91,110,0.08)', border: '1px solid rgba(255,91,110,0.2)', color: 'var(--down)' }}>
           讀取失敗：{error}
         </div>
       )}
@@ -311,7 +310,7 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
           <button
             onClick={clearFilters}
             className="text-xs mt-2 underline"
-            style={{ color: '#c4b5fd' }}
+            style={{ color: 'var(--accent)' }}
           >
             清除篩選
           </button>
@@ -538,16 +537,16 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
 
   if (loading) return (
     <div className="text-center py-16">
-      <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: '#8b5cf6' }}></div>
+      <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--rule)', borderTopColor: 'var(--ink)' }}></div>
     </div>
   );
   if (error || !post) {
     return (
       <div className="space-y-4">
-        <button onClick={onBack} className="text-sm flex items-center gap-1.5 transition-colors" style={{ color: '#c4b5fd' }}>
+        <button onClick={onBack} className="text-sm flex items-center gap-1.5 transition-colors" style={{ color: 'var(--accent)' }}>
           <span>←</span> 返回列表
         </button>
-        <div className="text-sm rounded-xl p-4" style={{ background: 'rgba(255,91,110,0.08)', border: '1px solid rgba(255,91,110,0.2)', color: '#ff7d8c' }}>
+        <div className="text-sm rounded-xl p-4" style={{ background: 'rgba(255,91,110,0.08)', border: '1px solid rgba(255,91,110,0.2)', color: 'var(--down)' }}>
           {error || '文章不存在'}
         </div>
       </div>
@@ -567,7 +566,7 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
             <button
               onClick={() => navigate(`#/forum/${postId}/edit`)}
               className="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
-              style={{ background: 'rgba(59,130,246,0.18)', border: '1px solid rgba(59,130,246,0.4)', color: '#7eb6ff' }}
+              style={{ background: 'transparent', border: '1.5px solid var(--ink)', color: 'var(--ink)' }}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
               編輯
@@ -575,7 +574,7 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
             <button
               onClick={handleDelete}
               className="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
-              style={{ background: 'rgba(255,91,110,0.12)', border: '1px solid rgba(255,91,110,0.3)', color: '#ff7d8c' }}
+              style={{ background: 'transparent', border: '1.5px solid var(--down)', color: 'var(--down)' }}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
               刪除
@@ -595,7 +594,7 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
           {post.tags && post.tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-3">
               {post.tags.map((t) => (
-                <span key={t} className="text-[11px] px-2 py-0.5 rounded-md mono" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-2)' }}>
+                <span key={t} className="text-[11px] px-2 py-0.5 rounded-md mono" style={{ background: 'var(--wash)', color: 'var(--text-2)' }}>
                   #{t}
                 </span>
               ))}
@@ -639,10 +638,10 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
         className="fixed bottom-6 right-6 w-12 h-12 rounded-full flex items-center justify-center text-white text-xl z-50 hover:scale-110"
         style={{
           background: 'rgba(15,23,42,0.88)',
-          border: '1px solid rgba(139,92,246,0.4)',
+          border: '1px solid var(--rule)',
           backdropFilter: 'blur(8px)',
           WebkitBackdropFilter: 'blur(8px)',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(139,92,246,0.08)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
           opacity: showScrollTop ? 1 : 0,
           pointerEvents: showScrollTop ? 'auto' : 'none',
           transform: showScrollTop ? 'translateY(0)' : 'translateY(20px)',
@@ -816,11 +815,11 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
     navigate(`#/forum/${result.data.id}`);
   };
 
-  const inputStyle = { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', color: 'var(--text)' };
+  const inputStyle = { background: 'var(--wash)', border: '1px solid var(--line)', color: 'var(--text)' };
 
   if (loading) return (
     <div className="text-center py-16">
-      <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: '#8b5cf6' }}></div>
+      <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--rule)', borderTopColor: 'var(--ink)' }}></div>
     </div>
   );
 
@@ -844,13 +843,13 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
       </div>
 
       {error && (
-        <div className="text-sm rounded-xl p-3" style={{ background: 'rgba(255,91,110,0.08)', border: '1px solid rgba(255,91,110,0.2)', color: '#ff7d8c' }}>
+        <div className="text-sm rounded-xl p-3" style={{ background: 'rgba(255,91,110,0.08)', border: '1px solid rgba(255,91,110,0.2)', color: 'var(--down)' }}>
           {error}
         </div>
       )}
       {uploadingImage && (
-        <div className="text-sm rounded-xl p-3 flex items-center gap-2" style={{ background: 'rgba(76,194,255,0.08)', border: '1px solid rgba(76,194,255,0.2)', color: '#7eb6ff' }}>
-          <div className="w-3 h-3 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(76,194,255,0.3)', borderTopColor: '#7eb6ff' }}></div>
+        <div className="text-sm rounded-xl p-3 flex items-center gap-2" style={{ background: 'var(--wash)', border: '1px solid var(--rule)', color: 'var(--accent)' }}>
+          <div className="w-3 h-3 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--rule)', borderTopColor: 'var(--accent)' }}></div>
           上傳圖片中...
         </div>
       )}
@@ -866,7 +865,7 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
             style={inputStyle}
             placeholder="例如：BTC 短期觀察"
             disabled={saving}
-            onFocus={(e) => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+            onFocus={(e) => e.target.style.borderColor = 'var(--ink)'}
             onBlur={(e) => e.target.style.borderColor = 'var(--line)'}
           />
         </div>
@@ -880,7 +879,7 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
             style={inputStyle}
             placeholder="BTC, 技術分析, RSI"
             disabled={saving}
-            onFocus={(e) => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
+            onFocus={(e) => e.target.style.borderColor = 'var(--ink)'}
             onBlur={(e) => e.target.style.borderColor = 'var(--line)'}
           />
         </div>
@@ -903,15 +902,14 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
           onClick={() => handleSave(false)}
           disabled={saving}
           className="px-4 py-2.5 rounded-xl text-sm font-bold transition-all disabled:opacity-50"
-          style={{ background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(245,158,11,0.4)', color: '#fbbf24' }}
+          style={{ background: 'transparent', border: '1.5px solid var(--amber)', color: 'var(--amber)' }}
         >
           {saving ? '儲存中...' : '儲存為草稿'}
         </button>
         <button
           onClick={() => handleSave(true)}
           disabled={saving}
-          className="px-5 py-2.5 rounded-xl text-white text-sm font-bold transition-all disabled:opacity-50 glow-brand"
-          style={{ background: 'linear-gradient(135deg,#8b5cf6,#ec4899)' }}
+          className="fs-btn solid disabled:opacity-50"
         >
           {saving ? '發佈中...' : (origPublished && mode === 'edit' ? '更新並發佈' : '發佈文章')}
         </button>
@@ -924,7 +922,7 @@ const LoginRequiredView = () => (
   <div className="rounded-2xl ring-soft p-10 text-center relative overflow-hidden" style={{ background: 'var(--surface)' }}>
     <div className="absolute inset-0 dotgrid opacity-40 pointer-events-none"></div>
     <div className="relative">
-      <div className="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+      <div className="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }}>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-2)' }}>
           <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
           <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -942,11 +940,10 @@ const LoginRequiredView = () => (
 );
 
 const PremiumRequiredView = ({ user }) => (
-  <div className="rounded-2xl p-10 text-center relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #14141c 0%, #1a1730 100%)', border: '1px solid rgba(139,92,246,0.3)' }}>
+  <div className="rounded-2xl p-10 text-center relative overflow-hidden" style={{ background: 'transparent', borderTop: '3px solid var(--ink)', borderRadius: 0 }}>
     <div className="absolute inset-0 dotgrid opacity-30 pointer-events-none"></div>
-    <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full blur-3xl opacity-30" style={{ background: 'radial-gradient(circle, #8b5cf6, transparent)' }}></div>
     <div className="relative">
-      <div className="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)' }}>
+      <div className="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center" style={{ background: 'var(--ink)', color: 'var(--paper)' }}>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
           <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
         </svg>
@@ -971,7 +968,7 @@ const ForumApp = ({ supabase, user, isAdmin, isPremium }) => {
   const hash = useHashRoute();
   const route = parseForumRoute(hash);
 
-  if (!supabase) return <p style={{ color: '#ff7d8c' }}>Supabase 未初始化</p>;
+  if (!supabase) return <p style={{ color: 'var(--down)' }}>Supabase 未初始化</p>;
 
   const isEditorRoute = route.view === 'editor';
   if (isEditorRoute && !isAdmin) {
@@ -982,18 +979,17 @@ const ForumApp = ({ supabase, user, isAdmin, isPremium }) => {
   const canRead = isAdmin || isPremium;
 
   const headerBadge = (() => {
-    if (isAdmin)   return { txt: 'ADMIN',   style: { background: 'rgba(0,214,143,0.15)',  color: '#3ce0a8', border: '1px solid rgba(0,214,143,0.3)' } };
-    if (isPremium) return { txt: 'MEMBER',  style: { background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff', border: 'none' } };
-    if (user)      return { txt: 'LOCKED',  style: { background: 'rgba(255,255,255,0.04)', color: 'var(--text-3)', border: '1px solid var(--line)' } };
-    return            { txt: 'GUEST',    style: { background: 'rgba(255,255,255,0.04)', color: 'var(--text-3)', border: '1px solid var(--line)' } };
+    if (isAdmin)   return { txt: 'ADMIN',   style: { background: 'transparent', color: 'var(--up)', border: '1.5px solid var(--up)', borderRadius: 0 } };
+    if (isPremium) return { txt: 'MEMBER',  style: { background: 'transparent', color: 'var(--ink)', border: '1.5px solid var(--ink)', borderRadius: 0 } };
+    if (user)      return { txt: 'LOCKED',  style: { background: 'var(--wash)', color: 'var(--text-3)', border: '1px solid var(--line)' } };
+    return            { txt: 'GUEST',    style: { background: 'var(--wash)', color: 'var(--text-3)', border: '1px solid var(--line)' } };
   })();
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl ring-soft p-5 flex items-center justify-between relative overflow-hidden" style={{ background: 'linear-gradient(135deg, var(--surface) 0%, #181b25 100%)' }}>
-        <div className="absolute top-0 right-0 w-48 h-48 rounded-full blur-3xl opacity-20 pointer-events-none" style={{ background: 'radial-gradient(circle, #8b5cf6, transparent)' }}></div>
+      <div className="rounded-2xl ring-soft p-5 flex items-center justify-between relative overflow-hidden" style={{ background: 'transparent' }}>
         <div className="relative flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#8b5cf6,#ec4899)' }}>
+          <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ background: 'var(--ink)', color: 'var(--paper)' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>

@@ -18,23 +18,30 @@ import economicCalendar from '../economic_calendar.json';
 
 
         // ─────────────────────────────────────────────
-        // Chart.js palette + global defaults (NEW visual system)
+        // Theme (light / dark). index.html sets <html data-theme> before paint;
+        // chart colours are read from CSS variables at the moment a chart is built.
         // ─────────────────────────────────────────────
+        const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        const hexA = (hex, a) => {
+            const h = hex.replace('#', '');
+            const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+            return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+        };
         const CHART = {
-            line:       '#3b82f6',
-            fillTop:    'rgba(59, 130, 246, 0.28)',
-            fillBot:    'rgba(59, 130, 246, 0)',
-            brand1:     '#3b82f6',
-            brand2:     '#8b5cf6',
-            up:         '#00d68f',
-            down:       '#ff5b6e',
-            fear:       '#ff5b6e',
-            fearLight:  '#f59e0b',
-            grid:       'rgba(255,255,255,0.04)',
-            tick:       '#6b7080',
-            text:       '#b8bcc8',
-            tooltipBg:  'rgba(7,8,12,0.92)',
-            border:     'rgba(255,255,255,0.06)',
+            get line()      { return cssVar('--ink'); },
+            get fillTop()   { return hexA(cssVar('--ink'), 0.06); },
+            get fillBot()   { return hexA(cssVar('--ink'), 0); },
+            get brand1()    { return cssVar('--accent'); },
+            get brand2()    { return cssVar('--accent'); },
+            get up()        { return cssVar('--up'); },
+            get down()      { return cssVar('--down'); },
+            get fear()      { return cssVar('--down'); },
+            get fearLight() { return cssVar('--z1'); },
+            get grid()      { return cssVar('--faint'); },
+            get tick()      { return cssVar('--ink-3'); },
+            get text()      { return cssVar('--ink-2'); },
+            get tooltipBg() { return cssVar('--paper'); },
+            get border()    { return cssVar('--rule'); },
         };
         const makePriceGradient = (context) => {
             const ctx = context.chart.ctx;
@@ -43,34 +50,91 @@ import economicCalendar from '../economic_calendar.json';
             g.addColorStop(1, CHART.fillBot);
             return g;
         };
-        if (typeof window.Chart !== 'undefined') {
+        const applyChartDefaults = () => {
+            if (typeof window.Chart === 'undefined') return;
             const C = window.Chart;
+            const font = "'Schibsted Grotesk', 'Noto Sans TC', ui-sans-serif, system-ui, sans-serif";
             C.defaults.color = CHART.tick;
             C.defaults.borderColor = CHART.grid;
-            C.defaults.font.family = "'Manrope', ui-sans-serif, system-ui, -apple-system, sans-serif";
+            C.defaults.font.family = font;
             C.defaults.font.size = 11;
             C.defaults.font.weight = '500';
             C.defaults.plugins.tooltip.backgroundColor = CHART.tooltipBg;
-            C.defaults.plugins.tooltip.titleColor = '#ffffff';
+            C.defaults.plugins.tooltip.titleColor = cssVar('--ink');
             C.defaults.plugins.tooltip.bodyColor = CHART.text;
-            C.defaults.plugins.tooltip.borderColor = 'rgba(255,255,255,0.08)';
+            C.defaults.plugins.tooltip.borderColor = cssVar('--ink');
             C.defaults.plugins.tooltip.borderWidth = 1;
-            C.defaults.plugins.tooltip.padding = 12;
-            C.defaults.plugins.tooltip.cornerRadius = 12;
+            C.defaults.plugins.tooltip.padding = 10;
+            C.defaults.plugins.tooltip.cornerRadius = 0;
             C.defaults.plugins.tooltip.displayColors = false;
-            C.defaults.plugins.tooltip.titleFont = { family: "'Manrope', sans-serif", size: 12, weight: '700' };
-            C.defaults.plugins.tooltip.bodyFont = { family: "'JetBrains Mono', ui-monospace, monospace", size: 11 };
+            C.defaults.plugins.tooltip.titleFont = { family: font, size: 12, weight: '700' };
+            C.defaults.plugins.tooltip.bodyFont = { family: font, size: 12 };
             C.defaults.plugins.title.color = CHART.text;
-            C.defaults.plugins.title.font = { family: "'Manrope', sans-serif", size: 12, weight: '600' };
+            C.defaults.plugins.title.font = { family: font, size: 12, weight: '500' };
             C.defaults.plugins.title.padding = { bottom: 12 };
             C.defaults.plugins.legend.labels.color = CHART.text;
-            C.defaults.elements.line.tension = 0.4;
-            C.defaults.elements.line.borderWidth = 2;
+            C.defaults.elements.line.tension = 0.25;
+            C.defaults.elements.line.borderWidth = 1.6;
             C.defaults.elements.point.hoverRadius = 5;
             C.defaults.elements.point.hoverBorderWidth = 2;
-            C.defaults.elements.point.hoverBackgroundColor = '#ffffff';
-        }
+            C.defaults.elements.point.hoverBackgroundColor = cssVar('--paper');
+        };
+        applyChartDefaults();
 
+        // Current theme + setter. Explicit choice is remembered; otherwise follow the system.
+        const THEME_EVENT = 'smartdca-themechange';
+        const useTheme = () => {
+            const [theme, setThemeState] = useState(() => document.documentElement.getAttribute('data-theme') || 'light');
+            const setTheme = (t) => {
+                document.documentElement.setAttribute('data-theme', t);
+                try { localStorage.setItem('theme', t); } catch (e) {}
+                applyChartDefaults();
+                setThemeState(t);
+                window.dispatchEvent(new Event(THEME_EVENT));
+            };
+            useEffect(() => {
+                const mq = window.matchMedia('(prefers-color-scheme: dark)');
+                const onSystem = (e) => {
+                    let saved = null;
+                    try { saved = localStorage.getItem('theme'); } catch (err) {}
+                    if (saved) return;
+                    const t = e.matches ? 'dark' : 'light';
+                    document.documentElement.setAttribute('data-theme', t);
+                    applyChartDefaults();
+                    setThemeState(t);
+                    window.dispatchEvent(new Event(THEME_EVENT));
+                };
+                mq.addEventListener ? mq.addEventListener('change', onSystem) : mq.addListener(onSystem);
+                return () => { mq.removeEventListener ? mq.removeEventListener('change', onSystem) : mq.removeListener(onSystem); };
+            }, []);
+            return [theme, setTheme];
+        };
+        // Re-render trigger for components whose chart options embed theme colours
+        const useThemeVersion = () => {
+            const [v, setV] = useState(0);
+            useEffect(() => {
+                const on = () => setV(x => x + 1);
+                window.addEventListener(THEME_EVENT, on);
+                return () => window.removeEventListener(THEME_EVENT, on);
+            }, []);
+            return v;
+        };
+        // Measured width of an element (for SVG drawn in real pixels). Returns [ref, width].
+        // Re-binds after every render so it keeps measuring when a component swaps its root element.
+        const useWidth = () => {
+            const ref = useRef(null);
+            const [w, setW] = useState(0);
+            React.useLayoutEffect(() => {
+                const node = ref.current;
+                if (!node) return;
+                const measure = () => setW(Math.round(node.getBoundingClientRect().width));
+                measure();
+                const ro = new ResizeObserver(measure);
+                ro.observe(node);
+                return () => ro.disconnect();
+            });
+            return [ref, w];
+        };
 
         // --- Supabase Configuration ---
         // Local dev: reads from local-config.js (gitignored).
@@ -301,6 +365,21 @@ import economicCalendar from '../economic_calendar.json';
         const { Bell, TrendingUp, AlertTriangle, Info, RefreshCw, Smartphone, ArrowUp, ArrowDown, Newspaper, Sparkles, ExternalLink, Bot, Globe, Activity, BellRing, BellOff, LogOut, User, Lock, CalendarDays } = Icons;
 
         // --- Auth Component ---
+        // Logo mark "每月一格": a 4x4 month grid. Filled dots = periods invested,
+        // the ultramarine square = this period, hollow dots = periods to come.
+        // Same geometry as py/gen_logo.py (the raster icons).
+        const LogoMark = ({ size = 28, className = '' }) => (
+            <svg width={size} height={size} viewBox="0 0 64 64" className={className} aria-hidden="true" style={{ flex: 'none' }}>
+                {Array.from({ length: 16 }, (_, i) => {
+                    const r = Math.floor(i / 4), c = i % 4, x = 12 + c * 13, y = 12 + r * 13;
+                    if (i === 13) return <rect key={i} x={x - 6} y={y - 6} width="12" height="12" style={{ fill: 'var(--accent)' }} />;
+                    return i < 13
+                        ? <circle key={i} cx={x} cy={y} r="4.2" style={{ fill: 'var(--ink)' }} />
+                        : <circle key={i} cx={x} cy={y} r="3.4" fill="none" style={{ stroke: 'var(--ink)', strokeWidth: 1.6 }} />;
+                })}
+            </svg>
+        );
+
         const AuthComponent = ({ user, setUser, isPremium, onOpenSettings, userProfile }) => {
             const [localLoading, setLocalLoading] = useState(false);
             const [showLoginModal, setShowLoginModal] = useState(false);
@@ -390,7 +469,7 @@ import economicCalendar from '../economic_calendar.json';
                             <span className="text-xs font-semibold hidden md:block" style={{ color: 'var(--text-2)' }}>{displayName}</span>
                             {/* PRO badge inside pill */}
                             {isPremium && (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md ml-1" style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff' }}>
+                                <span className="fs-chip ml-1" style={{ color: 'var(--ink)' }}>
                                     PRO
                                 </span>
                             )}
@@ -408,7 +487,7 @@ import economicCalendar from '../economic_calendar.json';
                         {showMenu && (
                             <div className="absolute right-0 mt-2 w-56 glass-strong rounded-2xl shadow-2xl overflow-hidden z-[95] animate-in fade-in zoom-in-95">
                                 {/* User info header */}
-                                <div className="p-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--line)', background: 'rgba(255,255,255,0.02)' }}>
+                                <div className="p-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--line)', background: 'var(--wash)' }}>
                                     {avatarUrl ? (
                                         <img src={avatarUrl} alt="" className="w-9 h-9 rounded-full ring-soft" />
                                     ) : (
@@ -428,21 +507,21 @@ import economicCalendar from '../economic_calendar.json';
                                             const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
                                             window.open(checkoutUrl, '_blank');
                                         }}
-                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-white/[0.05]"
-                                        style={{ color: 'var(--text)' }}
+                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-[color:var(--wash-2)]"
+                                        style={{ color: 'var(--ink)' }}
                                     >
-                                        <Sparkles size={14} style={{ color: '#fbbf24' }} />
+                                        <Sparkles size={14} style={{ color: 'var(--ink)' }} />
                                         <span className="flex-1">升級 Pro</span>
-                                        <span className="text-[10px] mono px-1.5 py-0.5 rounded" style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff' }}>VIP</span>
+                                        <span className="fs-chip" style={{ color: 'var(--ink)' }}>VIP</span>
                                     </button>
                                 )}
                                 {isPremium && (
                                     <button
                                         onClick={() => { setShowMenu(false); window.open(LEMON_PORTAL_URL, '_blank'); }}
-                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-white/[0.05]"
-                                        style={{ color: 'var(--text)' }}
+                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-[color:var(--wash-2)]"
+                                        style={{ color: 'var(--ink)' }}
                                     >
-                                        <Sparkles size={14} style={{ color: '#fbbf24' }} />
+                                        <Sparkles size={14} style={{ color: 'var(--ink)' }} />
                                         <span className="flex-1">管理訂閱</span>
                                     </button>
                                 )}
@@ -451,7 +530,7 @@ import economicCalendar from '../economic_calendar.json';
                                 {onOpenSettings && (
                                     <button
                                         onClick={() => { setShowMenu(false); onOpenSettings(); }}
-                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-white/[0.05]"
+                                        className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-[color:var(--wash-2)]"
                                         style={{ color: 'var(--text)' }}
                                     >
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -466,7 +545,7 @@ import economicCalendar from '../economic_calendar.json';
                                 <button
                                     onClick={() => { setShowMenu(false); handleLogout(); }}
                                     className="w-full px-3 py-2.5 flex items-center gap-2.5 text-sm transition-colors text-left hover:bg-red-500/10"
-                                    style={{ color: '#ff7d8c', borderTop: '1px solid var(--line)' }}
+                                    style={{ color: 'var(--down)', borderTop: '1px solid var(--line)' }}
                                 >
                                     <LogOut size={14} />
                                     <span className="flex-1">{window.__DEMO__ ? '離開展示' : '登出'}</span>
@@ -481,7 +560,7 @@ import economicCalendar from '../economic_calendar.json';
                 <>
                     <button
                         onClick={() => setShowLoginModal(true)}
-                        className="flex items-center gap-2 px-4 py-2 pill-grad text-white rounded-full text-xs font-bold transition-all glow-brand"
+                        className="fs-btn solid sm h-9"
                     >
                         <User size={14} /> 登入
                     </button>
@@ -498,10 +577,7 @@ import economicCalendar from '../economic_calendar.json';
                                 </button>
 
                                 <div className="flex items-center gap-3 mb-6">
-                                    <div className="relative w-10 h-10 rounded-xl overflow-hidden ring-soft" style={{ background: '#0a0c12' }}>
-                                        <div className="absolute -inset-2 rounded-full opacity-40 blur-lg pill-grad"></div>
-                                        <img src="./app-icon.png" alt="" className="relative w-full h-full object-cover" />
-                                    </div>
+                                    <LogoMark size={36} />
                                     <div>
                                         <h3 className="text-lg font-extrabold text-white tracking-tight">
                                             {isSignUp ? '建立帳號' : '歡迎回來'}
@@ -519,7 +595,7 @@ import economicCalendar from '../economic_calendar.json';
                                             value={email}
                                             onChange={e => setEmail(e.target.value)}
                                             className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
-                                            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}
+                                            style={{ background: 'var(--wash)', border: '1px solid var(--line)' }}
                                             onFocus={e => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
                                             onBlur={e => e.target.style.borderColor = 'var(--line)'}
                                         />
@@ -533,7 +609,7 @@ import economicCalendar from '../economic_calendar.json';
                                             value={password}
                                             onChange={e => setPassword(e.target.value)}
                                             className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
-                                            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}
+                                            style={{ background: 'var(--wash)', border: '1px solid var(--line)' }}
                                             onFocus={e => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
                                             onBlur={e => e.target.style.borderColor = 'var(--line)'}
                                         />
@@ -548,7 +624,7 @@ import economicCalendar from '../economic_calendar.json';
                                                 value={confirmPassword}
                                                 onChange={e => setConfirmPassword(e.target.value)}
                                                 className="w-full rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-colors"
-                                                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}
+                                                style={{ background: 'var(--wash)', border: '1px solid var(--line)' }}
                                                 onFocus={e => e.target.style.borderColor = 'rgba(139,92,246,0.5)'}
                                                 onBlur={e => e.target.style.borderColor = 'var(--line)'}
                                             />
@@ -556,7 +632,7 @@ import economicCalendar from '../economic_calendar.json';
                                     )}
 
                                     {msg && (
-                                        <div className="text-xs text-center px-3 py-2 rounded-lg" style={{ background: 'rgba(255,91,110,0.08)', color: '#ff7d8c', border: '1px solid rgba(255,91,110,0.2)' }}>
+                                        <div className="text-xs text-center px-3 py-2 rounded-lg" style={{ background: 'rgba(255,91,110,0.08)', color: 'var(--down)', border: '1px solid rgba(255,91,110,0.2)' }}>
                                             {msg}
                                         </div>
                                     )}
@@ -680,101 +756,71 @@ import economicCalendar from '../economic_calendar.json';
             };
 
             if (!started) return (
-                <div className="mt-4">
+                <div className="fs-rule" style={{ borderBottom: '1px solid var(--rule)' }}>
                     <button
                         onClick={isLocked ? () => { } : handleAnalyze}
                         disabled={isLocked}
-                        className={`w-full relative overflow-hidden rounded-2xl p-4 flex items-center justify-between transition-all ${
-                            isLocked ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.01] glow-brand'
-                        }`}
-                        style={{
-                            background: isLocked
-                                ? 'rgba(255,255,255,0.03)'
-                                : 'linear-gradient(135deg, #1a1730 0%, #1a2540 50%, #2b1b3a 100%)',
-                            border: isLocked ? '1px solid var(--line)' : '1px solid rgba(139,92,246,0.4)'
-                        }}
+                        className={`w-full py-3.5 flex items-center justify-between gap-3 text-left ${isLocked ? 'cursor-not-allowed' : ''}`}
                     >
-                        <div className="absolute inset-0 dotgrid opacity-40 pointer-events-none"></div>
-                        <div className="relative flex items-center gap-3 min-w-0">
-                            <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: isLocked ? 'rgba(255,255,255,0.06)' : 'linear-gradient(135deg,#3b82f6,#8b5cf6)' }}>
-                                {isLocked ? <Lock size={20} className="text-slate-400" /> : <Bot size={22} className="text-white" />}
-                            </div>
-                            <div className="text-left min-w-0">
-                                <div className="text-sm font-bold text-white flex items-center gap-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                            {isLocked ? <Lock size={18} style={{ color: 'var(--ink-3)' }} /> : <Bot size={20} style={{ color: 'var(--ink)' }} />}
+                            <div className="min-w-0">
+                                <div className="text-[15px] font-bold flex items-center gap-2" style={{ color: 'var(--ink)' }}>
                                     AI 投資顧問
-                                    {isLocked
-                                        ? <span className="chip chip-warn">PRO</span>
-                                        : <span className="chip" style={{ background: 'rgba(139,92,246,0.18)', color: '#c4b5fd' }}>GEMINI</span>
-                                    }
+                                    {isLocked ? <span className="fs-chip" style={{ color: 'var(--ink)' }}>PRO</span> : <span className="fs-chip" style={{ color: 'var(--ink-2)' }}>GEMINI</span>}
                                 </div>
-                                <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-2)' }}>
+                                <div className="text-[13px] mt-0.5 truncate" style={{ color: 'var(--ink-2)' }}>
                                     {isLocked ? '升級 Pro 解鎖 Gemini 深度分析' : '根據情緒指數 + 價格走勢產出個人化建議'}
                                 </div>
                             </div>
                         </div>
-                        <div className="relative shrink-0 ml-3">
-                            {isLocked
-                                ? <span className="text-xs font-bold px-3 py-1.5 rounded-full" style={{ background: 'linear-gradient(135deg,#f59e0b,#f43f5e)', color: '#fff' }}>升級</span>
-                                : <span className="text-xs font-bold px-3 py-1.5 rounded-full pill-grad text-white">分析 →</span>
-                            }
-                        </div>
+                        <span className={`fs-btn sm shrink-0 ${isLocked ? '' : 'solid'}`}>{isLocked ? '升級' : '分析 →'}</span>
                     </button>
                 </div>
             );
 
             if (loading) return (
-                <div className="mt-4 p-4 rounded-2xl flex items-center gap-3 text-sm" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.2)', color: 'var(--text-2)' }}>
-                    <RefreshCw className="animate-spin" size={16} style={{ color: '#a78bfa' }} />
+                <div className="py-4 flex items-center gap-3 text-sm fs-rule" style={{ color: 'var(--ink-2)', borderBottom: '1px solid var(--rule)' }}>
+                    <RefreshCw className="animate-spin" size={16} />
                     <span>AI 正在分析市場數據...</span>
-                    <span className="flex gap-1 ml-auto">
-                        <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#a78bfa' }}></span>
-                        <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#a78bfa', animationDelay: '0.2s' }}></span>
-                        <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: '#a78bfa', animationDelay: '0.4s' }}></span>
-                    </span>
                 </div>
             );
 
             if (!advice) return null;
 
             return (
-                <div className="mt-4 rounded-2xl relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #14141c 0%, #1a1730 100%)', border: '1px solid rgba(139,92,246,0.3)' }}>
-                    <div className="absolute inset-0 dotgrid opacity-30 pointer-events-none"></div>
-                    <div className="absolute top-0 left-0 w-1 h-full pill-grad"></div>
-                    <div className="relative p-5">
-                        <div className="flex justify-between items-start mb-3">
-                            <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg flex items-center justify-center pill-grad">
-                                    <Bot size={14} className="text-white" />
-                                </div>
-                                <h4 className="font-bold text-white text-sm">AI 投資顧問建議</h4>
-                                <span className="chip" style={{ background: 'rgba(139,92,246,0.18)', color: '#c4b5fd' }}>GEMINI</span>
-                            </div>
-                            <button onClick={() => { setAdvice(null); setStarted(false); }} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors" style={{ color: 'var(--text-3)' }}>
-                                <RefreshCw size={14} />
-                            </button>
+                <div className="fs-rule pt-4 pb-5" style={{ borderBottom: '1px solid var(--rule)' }}>
+                    <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-2">
+                            <Bot size={18} style={{ color: 'var(--ink)' }} />
+                            <h4 className="font-bold text-[15px]" style={{ color: 'var(--ink)' }}>AI 投資顧問建議</h4>
+                            <span className="fs-chip" style={{ color: 'var(--ink-2)' }}>GEMINI</span>
                         </div>
-
-                        {priceStats && (
-                            <div className="grid grid-cols-3 gap-2 mb-4 pb-4 border-b" style={{ borderColor: 'var(--line)' }}>
-                                <div>
-                                    <div className="label mb-1">當前</div>
-                                    <div className="text-sm font-bold text-white num">${formatPrice(priceStats.current)}</div>
-                                </div>
-                                <div>
-                                    <div className="label mb-1">1Y 高</div>
-                                    <div className="text-sm font-bold num" style={{ color: '#3ce0a8' }}>${formatPrice(priceStats.high)}</div>
-                                </div>
-                                <div>
-                                    <div className="label mb-1">1Y 低</div>
-                                    <div className="text-sm font-bold num" style={{ color: '#ff7d8c' }}>${formatPrice(priceStats.low)}</div>
-                                </div>
-                            </div>
-                        )}
-
-                        <p className="text-sm leading-relaxed" style={{ color: 'var(--text-2)' }}>
-                            {advice}
-                        </p>
+                        <button onClick={() => { setAdvice(null); setStarted(false); }} className="p-1.5 transition-colors" style={{ color: 'var(--ink-3)' }} aria-label="重新分析">
+                            <RefreshCw size={14} />
+                        </button>
                     </div>
+
+                    {priceStats && (
+                        <div className="grid grid-cols-3 mb-4" style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--rule)' }}>
+                            <div className="py-2">
+                                <div className="fs-lbl">當前</div>
+                                <div className="text-[15px] font-bold num" style={{ color: 'var(--ink)' }}>${formatPrice(priceStats.current)}</div>
+                            </div>
+                            <div className="py-2 pl-3" style={{ borderLeft: '1px solid var(--rule)' }}>
+                                <div className="fs-lbl">1Y 高</div>
+                                <div className="text-[15px] font-bold num" style={{ color: 'var(--up)' }}>${formatPrice(priceStats.high)}</div>
+                            </div>
+                            <div className="py-2 pl-3" style={{ borderLeft: '1px solid var(--rule)' }}>
+                                <div className="fs-lbl">1Y 低</div>
+                                <div className="text-[15px] font-bold num" style={{ color: 'var(--down)' }}>${formatPrice(priceStats.low)}</div>
+                            </div>
+                        </div>
+                    )}
+
+                    <p className="text-[15px] leading-relaxed" style={{ color: 'var(--ink-2)' }}>
+                        {advice}
+                    </p>
                 </div>
             );
         };
@@ -800,9 +846,9 @@ import economicCalendar from '../economic_calendar.json';
             .map(e => ({ ...e, at: etToDate(e.date, e.time_et) }))
             .sort((a, b) => a.at - b.at);
         const IMPACT_STYLE = {
-            high: { color: '#ff5b6e', label: '高' },
-            medium: { color: '#f59e0b', label: '中' },
-            low: { color: '#6b7080', label: '低' },
+            high: { color: 'var(--down)', label: '高' },
+            medium: { color: 'var(--amber)', label: '中' },
+            low: { color: 'var(--ink-3)', label: '低' },
         };
         const hasHighImpactSoon = (now = Date.now()) =>
             CALENDAR_EVENTS.some(e => e.impact === 'high' && e.at > now && e.at - now < 24 * 3600 * 1000);
@@ -867,7 +913,7 @@ import economicCalendar from '../economic_calendar.json';
                             {groups.map(g => (
                                 <div key={g.key}>
                                     <div className="flex items-center gap-2 mb-2">
-                                        <span className="text-xs font-bold" style={{ color: g.key === todayKey ? '#a78bfa' : 'var(--text-2)' }}>
+                                        <span className="text-xs font-bold" style={{ color: g.key === todayKey ? 'var(--accent)' : 'var(--text-2)' }}>
                                             {TW_DAY.format(g.items[0].at)}{g.key === todayKey ? ' · 今天' : ''}
                                         </span>
                                         <div className="h-px flex-1" style={{ background: 'var(--line)' }}></div>
@@ -877,7 +923,7 @@ import economicCalendar from '../economic_calendar.json';
                                             const s = IMPACT_STYLE[e.impact] || IMPACT_STYLE.low;
                                             const past = e.at <= now;
                                             return (
-                                                <div key={e.date + e.type + e.title} className={`flex items-center gap-3 p-2.5 rounded-xl ${past ? 'opacity-50' : ''}`} style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                                <div key={e.date + e.type + e.title} className={`flex items-center gap-3 p-2.5 rounded-xl ${past ? 'opacity-50' : ''}`} style={{ background: 'var(--wash)' }}>
                                                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }}></span>
                                                     <span className="text-sm font-bold num w-12 shrink-0 text-white">{TW_TIME.format(e.at)}</span>
                                                     <div className="min-w-0 flex-1">
@@ -903,7 +949,7 @@ import economicCalendar from '../economic_calendar.json';
                             )}
                         </div>
 
-                        <div className="p-3 text-center border-t" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,0.02)' }}>
+                        <div className="p-3 text-center border-t" style={{ borderColor: 'var(--line)', background: 'var(--wash)' }}>
                             <p className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>SOURCE · FED / BLS / BEA / CENSUS · 暫定=依規則推估</p>
                         </div>
                     </div>
@@ -941,10 +987,10 @@ import economicCalendar from '../economic_calendar.json';
             };
 
             if (!started) return (
-                <div className="mb-6 text-center">
+                <div className="mb-6">
                     <button
                         onClick={handleAnalyze}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold flex items-center gap-2 mx-auto transition-all shadow-lg shadow-blue-500/20"
+                        className="fs-btn solid"
                     >
                         <Newspaper size={16} />
                         AI 分析今日新聞重點
@@ -953,10 +999,10 @@ import economicCalendar from '../economic_calendar.json';
             );
 
             if (isLocked) return (
-                <div className="mb-6 text-center">
+                <div className="mb-6">
                     <button
                         disabled
-                        className="px-4 py-2 bg-slate-700 text-slate-400 rounded-lg text-sm font-bold flex items-center gap-2 mx-auto transition-all shadow-lg border border-slate-600 cursor-not-allowed"
+                        className="fs-btn"
                     >
                         <Lock size={16} />
                         AI 分析今日新聞重點
@@ -990,115 +1036,178 @@ import economicCalendar from '../economic_calendar.json';
             );
         };
 
+        // Fear & Greed zones: [upper bound, label]; colours come from --z0..--z4
+        const FNG_ZONES = [
+            [25, '極度恐懼'], [44, '恐懼'], [55, '中立'], [74, '貪婪'], [100, '極度貪婪'],
+        ];
+        const fngZoneIndex = (v) => FNG_ZONES.findIndex(([max]) => v <= max);
+
+        // Dial gauge drawn in real pixels so labels stay legible at every width.
         const FearGreedGauge = ({ fngValue, classification }) => {
-            // FNG 0..100 → 角度 180..0 (左→右)
-            const v = Math.min(100, Math.max(0, fngValue ?? 50));
-            const angleFromRight = (v / 100) * 180;
-            const indicatorAngleDeg = 180 - angleFromRight;
+            const [boxRef, width] = useWidth();
+            const hasValue = fngValue !== null && fngValue !== undefined && fngValue !== '';
+            const v = Math.min(100, Math.max(0, hasValue ? Number(fngValue) : 50));
+            const zi = fngZoneIndex(v);
+            const [armed, setArmed] = useState(false);
+            useEffect(() => {
+                // Arm after first paint; the timeout covers throttled or hidden frames where rAF never fires
+                const id = requestAnimationFrame(() => requestAnimationFrame(() => setArmed(true)));
+                const t = setTimeout(() => setArmed(true), 120);
+                return () => { cancelAnimationFrame(id); clearTimeout(t); };
+            }, []);
 
-            const size = 220;
-            const cx = 110;
-            const cy = 130;
-            const r = 88;
-            const strokeWidth = 16;
-
-            const polar = (deg) => {
-                const rad = deg * Math.PI / 180;
-                return { x: cx + r * Math.cos(rad), y: cy - r * Math.sin(rad) };
+            const W = Math.max(280, Math.min(width || 560, 620));
+            const R = W * 0.4, band = Math.max(12, W * 0.03);
+            const cx = W / 2, cy = R + (W < 420 ? 34 : 44);
+            const H = cy + 26;
+            const ang = (val) => Math.PI * (1 - val / 100);
+            const pt = (val, r) => [cx + r * Math.cos(ang(val)), cy - r * Math.sin(ang(val))];
+            const arc = (a, b, r) => {
+                const [x1, y1] = pt(a, r), [x2, y2] = pt(b, r);
+                return `M${x1} ${y1} A${r} ${r} 0 0 1 ${x2} ${y2}`;
             };
-            const pStart = polar(180);
-            const pEnd = polar(0);
-
-            const trackPath = `M ${pStart.x} ${pStart.y} A ${r} ${r} 0 0 1 ${pEnd.x} ${pEnd.y}`;
-            const arcLength = Math.PI * r;
-            const dashOffset = arcLength * (1 - v / 100);
-
-            const indicator = polar(indicatorAngleDeg);
-
-            const zoneColor =
-                v <= 25 ? '#ff5b6e' :
-                v <= 44 ? '#f59e0b' :
-                v <= 55 ? '#facc15' :
-                v <= 74 ? '#84d76a' :
-                          '#00d68f';
+            const bounds = [0, ...FNG_ZONES.map(([m]) => m)];
+            const rBand = R - band;
+            const small = W < 420;
 
             return (
-                <div className="relative w-full max-w-[260px] mx-auto flex flex-col items-center">
-                    <svg viewBox={`0 0 ${size} 160`} className="w-full h-auto">
-                        <defs>
-                            <linearGradient id="fng-grad" x1="0" x2="1" y1="0" y2="0">
-                                <stop offset="0%" stopColor="#ff5b6e" />
-                                <stop offset="30%" stopColor="#f59e0b" />
-                                <stop offset="50%" stopColor="#facc15" />
-                                <stop offset="75%" stopColor="#84d76a" />
-                                <stop offset="100%" stopColor="#00d68f" />
-                            </linearGradient>
-                            <filter id="fng-glow" x="-20%" y="-20%" width="140%" height="140%">
-                                <feGaussianBlur stdDeviation="3" result="b" />
-                                <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-                            </filter>
-                        </defs>
-
-                        <path d={trackPath} stroke="rgba(255,255,255,0.06)" strokeWidth={strokeWidth} fill="none" strokeLinecap="round" />
-
-                        <path
-                            d={trackPath}
-                            stroke="url(#fng-grad)"
-                            strokeWidth={strokeWidth}
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeDasharray={arcLength}
-                            strokeDashoffset={dashOffset}
-                            filter="url(#fng-glow)"
-                            style={{ transition: 'stroke-dashoffset 1s cubic-bezier(0.16,1,0.3,1)' }}
-                        />
-
-                        <circle cx={indicator.x} cy={indicator.y} r="9" fill="#fff" style={{ transition: 'all 1s cubic-bezier(0.16,1,0.3,1)' }} />
-                        <circle cx={indicator.x} cy={indicator.y} r="4" fill={zoneColor} style={{ transition: 'all 1s cubic-bezier(0.16,1,0.3,1)' }} />
-                    </svg>
-
-                    <div className="absolute" style={{ top: '52%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-                        <div className="num font-extrabold leading-none" style={{ fontSize: '44px', color: '#fff' }}>{fngValue ?? '--'}</div>
-                        <div className="text-xs font-bold mt-1" style={{ color: zoneColor }}>{classification ?? ''}</div>
-                    </div>
-
-                    <div className="w-full grid grid-cols-5 gap-1 mt-2 text-[10px] mono" style={{ color: 'var(--text-3)' }}>
-                        <div className="text-center">極度恐懼</div>
-                        <div className="text-center">恐懼</div>
-                        <div className="text-center">中立</div>
-                        <div className="text-center">貪婪</div>
-                        <div className="text-center">極度貪婪</div>
-                    </div>
+                <div ref={boxRef} className="w-full max-w-[620px] mx-auto">
+                    {width > 0 && (
+                        <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`恐懼與貪婪指數 ${hasValue ? fngValue : '--'} ${classification ?? ''}`} style={{ display: 'block', overflow: 'visible' }}>
+                            {FNG_ZONES.map(([, label], i) => (
+                                <path key={label} d={arc(bounds[i] + 0.6, bounds[i + 1] - 0.6, rBand)} fill="none"
+                                    style={{ stroke: `var(--z${i})`, strokeWidth: hasValue && i === zi ? band * 1.9 : band, opacity: hasValue && i === zi ? 1 : 0.38 }} />
+                            ))}
+                            {Array.from({ length: 51 }, (_, k) => {
+                                const val = k * 2, big = val % 10 === 0;
+                                const [x1, y1] = pt(val, R + 4), [x2, y2] = pt(val, R + (big ? 16 : 10));
+                                const [tx, ty] = pt(val, R + 30);
+                                return (
+                                    <g key={val}>
+                                        <line x1={x1} y1={y1} x2={x2} y2={y2} style={{ stroke: 'var(--ink)', strokeWidth: big ? 1.5 : 0.75 }} />
+                                        {big && (!small || val % 20 === 0) && (
+                                            <text x={tx} y={ty + 4} textAnchor="middle" style={{ fill: 'var(--ink-3)', fontSize: 12 }}>{val}</text>
+                                        )}
+                                    </g>
+                                );
+                            })}
+                            {FNG_ZONES.map(([, label], i) => {
+                                const [tx, ty] = pt((bounds[i] + bounds[i + 1]) / 2, rBand - band * (hasValue && i === zi ? 1.6 : 1.2) - 10);
+                                const on = hasValue && i === zi;
+                                return (
+                                    <text key={label} x={tx} y={ty + 4} textAnchor="middle"
+                                        style={{ fill: on ? 'var(--ink)' : 'var(--ink-3)', fontSize: small ? 11 : 13, fontWeight: on ? 900 : 500 }}>{label}</text>
+                                );
+                            })}
+                            {hasValue && (
+                                <g className="fs-needle" style={{ transformOrigin: `${cx}px ${cy}px`, transform: `rotate(${((armed ? v : 0) / 100) * 180 - 90}deg)` }}>
+                                    {/* Pointer lives on the outer ring only, so it never crosses the reading */}
+                                    <line x1={cx} y1={cy - R * 0.58} x2={cx} y2={cy - R - 3} style={{ stroke: 'var(--ink)', strokeWidth: 3.5, strokeLinecap: 'round' }} />
+                                    <circle cx={cx} cy={cy - R * 0.58} r={4} style={{ fill: 'var(--ink)' }} />
+                                </g>
+                            )}
+                            <text x={cx} y={cy - 18} textAnchor="middle" className="num"
+                                style={{ fill: 'var(--ink)', fontSize: Math.round(Math.min(W * 0.2, 118)), fontWeight: 900, letterSpacing: '-0.04em' }}>
+                                {hasValue ? fngValue : '--'}
+                            </text>
+                            <text x={cx} y={cy + 8} textAnchor="middle" style={{ fill: 'var(--ink)', fontSize: 16, fontWeight: 700 }}>{classification ?? ''}</text>
+                        </svg>
+                    )}
                 </div>
             );
         };
+
+        // DCA strategy column that sits beside the dial: verdict, the one accent block, action scale
+        const DCA_ACTIONS = ['強力買入', '分批買入', '持有觀望', '停止買入', '止盈/減倉'];
+        const DcaStrategy = ({ suggestion, children, label = 'DCA 策略', actions = DCA_ACTIONS }) => (
+            <div className="min-w-0">
+                <div className="flex items-baseline gap-3 flex-wrap">
+                    <span className="fs-lbl">{label}</span>
+                    <span className="text-2xl font-black" style={{ color: 'var(--ink)' }}>{suggestion.title}</span>
+                </div>
+                <p className="mt-1.5 text-[15px] leading-relaxed" style={{ color: 'var(--ink-2)' }}>{suggestion.desc}</p>
+                <div className="fs-action mt-5">
+                    <span className="fs-lbl">當前操作</span>
+                    <span className="text-2xl font-black">{suggestion.action}</span>
+                </div>
+                <div className="fs-steps mt-4">
+                    {actions.map(a => <span key={a} className={a === suggestion.action ? 'on' : ''}>{a}</span>)}
+                </div>
+                {children}
+            </div>
+        );
+
+        // Stock / Taiwan dashboards end the scale with 考慮止盈 and call the middle step 持有/觀望
+        const MARKET_ACTIONS = ['強力買入', '分批買入', '持有/觀望', '停止買入', '考慮止盈'];
+
+        // Fear buy points on a price line: extreme fear = filled triangle, fear = hollow ring, others unmarked
+        const fearPointProps = (values, extreme = 25, fear = 44) => ({
+            pointStyle: values.map(v => (v <= extreme ? 'triangle' : 'circle')),
+            pointBackgroundColor: values.map(v => (v <= extreme ? CHART.fear : 'rgba(0,0,0,0)')),
+            pointBorderColor: values.map(v => (v <= extreme ? CHART.fear : v <= fear ? CHART.fearLight : 'rgba(0,0,0,0)')),
+            pointBorderWidth: values.map(v => (v <= extreme ? 0 : 1.2)),
+            pointRadius: values.map(v => (v <= extreme ? 3.5 : v <= fear ? 2.2 : 0)),
+            pointHoverRadius: 5,
+        });
+        // Printed-figure chart caption + x axis
+        const figureTitle = (text) => ({ display: true, text, color: CHART.tick, align: 'start', font: { size: 12, weight: '500' } });
+        const figureX = () => ({ grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: window.innerWidth < 640 ? 4 : 8, maxRotation: 0, autoSkipPadding: 12 } });
+
+        // Watchlist star drawn in the icon set's stroke
+        const WatchStar = ({ on, onClick }) => (
+            <button onClick={onClick} className="p-1 transition-colors" aria-pressed={on} aria-label="觀察清單"
+                style={{ color: on ? 'var(--accent)' : 'var(--ink-3)' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill={on ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
+                </svg>
+            </button>
+        );
+
+        // A price-history figure: heading with watch star, 進階分析 link, time range, chart
+        const HistorySection = ({ title, watch, onAdvanced, range, onRange, children, height = 'h-[300px] sm:h-[350px]' }) => (
+            <section className="fs-section mt-10">
+                <div className="fs-head">
+                    <h2 className="fs-title flex items-center gap-2">{title}{watch}</h2>
+                    <div className="flex items-center gap-4 flex-wrap">
+                        <button onClick={onAdvanced} className="text-[14px] underline underline-offset-4" style={{ color: 'var(--ink)' }} title="進階技術分析">進階分析</button>
+                        <TimeRangeSelector range={range} onRangeChange={onRange} />
+                    </div>
+                </div>
+                <div className={`${height} w-full relative`}>{children}</div>
+            </section>
+        );
+
+        // Headlines section: AI summary button, top-3 list, full list
+        const NewsBlock = ({ title, news, loading, error, ready, isLocked }) => (
+            <section className="fs-section mt-10">
+                <div className="fs-head"><h2 className="fs-title">{title}</h2></div>
+                {ready && news.length > 0 && <><NewsAIAnalysis newsItems={news} isLocked={isLocked} /><NewsSummary news={news} /></>}
+                <NewsSection news={news} loading={loading} error={error} />
+            </section>
+        );
+
+        const SourceNote = ({ children }) => (
+            <p className="mt-10 pt-3 text-[12px]" style={{ color: 'var(--ink-3)', borderTop: '1px solid var(--rule)' }}>{children}</p>
+        );
 
         // --- 新聞摘要元件 ---
         const NewsSummary = ({ news }) => {
             const topNews = news.slice(0, 3);
             return (
-                <div className="rounded-2xl p-5 mb-4 relative overflow-hidden ring-soft" style={{ background: 'linear-gradient(135deg, #14141c 0%, #181b25 100%)' }}>
-                    <div className="absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none opacity-30" style={{ background: 'radial-gradient(circle, #3b82f6, transparent)' }}></div>
-                    <div className="relative">
-                        <div className="flex items-center gap-2 mb-4">
-                            <div className="w-8 h-8 rounded-lg flex items-center justify-center pill-grad">
-                                <Sparkles size={16} className="text-white" />
-                            </div>
-                            <div>
-                                <div className="label">今日重點</div>
-                                <h3 className="text-base font-bold text-white">市場頭條</h3>
-                            </div>
-                        </div>
-                        <div className="space-y-2.5">
-                            {topNews.map((item, index) => (
-                                <a key={index} href={item.link} target="_blank" rel="noopener noreferrer" className="flex gap-3 items-start group p-2 rounded-xl hover:bg-white/[0.03] transition-colors">
-                                    <span className="mono text-xs font-bold w-6 shrink-0" style={{ color: 'var(--text-3)' }}>0{index + 1}</span>
-                                    <span className="text-sm leading-snug line-clamp-2 group-hover:text-white transition-colors" style={{ color: 'var(--text-2)' }}>
-                                        {item.title}
-                                    </span>
-                                </a>
-                            ))}
-                        </div>
+                <div className="mb-6 pb-2" style={{ borderBottom: '1px solid var(--ink)' }}>
+                    <div className="flex items-baseline justify-between gap-3 mb-1">
+                        <h3 className="fs-title-sm flex items-center gap-2"><Sparkles size={15} style={{ color: 'var(--ink)' }} />市場頭條</h3>
+                        <span className="fs-lbl">今日重點</span>
+                    </div>
+                    <div>
+                        {topNews.map((item, index) => (
+                            <a key={index} href={item.link} target="_blank" rel="noopener noreferrer" className="flex gap-3 items-baseline group py-2.5" style={{ borderTop: index ? '1px solid var(--rule)' : 'none' }}>
+                                <span className="num text-[13px] font-bold w-6 shrink-0" style={{ color: 'var(--ink-3)' }}>0{index + 1}</span>
+                                <span className="text-[15px] leading-snug line-clamp-2 group-hover:underline underline-offset-4" style={{ color: 'var(--ink)' }}>
+                                    {item.title}
+                                </span>
+                            </a>
+                        ))}
                     </div>
                 </div>
             );
@@ -1115,7 +1224,7 @@ import economicCalendar from '../economic_calendar.json';
             }
             if (error) {
                 return (
-                    <div className="text-center py-8 text-sm" style={{ color: '#ff7d8c' }}>
+                    <div className="text-center py-8 text-sm" style={{ color: 'var(--down)' }}>
                         無法載入新聞: {error}
                     </div>
                 );
@@ -1124,34 +1233,33 @@ import economicCalendar from '../economic_calendar.json';
             const displayNews = news.slice(0, 6);
 
             return (
-                <div className="rounded-2xl overflow-hidden ring-soft divide-y" style={{ background: 'var(--surface)', borderColor: 'var(--line)' }}>
+                <div className="grid md:grid-cols-2 md:gap-x-8">
                     {displayNews.map((item, index) => (
                         <a
                             key={index}
                             href={item.link}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="group flex items-stretch hover:bg-white/[0.03] transition-colors"
-                            style={{ borderColor: 'var(--line)' }}
+                            className="group flex items-stretch gap-3 py-3.5"
+                            style={{ borderBottom: '1px solid var(--rule)' }}
                         >
-                            <div className="w-1 shrink-0" style={{ background: index === 0 ? 'linear-gradient(180deg,#3b82f6,#8b5cf6)' : 'rgba(255,255,255,0.06)' }}></div>
-                            <div className="p-4 flex flex-col justify-between flex-1 min-w-0">
-                                <h4 className="font-semibold text-sm sm:text-base line-clamp-2 leading-snug text-white group-hover:text-grad transition-colors">
+                            <div className="flex flex-col justify-between flex-1 min-w-0">
+                                <h4 className="font-medium text-[15px] line-clamp-2 leading-snug group-hover:underline underline-offset-4" style={{ color: 'var(--ink)' }}>
                                     {item.title}
                                 </h4>
-                                <div className="flex items-center justify-between text-xs mt-2" style={{ color: 'var(--text-3)' }}>
-                                    <span className="mono">{new Date(item.pubDate).toLocaleDateString()}</span>
-                                    <span className="flex items-center gap-1 group-hover:text-white transition-colors">
+                                <div className="flex items-center justify-between text-xs mt-2" style={{ color: 'var(--ink-3)' }}>
+                                    <span className="num">{new Date(item.pubDate).toLocaleDateString()}</span>
+                                    <span className="flex items-center gap-1">
                                         閱讀 <ExternalLink size={11} />
                                     </span>
                                 </div>
                             </div>
                             {item.thumbnail && (
-                                <div className="w-24 sm:w-32 shrink-0 relative overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                                <div className="w-20 sm:w-24 h-16 shrink-0 relative overflow-hidden" style={{ background: 'var(--surface-2)' }}>
                                     <img
                                         src={item.thumbnail}
                                         alt={item.title}
-                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                        className="w-full h-full object-cover"
                                         onError={(e) => { e.currentTarget.parentElement.style.display = 'none'; }}
                                     />
                                 </div>
@@ -1182,7 +1290,7 @@ import economicCalendar from '../economic_calendar.json';
                     ctx.beginPath();
                     ctx.setLineDash([5, 5]);
                     ctx.lineWidth = 1;
-                    ctx.strokeStyle = 'rgba(76, 194, 255, 0.45)';
+                    ctx.strokeStyle = CHART.tick;
 
                     // Vertical Line
                     ctx.moveTo(x, topY);
@@ -1207,7 +1315,8 @@ import economicCalendar from '../economic_calendar.json';
             id: 'dotGrid',
             beforeDatasetsDraw: (chart) => {
                 const { ctx, chartArea } = chart;
-                if (!chartArea) return;
+                // Factsheet charts draw on plain paper; the dot grid is retired.
+                if (!chartArea || true) return;
                 const { left, top, right, bottom } = chartArea;
                 ctx.save();
                 ctx.beginPath();
@@ -1237,8 +1346,8 @@ import economicCalendar from '../economic_calendar.json';
                 const dataset = chart.data.datasets[args.index];
                 if (dataset.type && dataset.type !== 'line') return;
                 ctx.save();
-                ctx.shadowColor = 'rgba(59, 130, 246, 0.55)';
-                ctx.shadowBlur = 6;
+                ctx.shadowColor = 'rgba(0,0,0,0)';
+                ctx.shadowBlur = 0;
                 ctx.shadowOffsetX = 0;
                 ctx.shadowOffsetY = 0;
             },
@@ -1250,6 +1359,7 @@ import economicCalendar from '../economic_calendar.json';
         const ChartComponent = ({ data, options, type = 'line' }) => {
             const chartRef = useRef(null);
             const chartInstance = useRef(null);
+            const themeV = useThemeVersion();
 
             useEffect(() => {
                 if (!chartRef.current) return;
@@ -1268,7 +1378,7 @@ import economicCalendar from '../economic_calendar.json';
                         chartInstance.current.destroy();
                     }
                 };
-            }, [data, options, type]);
+            }, [data, options, type, themeV]);
 
             return <canvas ref={chartRef} />;
         };
@@ -1286,43 +1396,27 @@ import economicCalendar from '../economic_calendar.json';
             const fearPercent = (fearCount / total) * 100;
             const otherPercent = (otherCount / total) * 100;
 
+            const segments = [
+                { key: 'xf', pct: extremeFearPercent, bg: 'var(--z0)', tip: `極度恐懼: ${extremeFearCount} 天 (${extremeFearPercent.toFixed(1)}%)` },
+                { key: 'f',  pct: fearPercent,        bg: 'var(--z1)', tip: `恐懼: ${fearCount} 天 (${fearPercent.toFixed(1)}%)` },
+                { key: 'o',  pct: otherPercent,       bg: 'var(--faint)', tip: `其他: ${otherCount} 天 (${otherPercent.toFixed(1)}%)` },
+            ];
+
             return (
-                <div className="mt-4 mb-1">
-                    <div className="flex justify-between items-end mb-1">
-                        <h4 className="text-xs font-bold text-slate-400">{title}</h4>
-                        <div className="text-[10px] text-slate-500">
-                            <span className="text-red-400 font-bold">{extremeFearCount}天</span> 極度恐懼 •
-                            <span className="text-orange-400 font-bold ml-1">{fearCount}天</span> 恐懼
-                        </div>
+                <div className="mt-6 text-left">
+                    <h4 className="text-[13px]" style={{ color: 'var(--ink-2)' }}>{title}</h4>
+                    <div className="w-full h-2 flex gap-[2px] mt-2">
+                        {segments.filter(s => s.pct > 0).map(s => (
+                            <div key={s.key} style={{ width: `${s.pct}%`, background: s.bg }} className="h-full relative group">
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block text-[12px] px-2 py-1 whitespace-nowrap z-10 glass-strong" style={{ color: 'var(--ink)' }}>
+                                    {s.tip}
+                                </div>
+                            </div>
+                        ))}
                     </div>
-                    <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden flex relative">
-                        {/* Extreme Fear Segment */}
-                        <div
-                            style={{ width: `${extremeFearPercent}%` }}
-                            className="h-full bg-red-500 hover:bg-red-400 transition-colors relative group"
-                        >
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap border border-slate-700 z-10">
-                                極度恐懼: {extremeFearCount} 天 ({extremeFearPercent.toFixed(1)}%)
-                            </div>
-                        </div>
-                        {/* Fear Segment */}
-                        <div
-                            style={{ width: `${fearPercent}%` }}
-                            className="h-full bg-orange-500 hover:bg-orange-400 transition-colors relative group"
-                        >
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap border border-slate-700 z-10">
-                                恐懼: {fearCount} 天 ({fearPercent.toFixed(1)}%)
-                            </div>
-                        </div>
-                        {/* Other Segment */}
-                        <div
-                            style={{ width: `${otherPercent}%` }}
-                            className="h-full bg-blue-500/30 hover:bg-blue-500/40 transition-colors relative group"
-                        >
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap border border-slate-700 z-10">
-                                其他: {otherCount} 天 ({otherPercent.toFixed(1)}%)
-                            </div>
-                        </div>
+                    <div className="text-[13px] mt-1.5" style={{ color: 'var(--ink-2)' }}>
+                        <span className="font-bold num" style={{ color: 'var(--down)' }}>{extremeFearCount}天</span> 極度恐懼 •
+                        <span className="font-bold num ml-1" style={{ color: 'var(--amber)' }}>{fearCount}天</span> 恐懼
                     </div>
                 </div>
             );
@@ -1332,21 +1426,17 @@ import economicCalendar from '../economic_calendar.json';
         const IndexPriceCard = ({ name, symbol, logo, data, active = false, editMode = false, onClick, currency = '$' }) => {
             const handleClick = () => { if (!editMode && onClick) onClick(); };
             return (
-                <div
-                    onClick={handleClick}
-                    className={`${editMode || !onClick ? '' : 'cursor-pointer'} flex flex-col p-2.5 md:p-4 rounded-xl border transition-all h-full ${active ? 'bg-slate-800 border-blue-500 shadow-lg' : 'bg-slate-900/50 border-slate-800'}`}
-                >
-                    <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                            {logo
-                                ? <img src={logo} className="w-5 h-5 md:w-6 md:h-6 shrink-0" alt={name} onError={(e) => { e.target.style.display = 'none'; }} />
-                                : <div className="w-5 h-5 md:w-6 md:h-6 shrink-0 rounded-full bg-slate-700 flex items-center justify-center text-[10px] md:text-xs text-slate-300">{name.slice(0, 1)}</div>
-                            }
-                            <span className="font-bold text-white text-sm md:text-base truncate">{name}</span>
-                        </div>
-                    </div>
-                    <div className="text-base md:text-xl font-mono text-white truncate">{data ? `${currency}${formatPrice(data.price)}` : '...'}</div>
-                    {data && <div className={`text-[11px] md:text-xs ${data.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>{data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%</div>}
+                <div onClick={handleClick} className={`${editMode || !onClick ? '' : 'cursor-pointer'} fs-ticker ${active ? 'on' : ''}`}>
+                    <span className="fs-ticker-name">
+                        {logo && <img src={logo} className="w-4 h-4 shrink-0" alt="" onError={(e) => { e.target.style.display = 'none'; }} />}
+                        {name}
+                    </span>
+                    <span className="fs-ticker-price num">{data ? `${currency}${formatPrice(data.price)}` : '...'}</span>
+                    {data && (
+                        <span className="fs-ticker-change num" style={{ color: data.changePercent >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                            {data.changePercent >= 0 ? '▲' : '▼'} {data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%
+                        </span>
+                    )}
                 </div>
             );
         };
@@ -1362,7 +1452,7 @@ import economicCalendar from '../economic_calendar.json';
             }, [symbol]);
 
             return (
-                <div className="flex gap-2 mb-4 relative">
+                <div className="flex gap-2 items-center relative">
                     <div className="relative flex-1">
                         <input
                             type="text"
@@ -1370,19 +1460,20 @@ import economicCalendar from '../economic_calendar.json';
                             onChange={(e) => setInput(transformInput(e.target.value))}
                             onKeyDown={(e) => !isLocked && e.key === 'Enter' && onSearch(input)}
                             disabled={isLocked}
-                            className={`w-full bg-slate-800 text-white px-4 py-2 rounded-lg border focus:border-blue-500 outline-none font-mono ${isLocked ? 'border-slate-700 opacity-50 cursor-not-allowed' : 'border-slate-700'}`}
+                            className={`w-full bg-transparent px-0.5 py-1.5 text-[15px] outline-none border-b-[1.5px] ${isLocked ? 'cursor-not-allowed' : ''}`}
+                            style={{ color: isLocked ? 'var(--ink-3)' : 'var(--ink)', borderColor: 'var(--ink)' }}
                             placeholder={placeholder}
                         />
                         {isLocked && (
-                            <div className="absolute inset-0 flex items-center justify-end pr-4 pointer-events-none">
-                                <Lock size={16} className="text-slate-500" />
+                            <div className="absolute inset-0 flex items-center justify-end pr-1 pointer-events-none">
+                                <Lock size={15} style={{ color: 'var(--ink-3)' }} />
                             </div>
                         )}
                     </div>
                     <button
                         onClick={() => !isLocked && onSearch(input)}
                         disabled={isLocked}
-                        className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-2 ${isLocked ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
+                        className="fs-btn sm"
                     >
                         {isLocked ? '鎖定' : <><RefreshCw size={16} /> 搜尋</>}
                     </button>
@@ -1395,7 +1486,7 @@ import economicCalendar from '../economic_calendar.json';
                                 // It receives 'isLocked'. It doesn't receive user email.
                                 // We need to update SymbolSearch props.
                             }}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold rounded-lg hover:from-amber-400 hover:to-amber-500 transition-all shadow-lg shadow-amber-900/20 whitespace-nowrap"
+                            className="fs-btn sm"
                         >
                             <Sparkles size={16} /> 升級 Pro
                         </button>
@@ -1408,15 +1499,15 @@ import economicCalendar from '../economic_calendar.json';
         const TimeRangeSelector = ({ range, onRangeChange }) => {
             const ranges = ['1M', '6M', '1Y', 'ALL'];
             return (
-                <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700">
+                <div className="flex gap-1 text-[13px]">
                     {ranges.map(r => (
                         <button
                             key={r}
                             onClick={() => onRangeChange(r)}
-                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${range === r
-                                ? 'bg-blue-600 text-white shadow-md'
-                                : 'text-slate-400 hover:text-white hover:bg-slate-700'
-                                }`}
+                            className="px-2 py-0.5 num transition-colors"
+                            style={range === r
+                                ? { border: '1.5px solid var(--ink)', color: 'var(--ink)', fontWeight: 700 }
+                                : { border: '1.5px solid transparent', color: 'var(--ink-2)' }}
                         >
                             {r}
                         </button>
@@ -1424,7 +1515,6 @@ import economicCalendar from '../economic_calendar.json';
                 </div>
             );
         };
-
 
         // Lemon Squeezy Configuration
         const LEMON_CHECKOUT_URL = 'https://smartdca.lemonsqueezy.com/buy/931e6d89-3193-4216-8c9b-a2d88c6e4acc';
@@ -1473,24 +1563,22 @@ import economicCalendar from '../economic_calendar.json';
 
             return (
                 <div>
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center justify-between mt-3 mb-1">
                         <p className="label">{title}</p>
                         <div className="flex items-center gap-1.5">
                             {editMode && onReset && (
                                 <button
                                     onClick={() => { if (confirm('還原為預設清單？')) onReset(); }}
-                                    className="px-2 py-1 rounded-md text-[10px] font-bold hover:bg-white/[0.08]"
-                                    style={{ color: 'var(--text-3)', border: '1px solid var(--line)' }}
+                                    className="fs-btn sm"
                                 >還原預設</button>
                             )}
                             <button
                                 onClick={onToggleEdit}
-                                className="px-2.5 py-1 rounded-md text-[11px] font-bold hover:bg-white/[0.08] transition-all"
-                                style={{ color: editMode ? 'var(--brand-1)' : 'var(--text-2)', border: '1px solid ' + (editMode ? 'var(--brand-1)' : 'var(--line)') }}
+                                className={`fs-btn sm ${editMode ? 'solid' : ''}`}
                             >{editMode ? '完成' : '編輯'}</button>
                         </div>
                     </div>
-                    <div className={`flex gap-2 md:gap-4 flex-wrap ${mobileRow ? 'flex-row' : 'flex-col md:flex-row'}`}>
+                    <div className={`fs-tickers flex gap-2 md:gap-4 flex-wrap ${mobileRow ? 'flex-row' : 'flex-col md:flex-row'}`}>
                         {childArr.map((child, i) => (
                             <div
                                 key={(cards[i] && cards[i].id) || i}
@@ -1506,7 +1594,7 @@ import economicCalendar from '../economic_calendar.json';
                                     dragIdx.current = null;
                                     setDragOverIdx(null);
                                 }}
-                                className={`relative flex-1 ${mobileRow ? 'basis-0 min-w-[96px]' : 'min-w-0'} md:min-w-[180px] transition-transform ${editMode ? 'cursor-move' : ''} ${dragOverIdx === i && dragIdx.current !== null && dragIdx.current !== i ? 'ring-2 ring-cyan-400 scale-[1.02]' : ''}`}
+                                className={`relative flex-1 ${mobileRow ? 'basis-0 min-w-[96px]' : 'min-w-0'} md:min-w-[180px] transition-transform ${editMode ? 'cursor-move' : ''} ${dragOverIdx === i && dragIdx.current !== null && dragIdx.current !== i ? 'ring-2 ring-offset-2 scale-[1.02]' : ''}`}
                             >
                                 {editMode && (
                                     <>
@@ -1518,7 +1606,7 @@ import economicCalendar from '../economic_calendar.json';
                                         <button
                                             onClick={(e) => { e.stopPropagation(); onRemove(cards[i].id); }}
                                             className="absolute top-2 right-2 z-10 w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-500/30"
-                                            style={{ background: 'rgba(0,0,0,0.5)', color: '#ff7d8c' }}
+                                            style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--down)' }}
                                             title="移除"
                                         >✕</button>
                                     </>
@@ -1774,6 +1862,7 @@ import economicCalendar from '../economic_calendar.json';
                 };
             };
             const suggestion = fngData ? getSuggestion(fngData.value) : null;
+            useThemeVersion();
 
             // Stock Price vs FNG Chart (Mixed Chart)
             const StockFNGChart = ({ data, symbol }) => {
@@ -1788,25 +1877,10 @@ import economicCalendar from '../economic_calendar.json';
                             borderColor: CHART.line,
                             backgroundColor: makePriceGradient,
                             yAxisID: 'y',
-                            borderWidth: 2,
+                            borderWidth: 1.6,
                             fill: true,
-                            tension: 0.4,
-                            pointBackgroundColor: data.map(d => {
-                                if (d.fng <= 25) return CHART.fear;
-                                if (d.fng <= 44) return CHART.fearLight;
-                                return 'rgba(0,0,0,0)';
-                            }),
-                            pointBorderColor: data.map(d => {
-                                if (d.fng <= 25) return CHART.fear;
-                                if (d.fng <= 44) return CHART.fearLight;
-                                return 'rgba(0,0,0,0)';
-                            }),
-                            pointRadius: data.map(d => {
-                                if (d.fng <= 25) return 3;
-                                if (d.fng <= 44) return 2;
-                                return 0;
-                            }),
-                            pointHoverRadius: 4,
+                            tension: 0.25,
+                            ...fearPointProps(data.map(d => d.fng)),
                         }
                     ]
                 };
@@ -1818,7 +1892,6 @@ import economicCalendar from '../economic_calendar.json';
                     plugins: {
                         legend: { display: false },
                         tooltip: {
-                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
                             callbacks: {
                                 label: (context) => {
                                     const idx = context.dataIndex;
@@ -1831,24 +1904,26 @@ import economicCalendar from '../economic_calendar.json';
                                 }
                             }
                         },
-                        title: { display: true, text: `${symbol} 價格走勢與市場恐懼指數 (紅/橘點代表市場恐懼)`, color: '#94a3b8' }
+                        title: figureTitle(`${symbol} 價格走勢與市場恐懼指數 (紅/橘點代表市場恐懼)`)
                     },
                     scales: {
                         y: { type: 'linear', display: true, position: 'left', grid: { color: CHART.grid }, ticks: { color: CHART.tick } },
-                        x: { ticks: { color: CHART.tick, maxTicksLimit: 8 }, grid: { display: false } }
+                        x: figureX()
                     }
                 };
                 return <ChartComponent data={chartData} options={options} />;
             };
 
             return (
-                <div className="space-y-6">
-                    <SymbolSearch
-                        symbol={selectedSymbol}
-                        onSearch={setSelectedSymbol}
-                        isLocked={!userInfo.isPremium}
-                        userEmail={userInfo.email}
-                    />
+                <div>
+                    <div className="py-2.5 max-w-[520px]" style={{ borderBottom: '1px solid var(--rule)' }}>
+                        <SymbolSearch
+                            symbol={selectedSymbol}
+                            onSearch={setSelectedSymbol}
+                            isLocked={!userInfo.isPremium}
+                            userEmail={userInfo.email}
+                        />
+                    </div>
 
                     <EditableCardGrid
                         title="美股指數 / ETF"
@@ -1890,106 +1965,58 @@ import economicCalendar from '../economic_calendar.json';
                         label={selectedSymbol}
                     >
                         {loading ? (
-                            <div className="py-12"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>
+                            <div className="py-12 flex justify-center"><RefreshCw className="animate-spin" size={28} style={{ color: 'var(--ink-3)' }} /></div>
                         ) : error ? (
-                            <div className="flex flex-col items-center gap-2 py-8">
-                                <AlertTriangle className="text-red-400" size={32} />
-                                <div className="text-red-400">{error}</div>
-                                <button onClick={fetchStockData} className="mt-2 px-4 py-1 bg-slate-800 rounded text-sm hover:bg-slate-700">重試</button>
+                            <div className="flex items-start gap-3 py-6">
+                                <AlertTriangle size={22} className="shrink-0 mt-0.5" style={{ color: 'var(--down)' }} />
+                                <div>
+                                    <div className="text-[15px]" style={{ color: 'var(--down)' }}>{error}</div>
+                                    <button onClick={fetchStockData} className="fs-btn sm mt-3">重試</button>
+                                </div>
                             </div>
                         ) : (
-                            <div className="w-full flex flex-col items-center">
-                                {fngData && <FearGreedGauge fngValue={fngData.value} classification={fngData.classification} />}
-                                {fngHistory && fngHistory.length > 0 && (
-                                    <div className="w-full max-w-2xl mt-4 px-4">
-                                        <SentimentScarcityBar data={fngHistory.map(d => d.y)} title="過去 365 天美股買入機會分佈" />
+                            <>
+                                <div className="grid md:grid-cols-[7fr_5fr] gap-5 md:gap-10 items-start">
+                                    {fngData && <FearGreedGauge fngValue={fngData.value} classification={fngData.classification} />}
+                                    {suggestion && (
+                                        <DcaStrategy suggestion={suggestion} label="DCA 策略建議" actions={MARKET_ACTIONS}>
+                                            {fngHistory && fngHistory.length > 0 && <SentimentScarcityBar data={fngHistory.map(d => d.y)} title="過去 365 天美股買入機會分佈" />}
+                                        </DcaStrategy>
+                                    )}
+                                </div>
+                                {fngData && (
+                                    <div className="mt-7">
+                                        <AIAdviceBlock
+                                            assetName={`美股 (${selectedSymbol})`}
+                                            marketData={`資產: ${selectedSymbol}\n恐懼貪婪指數: ${fngData.value} (${fngData.classification})`}
+                                            priceStats={stockData && stockData.length > 0 ? {
+                                                current: stockData[stockData.length - 1].price,
+                                                high: Math.max(...stockData.map(d => d.price)),
+                                                low: Math.min(...stockData.map(d => d.price))
+                                            } : null}
+                                            isLocked={!userInfo.isPremium}
+                                        />
                                     </div>
                                 )}
-                            </div>
+                            </>
                         )}
                     </SentimentToggleCard>
 
-                    {suggestion && (
-                        <div className={`p-6 rounded-2xl border ${suggestion.border} ${suggestion.bg} relative overflow-hidden transition-all duration-500`}>
-                            <div className="relative z-10 flex flex-col md:flex-row justify-between items-center w-full max-w-lg mx-auto mt-0">
-                                <div className="flex flex-col items-start text-left mb-4 md:mb-0">
-                                    <div className="text-sm uppercase tracking-wider opacity-70 mb-1">DCA 策略建議</div>
-                                    <span className={`text-2xl font-bold ${suggestion.text}`}>{suggestion.title}</span>
-                                    <p className="mt-2 text-slate-300 max-w-lg text-sm">{suggestion.desc}</p>
-                                </div>
-                                <div className="flex flex-col items-center md:items-end gap-2 min-w-[140px] text-center md:text-right">
-                                    <div className="text-sm text-slate-400">當前操作</div>
-                                    <div className={`text-xl font-bold ${suggestion.text} border-2 border-current px-4 py-1 rounded-lg whitespace-nowrap`}>{suggestion.action}</div>
-                                </div>
-                            </div>
-                            {fngData && (
-                                <AIAdviceBlock
-                                    assetName={`美股 (${selectedSymbol})`}
-                                    marketData={`資產: ${selectedSymbol}\n恐懼貪婪指數: ${fngData.value} (${fngData.classification})`}
-                                    priceStats={stockData && stockData.length > 0 ? {
-                                        current: stockData[stockData.length - 1].price,
-                                        high: Math.max(...stockData.map(d => d.price)),
-                                        low: Math.min(...stockData.map(d => d.price))
-                                    } : null}
-                                    isLocked={!userInfo.isPremium}
-                                />
-                            )}
-                        </div>
-                    )}
-
                     {!loading && !error && stockData && stockData.length > 0 && (
-                        <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
-                            <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-lg font-semibold flex items-center gap-2">
-                                    <TrendingUp size={18} className="text-slate-400" />
-                                    {selectedSymbol} 股價與恐懼指數走勢
-                                    {onUpdateWatchlist && (
-                                        <button onClick={toggleWatchlist} className="ml-2 hover:scale-110 transition-transform">
-                                            {isWatchlisted
-                                                ? <span className="text-yellow-400 text-xl">★</span>
-                                                : <span className="text-slate-600 text-xl hover:text-yellow-400">☆</span>
-                                            }
-                                        </button>
-                                    )}
-                                </h2>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    <button
-                                        onClick={() => setShowAdvanced(true)}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold glass hover:bg-white/[0.08] transition-colors"
-                                        style={{ color: 'var(--brand-1)' }}
-                                        title="進階技術分析"
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                                        </svg>
-                                        進階分析
-                                    </button>
-                                    <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
-                                </div>
-                            </div>
-                            <div className="h-[300px] sm:h-[350px] w-full relative">
-                                <StockFNGChart data={stockData} symbol={selectedSymbol} />
-                            </div>
-                        </div>
+                        <HistorySection
+                            title={`${selectedSymbol} 股價與恐懼指數走勢`}
+                            watch={onUpdateWatchlist && <WatchStar on={isWatchlisted} onClick={toggleWatchlist} />}
+                            onAdvanced={() => setShowAdvanced(true)}
+                            range={timeRange}
+                            onRange={setTimeRange}
+                        >
+                            <StockFNGChart data={stockData} symbol={selectedSymbol} />
+                        </HistorySection>
                     )}
 
-                    <div className="mt-8">
-                        <div className="flex items-center gap-2 mb-6">
-                            <Newspaper className="text-blue-500" />
-                            <h2 className="text-xl font-bold text-slate-200">美股財經頭條 (CNBC)</h2>
-                        </div>
-                        {!loading && !error && stockNews.length > 0 && (
-                            <>
-                                <NewsAIAnalysis newsItems={stockNews} isLocked={!userInfo.isPremium} />
-                                <NewsSummary news={stockNews} />
-                            </>
-                        )}
-                        <NewsSection news={stockNews} loading={loading} error={error} />
-                    </div>
+                    <NewsBlock title="美股財經頭條 (CNBC)" news={stockNews} loading={loading} error={error} ready={!loading && !error} isLocked={!userInfo.isPremium} />
 
-                    <div className="text-center text-slate-600 text-xs mt-8 pb-4">
-                        資料來源: CNN Business, Yahoo Finance, CNBC
-                    </div>
+                    <SourceNote>資料來源: CNN Business, Yahoo Finance, CNBC</SourceNote>
                     {showAdvanced && (
                         <TechnicalChartModal
                             symbol={selectedSymbol}
@@ -2101,6 +2128,7 @@ import economicCalendar from '../economic_calendar.json';
             ];
             const twCards = useEditableCards('tw-dashboard-cards', twDefaults);
             const [twEditMode, setTwEditMode] = useState(false);
+            useThemeVersion();
 
             const getSuggestion = (rsi) => {
                 if (rsi <= 25) return {
@@ -2311,18 +2339,18 @@ import economicCalendar from '../economic_calendar.json';
 
             const isWatchlisted = (userInfo.watchlist || []).includes(selectedSymbol);
 
-            if (loading) return <div className="flex justify-center items-center h-64"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>;
+            if (loading) return <div className="flex justify-center items-center h-64"><RefreshCw className="animate-spin" size={28} style={{ color: 'var(--ink-3)' }} /></div>;
             if (error) return (
-                <div className="bg-red-900/20 border border-red-500/50 text-red-200 p-6 rounded-xl flex items-center gap-4">
-                    <AlertTriangle size={24} className="shrink-0" />
-                    <div>
-                        <h3 className="font-bold text-lg">臺股數據載入失敗</h3>
-                        <p className="text-sm opacity-90 my-2">{error}</p>
-                        <button onClick={fetchData} className="px-4 py-2 bg-red-800 hover:bg-red-700 rounded text-sm transition-colors mt-2">
-                            重試連線
-                        </button>
+                <section className="fs-section mt-6" style={{ borderTopColor: 'var(--down)' }}>
+                    <div className="flex items-start gap-3">
+                        <AlertTriangle size={22} className="shrink-0 mt-1" style={{ color: 'var(--down)' }} />
+                        <div>
+                            <h3 className="fs-title-sm">臺股數據載入失敗</h3>
+                            <p className="text-sm my-2" style={{ color: 'var(--ink-2)' }}>{error}</p>
+                            <button onClick={fetchData} className="fs-btn sm">重試連線</button>
+                        </div>
                     </div>
-                </div>
+                </section>
             );
 
             const suggestion = rsiData ? getSuggestion(rsiData.value) : null;
@@ -2335,13 +2363,10 @@ import economicCalendar from '../economic_calendar.json';
                     data: rsiData.history.map(d => d.y),
                     borderColor: CHART.line,
                     backgroundColor: makePriceGradient,
-                    borderWidth: 2,
-                    pointRadius: rsiData.history.map(d => d.rsi <= 25 ? 3 : (d.rsi <= 44 ? 2 : 0)),
-                    pointBackgroundColor: rsiData.history.map(d => d.rsi <= 25 ? CHART.fear : (d.rsi <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')), // 點填充色
-                    pointBorderColor: rsiData.history.map(d => d.rsi <= 25 ? CHART.fear : (d.rsi <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')),
-                    pointHoverRadius: 4,
+                    borderWidth: 1.6,
+                    ...fearPointProps(rsiData.history.map(d => d.rsi)),
                     fill: true,
-                    tension: 0.4
+                    tension: 0.25
                 }]
             };
 
@@ -2365,24 +2390,26 @@ import economicCalendar from '../economic_calendar.json';
                             }
                         }
                     },
-                    title: { display: true, text: `${selectedSymbol} 歷史走勢 (紅/橘點為 RSI 買入訊號)`, color: CHART.text }
+                    title: figureTitle(`${selectedSymbol} 歷史走勢 (紅/橘點為 RSI 買入訊號)`)
                 },
                 scales: {
-                    x: { ticks: { maxTicksLimit: 6, color: CHART.tick }, grid: { display: false } },
+                    x: figureX(),
                     y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick } }
                 }
             };
 
             return (
-                <div className="space-y-6">
+                <div>
                     {/* 大盤指數卡片 */}
-                    <SymbolSearch
-                        symbol={selectedSymbol}
-                        onSearch={setSelectedSymbol}
-                        placeholder="輸入代號 (e.g. 2330)"
-                        isLocked={!userInfo.isPremium}
-                        userEmail={userInfo.email}
-                    />
+                    <div className="py-2.5 max-w-[520px]" style={{ borderBottom: '1px solid var(--rule)' }}>
+                        <SymbolSearch
+                            symbol={selectedSymbol}
+                            onSearch={setSelectedSymbol}
+                            placeholder="輸入代號 (e.g. 2330)"
+                            isLocked={!userInfo.isPremium}
+                            userEmail={userInfo.email}
+                        />
+                    </div>
 
                     <EditableCardGrid
                         title="台股指數 / ETF"
@@ -2417,7 +2444,7 @@ import economicCalendar from '../economic_calendar.json';
                         ))}
                     </EditableCardGrid>
 
-                    {/* 標題區 */}
+                    {/* 情緒指標 + 策略 */}
                     <SentimentToggleCard
                         storageKey="tw-sentiment-view"
                         fngTitle={`臺股情緒指標 (基於 ${selectedSymbol} RSI)`}
@@ -2426,53 +2453,22 @@ import economicCalendar from '../economic_calendar.json';
                         symbol={selectedSymbol}
                         label={selectedSymbol}
                         subtitle={
-                            <p className="text-xs text-slate-500 mt-2 max-w-md">
+                            <p className="text-[13px] mt-2 max-w-[60ch] leading-relaxed" style={{ color: 'var(--ink-2)' }}>
                                 此指標並非恐懼貪婪指數。數值由『{selectedSymbol}』的 14 日 RSI 強弱指標計算得出。RSI 低於 30 代表市場超賣 (恐懼)，高於 70 代表市場超買 (貪婪)。
-                                <span className="block mt-1 text-slate-600">數據來源: {dataSource}</span>
+                                <span className="block mt-1" style={{ color: 'var(--ink-3)' }}>數據來源: {dataSource}</span>
                             </p>
                         }
                     >
-                        <div className="w-full flex flex-col items-center">
-                            {rsiData && (
-                                <FearGreedGauge
-                                    fngValue={rsiData.value}
-                                    classification={rsiData.classification}
-                                />
-                            )}
-                            {/* Sentiment Scarcity Bar */}
-                            {rsiData && rsiData.history && (
-                                <div className="w-full max-w-2xl mt-4 px-4">
-                                    <SentimentScarcityBar
-                                        data={rsiData.history.map(d => d.rsi)}
-                                        title="過去 1 年臺股買入機會分佈 (RSI)"
-                                    />
-                                </div>
+                        <div className="grid md:grid-cols-[7fr_5fr] gap-5 md:gap-10 items-start">
+                            {rsiData && <FearGreedGauge fngValue={rsiData.value} classification={rsiData.classification} />}
+                            {suggestion && (
+                                <DcaStrategy suggestion={suggestion} label="臺股 DCA 策略" actions={MARKET_ACTIONS}>
+                                    {rsiData && rsiData.history && <SentimentScarcityBar data={rsiData.history.map(d => d.rsi)} title="過去 1 年臺股買入機會分佈 (RSI)" />}
+                                </DcaStrategy>
                             )}
                         </div>
-                    </SentimentToggleCard>
-
-                    {/* 策略建議區 */}
-                    {suggestion && (
-                        <div className={`p-6 rounded-2xl border ${suggestion.border} ${suggestion.bg} relative overflow-hidden transition-all duration-500`}>
-                            <div className="relative z-10 flex flex-col md:flex-row justify-between items-center w-full max-w-lg mx-auto mt-0">
-                                <div className="flex flex-col items-start text-left mb-4 md:mb-0">
-                                    <div className="text-sm uppercase tracking-wider opacity-70 mb-1">臺股 DCA 策略</div>
-                                    <span className={`text-2xl font-bold ${suggestion.text}`}>
-                                        {suggestion.title}
-                                    </span>
-                                    <p className="mt-2 text-slate-300 max-w-lg text-sm">
-                                        {suggestion.desc}
-                                    </p>
-                                </div>
-                                <div className="flex flex-col items-center md:items-end gap-2 min-w-[140px] text-center md:text-right">
-                                    <div className="text-sm text-slate-400">當前操作</div>
-                                    <div className={`text-xl font-bold ${suggestion.text} border-2 border-current px-4 py-1 rounded-lg whitespace-nowrap`}>
-                                        {suggestion.action}
-                                    </div>
-                                </div>
-                            </div>
-                            {/* AI Advice Integration */}
-                            {rsiData && (
+                        {rsiData && (
+                            <div className="mt-7">
                                 <AIAdviceBlock
                                     assetName={`台股 (${selectedSymbol})`}
                                     marketData={`RSI(14): ${rsiData.value} (${rsiData.classification})`}
@@ -2483,68 +2479,28 @@ import economicCalendar from '../economic_calendar.json';
                                     }}
                                     isLocked={!userInfo.isPremium}
                                 />
-                            )}
-                        </div>
-                    )}
+                            </div>
+                        )}
+                    </SentimentToggleCard>
 
                     {/* 歷史走勢圖 */}
                     {rsiData && (
-                        <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
-                            <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-lg font-semibold flex items-center gap-2">
-                                    <TrendingUp size={18} className="text-slate-400" />
-                                    {selectedSymbol} 歷史走勢與買入訊號
-                                    {onUpdateWatchlist && (
-                                        <button onClick={toggleWatchlist} className="ml-2 hover:scale-110 transition-transform">
-                                            {isWatchlisted
-                                                ? <span className="text-yellow-400 text-xl">★</span>
-                                                : <span className="text-slate-600 text-xl hover:text-yellow-400">☆</span>
-                                            }
-                                        </button>
-                                    )}
-                                </h2>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    <button
-                                        onClick={() => setShowAdvanced(true)}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold glass hover:bg-white/[0.08] transition-colors"
-                                        style={{ color: 'var(--brand-1)' }}
-                                        title="進階技術分析"
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                                        </svg>
-                                        進階分析
-                                    </button>
-                                    <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
-                                </div>
-                            </div>
-                            <div className="h-[350px] w-full relative">
-                                <ChartComponent data={chartData} options={chartOptions} />
-                            </div>
-                        </div>
-                    )
-                    }
+                        <HistorySection
+                            title={`${selectedSymbol} 歷史走勢與買入訊號`}
+                            watch={onUpdateWatchlist && <WatchStar on={isWatchlisted} onClick={toggleWatchlist} />}
+                            onAdvanced={() => setShowAdvanced(true)}
+                            range={timeRange}
+                            onRange={setTimeRange}
+                            height="h-[350px]"
+                        >
+                            <ChartComponent data={chartData} options={chartOptions} />
+                        </HistorySection>
+                    )}
 
                     {/* 新聞區 */}
-                    <div className="mt-8">
-                        <div className="flex items-center gap-2 mb-6">
-                            <Newspaper className="text-blue-500" />
-                            <h2 className="text-xl font-bold text-slate-200">臺股財經頭條 (Google News)</h2>
-                        </div>
+                    <NewsBlock title="臺股財經頭條 (Google News)" news={news} loading={newsLoading} error={null} ready={!loading && !error} isLocked={!userInfo.isPremium} />
 
-                        {!loading && !error && news.length > 0 && (
-                            <>
-                                <NewsAIAnalysis newsItems={news} isLocked={!userInfo.isPremium} />
-                                <NewsSummary news={news} />
-                            </>
-                        )}
-
-                        <NewsSection news={news} loading={newsLoading} error={null} />
-                    </div>
-
-                    <div className="text-center text-slate-600 text-xs mt-8 pb-4">
-                        資料來源: Yahoo Finance, Google News, Smart DCA Bot (0050 歷史數據運算)
-                    </div>
+                    <SourceNote>資料來源: Yahoo Finance, Google News, Smart DCA Bot (0050 歷史數據運算)</SourceNote>
                     {showAdvanced && (
                         <TechnicalChartModal
                             symbol={selectedSymbol.includes('.') ? selectedSymbol : selectedSymbol + '.TW'}
@@ -2552,7 +2508,7 @@ import economicCalendar from '../economic_calendar.json';
                             onClose={() => setShowAdvanced(false)}
                         />
                     )}
-                </div >
+                </div>
             );
         };
 
@@ -2580,6 +2536,7 @@ import economicCalendar from '../economic_calendar.json';
                 { id: 'ethereum', symbol: 'ethereum', name: 'ETH', logo: 'https://cryptologos.cc/logos/ethereum-eth-logo.png' },
             ];
             const cryptoCards = useEditableCards('crypto-dashboard-cards', cryptoDefaults);
+            const themeV = useThemeVersion();
             const [cryptoEditMode, setCryptoEditMode] = useState(false);
             const [cryptoView, setCryptoView] = useState('market'); // 'market' | 'onchain'
 
@@ -2751,16 +2708,19 @@ import economicCalendar from '../economic_calendar.json';
                         data: prices,
                         borderColor: CHART.line,
                         backgroundColor: makePriceGradient,
-                        borderWidth: 2,
-                        pointBackgroundColor: historicalData.map(d => d.fng <= 25 ? CHART.fear : (d.fng <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')),
+                        borderWidth: 1.6,
+                        // Fear buy points carry a shape as well as a colour: extreme fear = filled triangle, fear = hollow ring
+                        pointStyle: historicalData.map(d => d.fng <= 25 ? 'triangle' : 'circle'),
+                        pointBackgroundColor: historicalData.map(d => d.fng <= 25 ? CHART.fear : 'rgba(0,0,0,0)'),
                         pointBorderColor: historicalData.map(d => d.fng <= 25 ? CHART.fear : (d.fng <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')),
-                        pointRadius: historicalData.map(d => d.fng <= 44 ? (d.fng <= 25 ? 3 : 2) : 0),
-                        pointHoverRadius: 4,
+                        pointBorderWidth: historicalData.map(d => d.fng <= 25 ? 0 : 1.2),
+                        pointRadius: historicalData.map(d => d.fng <= 25 ? 3.5 : (d.fng <= 44 ? 2.2 : 0)),
+                        pointHoverRadius: 5,
                         fill: true,
-                        tension: 0.4
+                        tension: 0.25
                     }]
                 };
-            }, [historicalData, selectedCoin]);
+            }, [historicalData, selectedCoin, themeV]);
 
             const chartOptions = {
                 responsive: true,
@@ -2769,7 +2729,7 @@ import economicCalendar from '../economic_calendar.json';
                 plugins: {
                     legend: { display: false },
                     tooltip: {
-                        backgroundColor: 'rgba(17, 24, 39, 0.9)',
+                        backgroundColor: CHART.tooltipBg,
                         callbacks: {
                             label: (context) => {
                                 const index = context.dataIndex;
@@ -2778,10 +2738,10 @@ import economicCalendar from '../economic_calendar.json';
                             }
                         }
                     },
-                    title: { display: true, text: `${selectedCoin.toUpperCase()} 歷史走勢 (紅點為恐懼買入訊號)`, color: '#94a3b8' }
+                    title: { display: true, text: `${selectedCoin.toUpperCase()} 歷史走勢 (紅點為恐懼買入訊號)`, color: CHART.tick, align: 'start', font: { size: 12, weight: '500' } }
                 },
                 scales: {
-                    x: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, maxTicksLimit: 8 } },
+                    x: { grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: window.innerWidth < 640 ? 4 : 8, maxRotation: 0, autoSkipPadding: 12 } },
                     y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, callback: (value) => `$${formatPrice(value)}` } }
                 }
             };
@@ -2798,15 +2758,30 @@ import economicCalendar from '../economic_calendar.json';
             const suggestion = getSuggestion();
 
             return (
-                <div className="space-y-6">
-                    <SymbolSearch
-                        symbol={selectedCoin}
-                        onSearch={setSelectedCoin}
-                        placeholder="輸入幣種 (e.g. solana)"
-                        transformInput={(s) => s.toLowerCase()}
-                        isLocked={!userInfo.isPremium}
-                        userEmail={userInfo.email}
-                    />
+                <div>
+                    <div className="flex items-center justify-between gap-4 flex-wrap py-2.5" style={{ borderBottom: '1px solid var(--rule)' }}>
+                        <div className="flex-1 min-w-[260px] max-w-[520px]">
+                            <SymbolSearch
+                                symbol={selectedCoin}
+                                onSearch={setSelectedCoin}
+                                placeholder="輸入幣種 (e.g. solana)"
+                                transformInput={(s) => s.toLowerCase()}
+                                isLocked={!userInfo.isPremium}
+                                userEmail={userInfo.email}
+                            />
+                        </div>
+                        {/* 子分頁:行情 / 鏈上估值 / 合約數據(單層,不再巢狀) */}
+                        <div className="fs-toggle overflow-x-auto no-scrollbar">
+                            {[
+                                { key: 'market', label: '行情' },
+                                { key: 'valuation', label: '鏈上估值' },
+                                { key: 'deriv', label: '合約數據' },
+                            ].map(v => (
+                                <button key={v.key} onClick={() => setCryptoView(v.key)} className={cryptoView === v.key ? 'on' : ''}>{v.label}</button>
+                            ))}
+                        </div>
+                    </div>
+
                     <EditableCardGrid
                         title="加密貨幣"
                         mobileRow
@@ -2830,50 +2805,36 @@ import economicCalendar from '../economic_calendar.json';
                                 <div
                                     key={c.id}
                                     onClick={() => !cryptoEditMode && setSelectedCoin(c.symbol)}
-                                    className={`${cryptoEditMode ? '' : 'cursor-pointer'} flex flex-col p-2.5 md:p-4 rounded-xl border transition-all h-full ${active ? 'bg-slate-800 border-blue-500 shadow-lg' : 'bg-slate-900/50 border-slate-800'}`}
+                                    className={`${cryptoEditMode ? '' : 'cursor-pointer'} fs-ticker ${active ? 'on' : ''}`}
                                 >
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                            {c.logo
-                                                ? <img src={c.logo} className="w-5 h-5 md:w-6 md:h-6 shrink-0" alt={c.name} onError={(e) => { e.target.style.display = 'none'; }} />
-                                                : <div className="w-5 h-5 md:w-6 md:h-6 shrink-0 rounded-full bg-slate-700 flex items-center justify-center text-[10px] md:text-xs text-slate-300">{c.name.slice(0, 1)}</div>
-                                            }
-                                            <span className="font-bold text-white text-sm md:text-base truncate">{c.name}</span>
-                                        </div>
-                                    </div>
-                                    <div className="text-base md:text-xl font-mono text-white truncate">{p ? `$${formatPrice(p.usd)}` : '...'}</div>
-                                    {p && <div className={`text-[11px] md:text-xs ${p.usd_24h_change >= 0 ? 'text-green-400' : 'text-red-400'}`}>{p.usd_24h_change.toFixed(2)}%</div>}
+                                    <span className="fs-ticker-name">
+                                        {c.logo && <img src={c.logo} className="w-4 h-4 shrink-0" alt="" onError={(e) => { e.target.style.display = 'none'; }} />}
+                                        {c.name}
+                                    </span>
+                                    <span className="fs-ticker-price num">{p ? `$${formatPrice(p.usd)}` : '...'}</span>
+                                    {p && (
+                                        <span className="fs-ticker-change num" style={{ color: p.usd_24h_change >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                                            {p.usd_24h_change >= 0 ? '▲' : '▼'} {p.usd_24h_change.toFixed(2)}%
+                                        </span>
+                                    )}
                                 </div>
                             );
                         })}
                     </EditableCardGrid>
 
-                    {/* 子分頁:行情 / 鏈上估值 / 合約數據(單層,不再巢狀) */}
-                    <div className="flex gap-1 p-1 rounded-full glass overflow-x-auto no-scrollbar" style={{ width: 'fit-content', maxWidth: '100%' }}>
-                        {[
-                            { key: 'market', label: '行情' },
-                            { key: 'valuation', label: '鏈上估值' },
-                            { key: 'deriv', label: '合約數據' },
-                        ].map(v => (
-                            <button
-                                key={v.key}
-                                onClick={() => setCryptoView(v.key)}
-                                className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all shrink-0 ${cryptoView === v.key ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                                style={cryptoView === v.key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                            >
-                                {v.label}
-                            </button>
-                        ))}
-                    </div>
-
                     {cryptoView === 'valuation' ? (
-                        <OnChainDashboard defaultAsset={selectedCoin} />
+                        <div className="mt-8"><OnChainDashboard defaultAsset={selectedCoin} /></div>
                     ) : cryptoView === 'deriv' ? (
-                        <DerivativesPanel defaultAsset={selectedCoin} />
+                        <div className="mt-8"><DerivativesPanel defaultAsset={selectedCoin} /></div>
                     ) : loading && !historicalData.length ? (
-                        <div className="h-64 flex flex-col items-center justify-center text-slate-500 gap-4"><RefreshCw className="animate-spin" size={32} /><p>正在同步 CoinMarketCap 數據...</p></div>
+                        <div className="h-64 flex flex-col items-center justify-center gap-4" style={{ color: 'var(--ink-3)' }}><RefreshCw className="animate-spin" size={28} /><p>正在同步 CoinMarketCap 數據...</p></div>
                     ) : error ? (
-                        <div className="bg-red-900/20 border border-red-500/50 text-red-200 p-6 rounded-xl flex items-center gap-4"><AlertTriangle size={24} /><div><h3 className="font-bold text-lg">載入失敗</h3><p className="text-sm opacity-90 my-2">{error}</p><button onClick={fetchData} className="px-4 py-2 bg-red-800 rounded">重試</button></div></div>
+                        <div className="fs-section mt-8" style={{ borderTopColor: 'var(--down)' }}>
+                            <div className="flex items-start gap-3">
+                                <AlertTriangle size={22} style={{ color: 'var(--down)' }} className="mt-1 shrink-0" />
+                                <div><h3 className="fs-title-sm">載入失敗</h3><p className="text-sm my-2" style={{ color: 'var(--ink-2)' }}>{error}</p><button onClick={fetchData} className="fs-btn sm">重試</button></div>
+                            </div>
+                        </div>
                     ) : (
                         <>
                             <SentimentToggleCard
@@ -2884,16 +2845,14 @@ import economicCalendar from '../economic_calendar.json';
                                 symbol={selectedCoin}
                                 label={selectedCoin.toUpperCase()}
                             >
-                                <FearGreedGauge fngValue={currentFNG?.value} classification={suggestion.title.split(' ')[0]} />
-                                {historicalData.length > 0 && <div className="w-full max-w-2xl mt-4 px-4"><SentimentScarcityBar data={historicalData.map(d => d.fng)} title="過去 365 天機會分佈" /></div>}
-                            </SentimentToggleCard>
-                            <div className={`p-6 rounded-2xl border ${suggestion.border} ${suggestion.bg} relative overflow-hidden`}>
-                                <div className="relative z-10 flex flex-col md:flex-row justify-between w-full max-w-lg mx-auto">
-                                    <div className="flex flex-col"><div className="text-sm opacity-70">DCA 策略</div><span className={`text-2xl font-bold ${suggestion.text}`}>{suggestion.title}</span><p className="mt-2 text-slate-300 text-sm max-w-lg">{suggestion.desc}</p></div>
-                                    <div className="flex flex-col items-center md:items-end gap-2 text-center md:text-right"><div className="text-sm text-slate-400">當前操作</div><div className={`text-xl font-bold ${suggestion.text} border-2 border-current px-4 py-1 rounded-lg`}>{suggestion.action}</div></div>
+                                <div className="grid md:grid-cols-[7fr_5fr] gap-5 md:gap-10 items-start">
+                                    <FearGreedGauge fngValue={currentFNG?.value} classification={suggestion.title.split(' ')[0]} />
+                                    <DcaStrategy suggestion={suggestion}>
+                                        {historicalData.length > 0 && <SentimentScarcityBar data={historicalData.map(d => d.fng)} title="過去 365 天機會分佈" />}
+                                    </DcaStrategy>
                                 </div>
                                 {currentFNG && prices && historicalData.length > 0 && (
-                                    <div className="mt-4 border-t border-slate-700 pt-4">
+                                    <div className="mt-7">
                                         <AIAdviceBlock
                                             assetName={`加密貨幣 (${selectedCoin.toUpperCase()})`}
                                             priceStats={{ current: prices[selectedCoin]?.usd, high: Math.max(...historicalData.map(d => d.price)), low: Math.min(...historicalData.map(d => d.price)) }}
@@ -2902,31 +2861,28 @@ import economicCalendar from '../economic_calendar.json';
                                         />
                                     </div>
                                 )}
-                            </div>
-                            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h2 className="text-lg font-semibold flex items-center gap-2">
-                                        <TrendingUp size={18} className="text-slate-400" />
+                            </SentimentToggleCard>
+
+                            <section className="fs-section mt-10">
+                                <div className="fs-head">
+                                    <h2 className="fs-title flex items-center gap-2">
                                         歷史走勢 ({selectedCoin.toUpperCase()})
                                         {onUpdateWatchlist && (
-                                            <button onClick={toggleWatchlist} className="ml-2 hover:scale-110 transition-transform">
-                                                {isWatchlisted
-                                                    ? <span className="text-yellow-400 text-xl">★</span>
-                                                    : <span className="text-slate-600 text-xl hover:text-yellow-400">☆</span>
-                                                }
+                                            <button
+                                                onClick={toggleWatchlist}
+                                                className="p-1 transition-colors"
+                                                aria-pressed={isWatchlisted}
+                                                aria-label="觀察清單"
+                                                style={{ color: isWatchlisted ? 'var(--accent)' : 'var(--ink-3)' }}
+                                            >
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill={isWatchlisted ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
+                                                    <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
+                                                </svg>
                                             </button>
                                         )}
                                     </h2>
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <button
-                                            onClick={() => setShowAdvanced(true)}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold glass hover:bg-white/[0.08] transition-colors"
-                                            style={{ color: 'var(--brand-1)' }}
-                                            title="進階技術分析"
-                                        >
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                                            </svg>
+                                    <div className="flex items-center gap-4 flex-wrap">
+                                        <button onClick={() => setShowAdvanced(true)} className="text-[14px] underline underline-offset-4" style={{ color: 'var(--ink)' }} title="進階技術分析">
                                             進階分析
                                         </button>
                                         <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
@@ -2935,13 +2891,18 @@ import economicCalendar from '../economic_calendar.json';
                                 <div className="h-[300px] sm:h-[350px] w-full relative">
                                     {chartData && <ChartComponent data={chartData} options={chartOptions} />}
                                 </div>
-                            </div>
-                            <div className="mt-8">
-                                <div className="flex items-center gap-2 mb-6"><Newspaper className="text-blue-500" /><h2 className="text-xl font-bold text-slate-200">今日幣圈頭條</h2></div>
+                            </section>
+
+                            <section className="fs-section mt-10">
+                                <div className="fs-head"><h2 className="fs-title">今日幣圈頭條</h2></div>
                                 {!newsLoading && !newsError && newsData.length > 0 && <><NewsAIAnalysis newsItems={newsData} isLocked={!userInfo.isPremium} /><NewsSummary news={newsData} /></>}
                                 <NewsSection news={newsData} loading={newsLoading} error={newsError} />
-                            </div>
-                            <div className="bg-slate-900 p-5 rounded-xl border border-slate-800 mt-6"><h3 className="font-bold text-slate-200 mb-3 flex items-center gap-2"><Info size={18} />關於數據來源</h3><div className="text-sm text-slate-400 space-y-2"><p><strong>價格數據:</strong> CoinMarketCap (即時), Binance (歷史)</p><p><strong>情緒指標:</strong> CoinMarketCap Crypto Fear &amp; Greed Index (無法取得時退回 Alternative.me)</p></div></div>
+                            </section>
+
+                            <section className="fs-section mt-10">
+                                <div className="fs-head"><h3 className="fs-title-sm">關於數據來源</h3></div>
+                                <div className="text-sm space-y-1.5" style={{ color: 'var(--ink-2)' }}><p><strong style={{ color: 'var(--ink)' }}>價格數據:</strong> CoinMarketCap (即時), Binance (歷史)</p><p><strong style={{ color: 'var(--ink)' }}>情緒指標:</strong> CoinMarketCap Crypto Fear &amp; Greed Index (無法取得時退回 Alternative.me)</p></div>
+                            </section>
                         </>
                     )}
                     {showAdvanced && (
@@ -3286,23 +3247,23 @@ import economicCalendar from '../economic_calendar.json';
 
             // 強力加碼: RSI 極度超賣 OR (RSI 超賣 且 接近 1Y 低)
             if (rsi <= 25 || (rsi <= 30 && pos <= 0.10)) {
-                return { label: '強力加碼', emoji: '🔥', color: '#3ce0a8', advice: '極度超賣' };
+                return { label: '強力加碼', emoji: '🔥', color: 'var(--up)', advice: '極度超賣' };
             }
             // 加碼: RSI 超賣 OR (RSI 偏低 且 接近 1Y 低)
             if (rsi <= 30 || (rsi <= 40 && pos <= 0.20)) {
-                return { label: '加碼', emoji: '🟢', color: '#84d76a', advice: '超賣' };
+                return { label: '加碼', emoji: '🟢', color: 'var(--z3)', advice: '超賣' };
             }
             // 強力賣出: RSI 極度超買 OR (RSI 偏高 且 1Y 高點)
             if (rsi >= 75 || (rsi >= 65 && pos >= 0.95)) {
-                return { label: '強力賣出', emoji: '🚨', color: '#ff5b6e', advice: '極度超買' };
+                return { label: '強力賣出', emoji: '🚨', color: 'var(--down)', advice: '極度超買' };
             }
             // 賣出: RSI 超買 OR (RSI 偏高 且 接近 1Y 高)
             if (rsi >= 70 || (rsi >= 60 && pos >= 0.90)) {
-                return { label: '賣出', emoji: '🔴', color: '#ff7d8c', advice: '超買' };
+                return { label: '賣出', emoji: '🔴', color: 'var(--down)', advice: '超買' };
             }
             // 警示: RSI 接近超買 OR 純粹接近 1Y 高
             if (rsi >= 65 || pos >= 0.85) {
-                return { label: '警示', emoji: '🟡', color: '#fbbf24', advice: '接近超買' };
+                return { label: '警示', emoji: '🟡', color: 'var(--amber)', advice: '接近超買' };
             }
             // 觀望: RSI 中性偏強
             if (rsi >= 50) {
@@ -3487,10 +3448,45 @@ import economicCalendar from '../economic_calendar.json';
                 .filter(b => b.close != null);
         };
 
+        // Dev-only: synthetic weekly series with a designed divergence, for reviewing the diagram.
+        // import.meta.env.DEV is false in `vite build`, so this never reaches production.
+        const makeMacdFixture = (kind) => {
+            const n = 80, bull = [];
+            let p = 70000;
+            for (let i = 0; i < n; i++) {
+                const ph = i < 22 ? 0.012 : i < 40 ? -0.028 : i < 50 ? 0.012 : i < 66 ? -0.010 : 0.018;
+                p *= 1 + ph + Math.sin(i * 1.7) * 0.012;
+                bull.push(p);
+            }
+            const K = Math.max(...bull) + Math.min(...bull);
+            const close = kind === 'bear' ? bull.map(v => K - v) : bull;
+            const ema = (a, k) => { const al = 2 / (k + 1); let e = a[0]; return a.map(v => (e = v * al + e * (1 - al))); };
+            const e12 = ema(close, 12), e26 = ema(close, 26);
+            const dif = close.map((_, i) => e12[i] - e26[i]), dea = ema(dif, 9), histogram = dif.map((v, i) => v - dea[i]);
+            const pick = (a, b) => { let k = a; for (let i = a; i <= b; i++) if (bull[i] < bull[k]) k = i; return k; };
+            const i1 = pick(34, 46), i2 = pick(58, 70);
+            const bars = close.map((c, i) => ({ t: Date.now() - (n - 1 - i) * 7 * 864e5, close: c, high: c, low: c }));
+            const div = {
+                kind: kind === 'bear' ? 'bearish' : 'bullish', i1, i2, t1: bars[i1].t, t2: bars[i2].t,
+                price1: close[i1], price2: close[i2], dif1: dif[i1], dif2: dif[i2], weeks: i2 - i1, barsSince: n - 1 - i2,
+                strong: kind === 'bear' ? dif[i2] > 0 : dif[i2] < 0,
+            };
+            return {
+                bars, dif, dea, histogram,
+                bullish: kind === 'bear' ? null : div, bearish: kind === 'bear' ? div : null, active: div,
+                cross: { type: 'golden', index: n - 7, t: bars[n - 7].t, weeksAgo: 6 },
+                last: { dif: dif[n - 1], dea: dea[n - 1], hist: histogram[n - 1], close: close[n - 1], t: bars[n - 1].t },
+            };
+        };
+
         const useWeeklyMacd = (market, symbol) => {
             const [state, setState] = useState({ loading: true, error: null, data: null });
             useEffect(() => {
                 if (!symbol) return;
+                if (import.meta.env.DEV) {
+                    const fx = new URLSearchParams(window.location.search).get('macdFixture');
+                    if (fx === 'bull' || fx === 'bear') { setState({ loading: false, error: null, data: makeMacdFixture(fx) }); return; }
+                }
                 let cancelled = false;
                 setState({ loading: true, error: null, data: null });
                 (async () => {
@@ -3519,137 +3515,136 @@ import economicCalendar from '../economic_calendar.json';
 
         const WeeklyMacdPanel = ({ market, symbol, label }) => {
             const { loading, error, data } = useWeeklyMacd(market, symbol);
-
-            const charts = React.useMemo(() => {
-                if (!data) return null;
-                const total = data.bars.length;
-                const start = Math.max(0, total - MACD_VIEW_BARS);
-                const slice = data.bars.slice(start);
-                const labels = slice.map(b => fmtWeek(b.t));
-                const markIdx = {};
-                [data.bullish, data.bearish].forEach(d => {
-                    if (!d) return;
-                    if (d.i1 >= start) markIdx[d.i1 - start] = d.kind;
-                    if (d.i2 >= start) markIdx[d.i2 - start] = d.kind;
-                });
-                const pointColor = (i) => (
-                    markIdx[i] === 'bullish' ? CHART.up : markIdx[i] === 'bearish' ? CHART.down : 'rgba(0,0,0,0)'
-                );
-                const pointRadius = slice.map((_, i) => (markIdx[i] ? 5 : 0));
-
-                const priceData = {
-                    labels,
-                    datasets: [{
-                        label: '週收盤',
-                        data: slice.map(b => b.close),
-                        borderColor: CHART.line,
-                        backgroundColor: 'rgba(59,130,246,0.08)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.25,
-                        pointRadius,
-                        pointBackgroundColor: slice.map((_, i) => pointColor(i)),
-                        pointBorderColor: slice.map((_, i) => pointColor(i)),
-                    }],
-                };
-
-                const macdData = {
-                    labels,
-                    datasets: [
-                        {
-                            type: 'bar',
-                            label: '柱狀圖',
-                            data: data.histogram.slice(start),
-                            backgroundColor: data.histogram.slice(start).map(v => (v >= 0 ? 'rgba(0,214,143,0.55)' : 'rgba(255,91,110,0.55)')),
-                            borderWidth: 0,
-                            order: 3,
-                        },
-                        {
-                            type: 'line',
-                            label: 'DIF',
-                            data: data.dif.slice(start),
-                            borderColor: '#3b82f6',
-                            borderWidth: 1.8,
-                            pointRadius,
-                            pointBackgroundColor: slice.map((_, i) => pointColor(i)),
-                            pointBorderColor: slice.map((_, i) => pointColor(i)),
-                            tension: 0.25,
-                            order: 1,
-                        },
-                        {
-                            type: 'line',
-                            label: 'DEA',
-                            data: data.dea.slice(start),
-                            borderColor: '#fbbf24',
-                            borderWidth: 1.5,
-                            pointRadius: 0,
-                            tension: 0.25,
-                            order: 2,
-                        },
-                    ],
-                };
-
-                const baseOptions = {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: { legend: { display: false }, tooltip: { enabled: true } },
-                    scales: {
-                        x: { grid: { color: CHART.grid }, ticks: { color: CHART.tick, maxTicksLimit: 6 } },
-                        y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick } },
-                    },
-                };
-
-                return {
-                    priceData,
-                    macdData,
-                    priceOptions: baseOptions,
-                    macdOptions: {
-                        ...baseOptions,
-                        plugins: { legend: { display: true, labels: { color: CHART.tick, boxWidth: 10, font: { size: 10 } } }, tooltip: { enabled: true } },
-                    },
-                };
-            }, [data]);
+            const [boxRef, width] = useWidth();
+            const [hover, setHover] = useState(null);
 
             if (loading) {
-                return <div className="py-12 flex justify-center"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>;
+                return <div ref={boxRef} className="py-12 flex justify-center"><RefreshCw className="animate-spin" size={28} style={{ color: 'var(--ink-3)' }} /></div>;
             }
             if (error) {
                 return (
-                    <div className="flex flex-col items-center gap-2 py-8 text-center">
-                        <AlertTriangle className="text-red-400" size={28} />
-                        <div className="text-red-400 text-sm">{error}</div>
+                    <div ref={boxRef} className="flex flex-col items-center gap-2 py-8 text-center">
+                        <AlertTriangle size={26} style={{ color: 'var(--down)' }} />
+                        <div className="text-sm" style={{ color: 'var(--down)' }}>{error}</div>
                     </div>
                 );
             }
-            if (!data) return null;
+            if (!data) return <div ref={boxRef} />;
 
             const act = data.active;
             const status = act
                 ? (act.kind === 'bullish'
-                    ? { emoji: '🟢', title: '週線 MACD 底背離', desc: '價格創新低、MACD 沒有跟著創新低 — 下跌動能轉弱,分批買入的參考點。', color: 'text-emerald-400', border: 'border-emerald-500/60', bg: 'bg-emerald-900/20' }
-                    : { emoji: '🔴', title: '週線 MACD 頂背離', desc: '價格創新高、MACD 沒有跟著創新高 — 上漲動能轉弱,加碼前留意風險。', color: 'text-red-400', border: 'border-red-500/60', bg: 'bg-red-900/20' })
-                : { emoji: '⚪', title: '目前無明顯背離', desc: '最近幾週價格與 MACD 同向,沒有偵測到有效背離。', color: 'text-slate-300', border: 'border-slate-700', bg: 'bg-slate-800/40' };
+                    ? { title: '週線 MACD 底背離', desc: '價格創新低、MACD 沒有跟著創新低 — 下跌動能轉弱,分批買入的參考點。', color: 'var(--up)' }
+                    : { title: '週線 MACD 頂背離', desc: '價格創新高、MACD 沒有跟著創新高 — 上漲動能轉弱,加碼前留意風險。', color: 'var(--down)' })
+                : { title: '目前無明顯背離', desc: '最近幾週價格與 MACD 同向,沒有偵測到有效背離。', color: 'var(--ink-3)' };
 
             const history = [data.bullish, data.bearish]
                 .filter(d => d && (!act || d !== act))
                 .sort((a, b) => b.i2 - a.i2);
 
+            // ── Diagram geometry (real pixels) ──
+            const total = data.bars.length;
+            const start = Math.max(0, total - MACD_VIEW_BARS);
+            const n = total - start;
+            const closes = data.bars.slice(start).map(b => b.close);
+            const dif = data.dif.slice(start), dea = data.dea.slice(start), hist = data.histogram.slice(start);
+            const W = Math.max(300, width || 0);
+            const small = W < 560;
+            const L = small ? 44 : 64, R = 12, T = 14;
+            const H1 = small ? 170 : 210, H2 = small ? 150 : 180;
+            const B1 = H1 - 22, B2 = H2 - 26;
+            const X = (i) => L + (i / Math.max(1, n - 1)) * (W - L - R);
+            const pMin = Math.min(...closes), pMax = Math.max(...closes);
+            const yP = (v) => B1 - ((v - pMin) / ((pMax - pMin) || 1)) * (B1 - T);
+            const lim = Math.max(1e-9, ...[...dif, ...dea, ...hist].filter(v => v != null).map(Math.abs));
+            const yO = (v) => T + (1 - (v + lim) / (2 * lim)) * (B2 - T);
+            const path = (arr, yf) => arr.map((v, i) => (v == null ? null : `${X(i)} ${yf(v)}`)).filter(Boolean).map((p, i) => (i ? 'L' : 'M') + p).join(' ');
+            const fmtAxis = (v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : fmtNum(v, Math.abs(v) >= 10 ? 0 : 2));
+
+            // Divergences visible in the window, drawn as connectors between their pivots
+            const divs = [data.bullish, data.bearish]
+                .filter(d => d && d.i1 >= start)
+                .map(d => ({ ...d, a: d.i1 - start, b: d.i2 - start, isActive: act === d, color: d.kind === 'bullish' ? 'var(--up)' : 'var(--down)' }));
+            const note = (d) => d.kind === 'bullish'
+                ? { price: '價格 ↘ 新低', dif: 'DIF ↗ 沒破底' }
+                : { price: '價格 ↗ 新高', dif: 'DIF ↘ 沒創新高' };
+
+            const connector = (d, arr, yf, off, key, bottom) => {
+                const x1 = X(d.a), x2 = X(d.b), y1 = yf(arr[d.a]), y2 = yf(arr[d.b]);
+                const dy = d.kind === 'bullish' ? off : -off;
+                // Keep pivot labels inside the plot: flip to the other side when they would hit the axis or legend
+                const labelY = (y) => {
+                    const want = y + dy * 2.6 + 4;
+                    if (want > bottom - 2) return y - 12;
+                    if (want < T + 10) return y + 20;
+                    return want;
+                };
+                return (
+                    <g key={key} style={{ opacity: d.isActive ? 1 : 0.55 }}>
+                        <line x1={x1} y1={y1 + dy} x2={x2} y2={y2 + dy} style={{ stroke: d.color, strokeWidth: 2.5 }} />
+                        {[[x1, y1, 'A'], [x2, y2, 'B']].map(([x, y, t]) => (
+                            <g key={t}>
+                                <circle cx={x} cy={y} r={5} style={{ fill: 'var(--paper)', stroke: d.color, strokeWidth: 2.5 }} />
+                                {d.isActive && <text x={x} y={labelY(y)} textAnchor="middle" style={{ fill: d.color, fontSize: 12, fontWeight: 900, paintOrder: 'stroke', stroke: 'var(--paper)', strokeWidth: 4, strokeLinejoin: 'round' }}>{t}</text>}
+                            </g>
+                        ))}
+                    </g>
+                );
+            };
+
+            // Divergence annotation, drawn last. It sits on the side of the connector away from the curve
+            // (below for bullish, above for bearish); if that leaves the plot it moves beside the pivots instead.
+            const annotation = (d, arr, yf, off, key, bottom) => {
+                if (!d.isActive) return null;
+                const x1 = X(d.a), x2 = X(d.b), y1 = yf(arr[d.a]), y2 = yf(arr[d.b]);
+                const fs = small ? 11 : 12;
+                const text = key.startsWith('p') ? note(d).price : note(d).dif;
+                const textW = text.length * fs * 0.9;
+                const mid = (y1 + y2) / 2 + (d.kind === 'bullish' ? off : -off);
+                let x = (x1 + x2) / 2, y = d.kind === 'bullish' ? mid + fs + 6 : mid - 8, anchor = 'middle';
+                if (y > bottom - 2 || y < T + fs) {
+                    const cy = (d.kind === 'bullish' ? off : -off) + y2 + 4;
+                    if (W - R - x2 - 12 > textW) { x = x2 + 12; y = cy; anchor = 'start'; }
+                    else { x = x1 - 12; y = (d.kind === 'bullish' ? off : -off) + y1 + 4; anchor = 'end'; }
+                }
+                return (
+                    <text key={`n${key}`} x={x} y={y} textAnchor={anchor}
+                        style={{ fill: d.color, fontSize: fs, fontWeight: 700, paintOrder: 'stroke', stroke: 'var(--paper)', strokeWidth: 6, strokeLinejoin: 'round' }}>
+                        {text}
+                    </text>
+                );
+            };
+
+            const onMove = (e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                const x = (e.clientX - r.left) * (W / r.width);
+                const i = Math.round(((x - L) / (W - L - R)) * (n - 1));
+                setHover(i >= 0 && i < n ? i : null);
+            };
+            const hv = hover != null ? hover : n - 1;
+            const bw = Math.max(1.5, ((W - L - R) / n) * 0.62);
+            const guideX = hover != null ? X(hover) : null;
+
             return (
-                <div className="w-full flex flex-col gap-4">
-                    <div className={`w-full rounded-xl border ${status.border} ${status.bg} p-4 text-left`}>
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-2xl">{status.emoji}</span>
-                            <span className={`text-lg font-bold ${status.color}`}>{status.title}</span>
+                <div ref={boxRef} className="w-full flex flex-col text-left">
+                    <div className="grid gap-x-4 gap-y-1.5 pb-5" style={{ gridTemplateColumns: 'auto 1fr', borderBottom: '1px solid var(--rule)' }}>
+                        <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true" style={{ gridRow: 'span 3' }}>
+                            <circle cx="22" cy="22" r="20" fill="none" style={{ stroke: status.color, strokeWidth: 3 }} />
+                            {act && act.kind === 'bullish' && <path d="M12 16 L22 30 L32 16" fill="none" style={{ stroke: status.color, strokeWidth: 3, strokeLinejoin: 'round' }} />}
+                            {act && act.kind === 'bearish' && <path d="M12 28 L22 14 L32 28" fill="none" style={{ stroke: status.color, strokeWidth: 3, strokeLinejoin: 'round' }} />}
+                            {!act && <line x1="13" y1="22" x2="31" y2="22" style={{ stroke: status.color, strokeWidth: 3 }} />}
+                        </svg>
+                        <h3 className="text-xl md:text-2xl font-black flex items-center gap-2.5 flex-wrap" style={{ color: 'var(--ink)' }}>
+                            {status.title}
                             {act && act.strong && (
-                                <span className={`text-[10px] px-2 py-0.5 rounded-full border border-current opacity-80 ${status.color}`}>
+                                <span className="fs-chip" style={{ color: status.color }}>
                                     {act.kind === 'bullish' ? '零軸下方，參考性較高' : '零軸上方，參考性較高'}
                                 </span>
                             )}
-                        </div>
-                        <p className="text-sm text-slate-300 mt-2">{status.desc}</p>
+                        </h3>
+                        <p className="text-[15px] leading-relaxed" style={{ color: 'var(--ink-2)' }}>{status.desc}</p>
                         {act && (
-                            <div className="mt-3 text-xs text-slate-400 space-y-1">
+                            <div className="text-[13px] leading-relaxed num" style={{ color: 'var(--ink-2)' }}>
                                 <div>
                                     比較區間：{fmtWeek(act.t1)} → {fmtWeek(act.t2)}（相隔 {act.weeks} 週，{act.barsSince === 0 ? '本週' : `${act.barsSince} 週前`}成形）
                                 </div>
@@ -3661,7 +3656,7 @@ import economicCalendar from '../economic_calendar.json';
                         )}
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 w-full">
+                    <div className="fs-kv num">
                         {[
                             { k: 'DIF', v: fmtNum(data.last.dif, 3) },
                             { k: 'DEA', v: fmtNum(data.last.dea, 3) },
@@ -3673,68 +3668,107 @@ import economicCalendar from '../economic_calendar.json';
                                     : '—',
                             },
                         ].map(item => (
-                            <div key={item.k} className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-left">
-                                <div className="text-[11px] text-slate-500">{item.k}</div>
-                                <div className="text-sm font-mono text-slate-200 truncate">{item.v}</div>
+                            <div key={item.k}>
+                                <div className="text-[12px]" style={{ color: 'var(--ink-3)' }}>{item.k}</div>
+                                <div className="text-lg md:text-[22px] font-bold truncate" style={{ color: 'var(--ink)' }}>{item.v}</div>
                             </div>
                         ))}
                     </div>
 
-                    {charts && (
+                    {width > 0 && (
                         <>
-                            <div className="w-full">
-                                <div className="text-xs text-slate-500 mb-1 text-left">{label} 週線收盤（標記＝背離的兩個轉折點）</div>
-                                <div className="h-[180px] w-full"><ChartComponent data={charts.priceData} options={charts.priceOptions} /></div>
+                            <div className="flex justify-between gap-3 flex-wrap text-[12px] mt-5 mb-1.5 num" style={{ color: 'var(--ink-3)' }}>
+                                <span>{label} 週線收盤（標記＝背離的兩個轉折點）</span>
+                                <span style={{ color: 'var(--ink-2)' }}>
+                                    {fmtWeek(data.bars[start + hv].t)}　{fmtNum(closes[hv], 2)}
+                                </span>
                             </div>
-                            <div className="w-full">
-                                <div className="text-xs text-slate-500 mb-1 text-left">週線 MACD (12, 26, 9)</div>
-                                <div className="h-[180px] w-full"><ChartComponent data={charts.macdData} options={charts.macdOptions} type="bar" /></div>
+                            <svg width="100%" viewBox={`0 0 ${W} ${H1}`} onMouseMove={onMove} onMouseLeave={() => setHover(null)} style={{ display: 'block', overflow: 'visible' }}>
+                                {[pMin, (pMin + pMax) / 2, pMax].map((v, i) => (
+                                    <g key={i}>
+                                        <line x1={L} x2={W - R} y1={yP(v)} y2={yP(v)} style={{ stroke: 'var(--faint)' }} />
+                                        <text x={L - 8} y={yP(v) + 4} textAnchor="end" style={{ fill: 'var(--ink-3)', fontSize: 11 }}>{fmtAxis(v)}</text>
+                                    </g>
+                                ))}
+                                {divs.filter(d => d.isActive).map(d => [d.a, d.b].map(i => (
+                                    <line key={`g${i}`} x1={X(i)} x2={X(i)} y1={T} y2={B1} style={{ stroke: d.color, strokeDasharray: '3 4', opacity: 0.6 }} />
+                                )))}
+                                <path d={path(closes, yP)} fill="none" style={{ stroke: 'var(--ink)', strokeWidth: 1.6 }} />
+                                {divs.map((d, k) => connector(d, closes, yP, 10, `p${k}`, B1))}
+                                {guideX != null && <line x1={guideX} x2={guideX} y1={T} y2={B1} style={{ stroke: 'var(--ink-3)' }} />}
+                                {divs.map((d, k) => annotation(d, closes, yP, 10, `p${k}`, B1))}
+                            </svg>
+
+                            <div className="flex justify-between gap-3 flex-wrap text-[12px] mt-4 mb-1.5 num" style={{ color: 'var(--ink-3)' }}>
+                                <span>週線 MACD (12, 26, 9)</span>
+                                <span className="flex items-center gap-3" style={{ color: 'var(--ink-2)' }}>
+                                    <span className="inline-flex items-center gap-1"><i style={{ width: 14, height: 2, background: 'var(--ink)', display: 'inline-block' }} />DIF {fmtNum(dif[hv], 3)}</span>
+                                    <span className="inline-flex items-center gap-1"><i style={{ width: 14, height: 2, background: 'var(--ink-3)', display: 'inline-block' }} />DEA {fmtNum(dea[hv], 3)}</span>
+                                    <span className="inline-flex items-center gap-1"><i style={{ width: 6, height: 8, background: 'var(--up)', opacity: 0.5, display: 'inline-block' }} /><i style={{ width: 6, height: 8, background: 'var(--down)', opacity: 0.5, display: 'inline-block' }} />柱狀圖 {fmtNum(hist[hv], 3)}</span>
+                                </span>
                             </div>
+                            <svg width="100%" viewBox={`0 0 ${W} ${H2}`} onMouseMove={onMove} onMouseLeave={() => setHover(null)} style={{ display: 'block', overflow: 'visible' }}>
+                                {[-lim * 0.8, lim * 0.8].map((v, i) => (
+                                    <g key={i}>
+                                        <line x1={L} x2={W - R} y1={yO(v)} y2={yO(v)} style={{ stroke: 'var(--faint)' }} />
+                                        <text x={L - 8} y={yO(v) + 4} textAnchor="end" style={{ fill: 'var(--ink-3)', fontSize: 11 }}>{fmtAxis(v)}</text>
+                                    </g>
+                                ))}
+                                <text x={L - 8} y={yO(0) + 4} textAnchor="end" style={{ fill: 'var(--ink-3)', fontSize: 11 }}>0</text>
+                                {divs.filter(d => d.isActive).map(d => [d.a, d.b].map(i => (
+                                    <line key={`g${i}`} x1={X(i)} x2={X(i)} y1={T} y2={B2} style={{ stroke: d.color, strokeDasharray: '3 4', opacity: 0.6 }} />
+                                )))}
+                                {hist.map((v, i) => v == null ? null : (
+                                    <rect key={i} x={X(i) - bw / 2} y={Math.min(yO(v), yO(0))} width={bw} height={Math.abs(yO(v) - yO(0))}
+                                        style={{ fill: v >= 0 ? 'var(--up)' : 'var(--down)', opacity: 0.35 }} />
+                                ))}
+                                <line x1={L} x2={W - R} y1={yO(0)} y2={yO(0)} style={{ stroke: 'var(--ink)' }} />
+                                <path d={path(dea, yO)} fill="none" style={{ stroke: 'var(--ink-3)', strokeWidth: 1.4 }} />
+                                <path d={path(dif, yO)} fill="none" style={{ stroke: 'var(--ink)', strokeWidth: 1.8 }} />
+                                {divs.map((d, k) => connector(d, dif, yO, 10, `o${k}`, B2))}
+                                {guideX != null && <line x1={guideX} x2={guideX} y1={T} y2={B2} style={{ stroke: 'var(--ink-3)' }} />}
+                                {divs.map((d, k) => annotation(d, dif, yO, 10, `o${k}`, B2))}
+                                {[0, Math.floor((n - 1) / 2), n - 1].map((i, k) => (
+                                    <text key={i} x={X(i)} y={H2 - 6} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'} style={{ fill: 'var(--ink-3)', fontSize: 11 }}>{fmtWeek(data.bars[start + i].t)}</text>
+                                ))}
+                            </svg>
                         </>
                     )}
 
                     {history.length > 0 && (
-                        <div className="text-xs text-slate-500 text-left">
+                        <div className="text-[12px] mt-4" style={{ color: 'var(--ink-3)' }}>
                             較早的背離：{history.map(d => `${d.kind === 'bullish' ? '底背離' : '頂背離'} ${fmtWeek(d.t2)}（${d.barsSince} 週前）`).join('、')}
                         </div>
                     )}
 
-                    <p className="text-[11px] text-slate-500 text-left leading-relaxed">
+                    <p className="text-[12px] leading-relaxed mt-2 max-w-[80ch]" style={{ color: 'var(--ink-3)' }}>
                         背離＝價格與動能不同步：價格破前低但 MACD 的 DIF 沒破前低為「底背離」，反之為「頂背離」。
                         這裡用週線、12/26/9 參數，轉折點需左右各 2 根週 K 確認，所以最新一週的訊號可能還會變動。
-                        <span className="text-slate-400">買賣訊號仍以原本的恐懼貪婪 / RSI 判讀為主，此指標僅作輔助。</span>
+                        <span style={{ color: 'var(--ink-2)' }}>買賣訊號仍以原本的恐懼貪婪 / RSI 判讀為主，此指標僅作輔助。</span>
                     </p>
                 </div>
             );
         };
 
-        // 情緒卡片外殼:恐懼貪婪 ⇄ 週線 MACD 切換
         const SentimentToggleCard = ({ storageKey, fngTitle, macdTitle, market, symbol, label, subtitle, children }) => {
             const [view, setView] = useLocalState(storageKey, 'fng');
             return (
-                <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl">
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+                <section className="fs-section mt-6 md:mt-8">
+                    <div className="fs-head">
                         <div className="text-left">
-                            <h2 className="text-xl font-bold text-slate-200">{view === 'fng' ? fngTitle : macdTitle}</h2>
+                            <h2 className="fs-title">{view === 'fng' ? fngTitle : macdTitle}</h2>
                             {view === 'fng' && subtitle}
                         </div>
-                        <div className="flex gap-1 p-1 rounded-full glass shrink-0" style={{ width: 'fit-content' }}>
+                        <div className="fs-toggle shrink-0">
                             {[{ k: 'fng', l: '恐懼貪婪' }, { k: 'macd', l: '週線 MACD' }].map(o => (
-                                <button
-                                    key={o.k}
-                                    onClick={() => setView(o.k)}
-                                    className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${view === o.k ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                                    style={view === o.k ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                                >
-                                    {o.l}
-                                </button>
+                                <button key={o.k} onClick={() => setView(o.k)} className={view === o.k ? 'on' : ''}>{o.l}</button>
                             ))}
                         </div>
                     </div>
                     {view === 'fng'
-                        ? <div className="w-full flex flex-col items-center text-center">{children}</div>
+                        ? <div className="w-full">{children}</div>
                         : <WeeklyMacdPanel market={market} symbol={symbol} label={label} />}
-                </div>
+                </section>
             );
         };
 
@@ -4923,7 +4957,7 @@ import economicCalendar from '../economic_calendar.json';
 
                         {/* Row 2: range • timeframe • indicator toggles (horizontally scrollable) */}
                         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
-                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }}>
                                 {rangeBtn('1mo', '1M')}
                                 {rangeBtn('3mo', '3M')}
                                 {rangeBtn('6mo', '6M')}
@@ -4931,7 +4965,7 @@ import economicCalendar from '../economic_calendar.json';
                                 {rangeBtn('max', 'ALL')}
                             </div>
 
-                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }} title="K 線週期">
+                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }} title="K 線週期">
                                 <button onClick={() => setTimeframe('1d')}
                                     className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${timeframe === '1d' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
                                     style={timeframe === '1d' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>日</button>
@@ -4960,7 +4994,7 @@ import economicCalendar from '../economic_calendar.json';
                     {/* Body: drawing toolbar + chart */}
                     <div className="flex-1 min-h-0 flex">
                         {/* Vertical toolbar (left). Categories pop a submenu of tools. */}
-                        <div className="shrink-0 flex flex-col items-stretch gap-1 py-2 px-1.5" style={{ borderRight: '1px solid var(--line)', width: 48, background: 'rgba(255,255,255,0.02)' }}>
+                        <div className="shrink-0 flex flex-col items-stretch gap-1 py-2 px-1.5" style={{ borderRight: '1px solid var(--line)', width: 48, background: 'var(--wash)' }}>
                             {DRAWING_TOOL_CATEGORIES.map(cat => (
                                 <div key={cat.key} className="relative">
                                     <button
@@ -5273,7 +5307,7 @@ import economicCalendar from '../economic_calendar.json';
                     <button
                         onClick={() => setOpen(o => !o)}
                         className="flex items-center gap-1.5 pl-2.5 pr-2 h-8 rounded-lg text-[11px] font-bold hover:bg-white/[0.08] transition-colors"
-                        style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid ' + (open ? 'var(--brand-1)' : 'var(--line)'), color: open ? 'var(--brand-1)' : 'var(--text-2)' }}
+                        style={{ background: 'var(--wash)', border: '1px solid ' + (open ? 'var(--brand-1)' : 'var(--line)'), color: open ? 'var(--brand-1)' : 'var(--text-2)' }}
                     >
                         {icon && (
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -5380,7 +5414,7 @@ import economicCalendar from '../economic_calendar.json';
             }, [sym, period]);
 
             const pills = (items, active, onPick) => (
-                <div className="flex gap-0.5 p-0.5 rounded-lg overflow-x-auto no-scrollbar" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', width: 'fit-content', maxWidth: '100%' }}>
+                <div className="flex gap-0.5 p-0.5 rounded-lg overflow-x-auto no-scrollbar" style={{ background: 'var(--wash)', border: '1px solid var(--line)', width: 'fit-content', maxWidth: '100%' }}>
                     {items.map(it => (
                         <button key={it.key}
                             onClick={() => onPick(it.key)}
@@ -5666,7 +5700,7 @@ import economicCalendar from '../economic_calendar.json';
 
             // ── UI atoms ──
             const pills = (items, active, onPick) => (
-                <div className="flex gap-0.5 p-0.5 rounded-lg overflow-x-auto no-scrollbar" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', width: 'fit-content', maxWidth: '100%' }}>
+                <div className="flex gap-0.5 p-0.5 rounded-lg overflow-x-auto no-scrollbar" style={{ background: 'var(--wash)', border: '1px solid var(--line)', width: 'fit-content', maxWidth: '100%' }}>
                     {items.map(it => (
                         <button key={it.key}
                             onClick={() => !it.disabled && onPick(it.key)}
@@ -5893,16 +5927,14 @@ import economicCalendar from '../economic_calendar.json';
 
             if (!isPremium) {
                 return (
-                    <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
-                        <div className="bg-slate-800 p-6 rounded-full border border-slate-700 shadow-2xl shadow-black relative">
-                            <Lock size={64} className="text-slate-500" />
-                            <div className="absolute -top-2 -right-2 bg-amber-500 text-slate-900 font-bold px-3 py-1 rounded-full text-xs shadow-lg animate-bounce">
-                                PRO
-                            </div>
+                    <div className="py-10 max-w-[60ch]">
+                        <div className="flex items-center gap-2.5">
+                            <Lock size={20} style={{ color: 'var(--ink)' }} />
+                            <span className="fs-chip" style={{ color: 'var(--ink)' }}>PRO</span>
                         </div>
-                        <div>
-                            <h2 className="text-3xl font-bold text-white mb-2">解鎖我的觀察清單</h2>
-                            <p className="text-slate-400 max-w-md mx-auto">
+                        <div className="mt-4">
+                            <h2 className="fs-title mb-2">解鎖我的觀察清單</h2>
+                            <p className="text-[15px] leading-relaxed" style={{ color: 'var(--ink-2)' }}>
                                 升級至 Premium 會員，即可建立跨市場觀察清單，並獲得 RSI 即時信號與 DCA 策略建議。
                             </p>
                         </div>
@@ -5911,9 +5943,9 @@ import economicCalendar from '../economic_calendar.json';
                                 const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
                                 window.open(checkoutUrl, '_blank');
                             }}
-                            className="flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white font-bold rounded-2xl transition-all shadow-xl shadow-amber-900/20 hover:scale-105 hover:shadow-amber-500/30 group"
+                            className="fs-btn solid mt-6"
                         >
-                            <Sparkles className="group-hover:rotate-12 transition-transform" />
+                            <Sparkles size={16} />
                             立即升級 Pro 版本
                         </button>
                     </div>
@@ -6103,18 +6135,18 @@ import economicCalendar from '../economic_calendar.json';
                             </div>
                             <div>
                                 <p className="label">買進信號</p>
-                                <p className="text-xl font-extrabold num mt-0.5" style={{ color: '#3ce0a8' }}>
+                                <p className="text-xl font-extrabold num mt-0.5" style={{ color: 'var(--up)' }}>
                                     {assetsData.filter(a => a.rsi !== null && a.rsi <= 30).length}
                                 </p>
                             </div>
                             <div>
                                 <p className="label">賣出警示</p>
-                                <p className="text-xl font-extrabold num mt-0.5" style={{ color: '#ff7d8c' }}>
+                                <p className="text-xl font-extrabold num mt-0.5" style={{ color: 'var(--down)' }}>
                                     {assetsData.filter(a => a.rsi !== null && a.rsi >= 65).length}
                                 </p>
                             </div>
                         </div>
-                        <button onClick={fetchData} className="px-3 py-2 rounded-xl text-xs font-semibold transition-colors" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }} title="重新整理">
+                        <button onClick={fetchData} className="fs-btn icon" title="重新整理" aria-label="重新整理">
                             <RefreshCw size={14} />
                         </button>
                     </div>
@@ -6162,23 +6194,23 @@ import economicCalendar from '../economic_calendar.json';
                                                     </button>
                                                 </td>
                                                 <td className="p-2 md:p-3">
-                                                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] md:text-[11px] font-bold whitespace-nowrap" style={{ background: signal.color + '22', color: signal.color }}>
+                                                    <div className="fs-chip whitespace-nowrap" style={{ color: signal.color }}>
                                                         <span>{signal.emoji}</span>
                                                         <span>{signal.label}</span>
                                                     </div>
                                                     <div className="text-[10px] mono mt-0.5 hidden md:block" style={{ color: 'var(--text-3)' }}>{signal.advice}</div>
                                                 </td>
                                                 <td className="p-2 md:p-3 text-right mono">${formatPrice(item.price)}</td>
-                                                <td className="p-2 md:p-3 text-right mono font-semibold" style={{ color: changeUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                                <td className="p-2 md:p-3 text-right mono font-semibold" style={{ color: changeUp ? 'var(--up)' : 'var(--down)' }}>
                                                     {changeUp ? '+' : ''}{item.changePercent?.toFixed(2) ?? '—'}%
                                                 </td>
                                                 <td className="p-2 md:p-3 text-right hidden lg:table-cell">
                                                     <div className="flex items-center justify-end gap-2">
                                                         <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>{positionPct.toFixed(0)}%</span>
-                                                        <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                                                        <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--wash-2)' }}>
                                                             <div className="h-full rounded-full" style={{
                                                                 width: positionPct + '%',
-                                                                background: positionPct < 30 ? '#3ce0a8' : positionPct > 70 ? '#ff7d8c' : '#fbbf24'
+                                                                background: positionPct < 30 ? 'var(--up)' : positionPct > 70 ? 'var(--down)' : 'var(--amber)'
                                                             }}></div>
                                                         </div>
                                                     </div>
@@ -6235,7 +6267,7 @@ import economicCalendar from '../economic_calendar.json';
                                     <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(60,224,168,0.08)', border: '1px solid rgba(60,224,168,0.25)' }}>
                                         <div className="flex items-center gap-2 mb-1.5">
                                             <span className="text-base">🔥</span>
-                                            <span className="font-bold" style={{ color: '#3ce0a8' }}>強力加碼</span>
+                                            <span className="font-bold" style={{ color: 'var(--up)' }}>強力加碼</span>
                                         </div>
                                         <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≤ 25 <strong>或</strong> (RSI ≤ 30 <strong>且</strong> 接近 1Y 低 ≤ 10%)</p>
                                     </div>
@@ -6243,12 +6275,12 @@ import economicCalendar from '../economic_calendar.json';
                                     <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(132,215,106,0.05)', border: '1px solid rgba(132,215,106,0.2)' }}>
                                         <div className="flex items-center gap-2 mb-1.5">
                                             <span className="text-base">🟢</span>
-                                            <span className="font-bold" style={{ color: '#84d76a' }}>加碼</span>
+                                            <span className="font-bold" style={{ color: 'var(--z3)' }}>加碼</span>
                                         </div>
                                         <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≤ 30 <strong>或</strong> (RSI ≤ 40 <strong>且</strong> 接近 1Y 低 ≤ 20%)</p>
                                     </div>
 
-                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                    <div className="p-3 rounded-xl ring-soft" style={{ background: 'var(--wash)' }}>
                                         <div className="flex items-center gap-2 mb-1.5">
                                             <span className="text-base">⚪</span>
                                             <span className="font-bold" style={{ color: 'var(--text)' }}>持有 / 觀望</span>
@@ -6259,7 +6291,7 @@ import economicCalendar from '../economic_calendar.json';
                                     <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)' }}>
                                         <div className="flex items-center gap-2 mb-1.5">
                                             <span className="text-base">🟡</span>
-                                            <span className="font-bold" style={{ color: '#fbbf24' }}>警示</span>
+                                            <span className="font-bold" style={{ color: 'var(--amber)' }}>警示</span>
                                         </div>
                                         <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≥ 65 <strong>或</strong> 接近 1Y 高 ≥ 85%</p>
                                     </div>
@@ -6267,7 +6299,7 @@ import economicCalendar from '../economic_calendar.json';
                                     <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,125,140,0.08)', border: '1px solid rgba(255,125,140,0.25)' }}>
                                         <div className="flex items-center gap-2 mb-1.5">
                                             <span className="text-base">🔴</span>
-                                            <span className="font-bold" style={{ color: '#ff7d8c' }}>賣出</span>
+                                            <span className="font-bold" style={{ color: 'var(--down)' }}>賣出</span>
                                         </div>
                                         <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≥ 70 <strong>或</strong> (RSI ≥ 60 <strong>且</strong> 接近 1Y 高 ≥ 90%)</p>
                                     </div>
@@ -6275,7 +6307,7 @@ import economicCalendar from '../economic_calendar.json';
                                     <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,91,110,0.10)', border: '1px solid rgba(255,91,110,0.3)' }}>
                                         <div className="flex items-center gap-2 mb-1.5">
                                             <span className="text-base">🚨</span>
-                                            <span className="font-bold" style={{ color: '#ff5b6e' }}>強力賣出</span>
+                                            <span className="font-bold" style={{ color: 'var(--down)' }}>強力賣出</span>
                                         </div>
                                         <p className="text-xs mono" style={{ color: 'var(--text-2)' }}>RSI ≥ 75 <strong>或</strong> (RSI ≥ 65 <strong>且</strong> 接近 1Y 高 ≥ 95%)</p>
                                     </div>
@@ -6318,6 +6350,21 @@ import economicCalendar from '../economic_calendar.json';
             return ccy === 'TWD' ? 'NT$' : '$';
         };
         const currencyToSymbol = (ccy) => ccy === 'TWD' ? 'NT$' : '$';
+
+        // Dev-only sample portfolio for reviewing the layout without an account.
+        // import.meta.env.DEV is false in `vite build`, so none of this reaches production.
+        const PORTFOLIO_FIXTURE = import.meta.env.DEV && new URLSearchParams(window.location.search).get('portfolioFixture') === '1';
+        const FIXTURE_USER = { id: 'fixture-user', email: 'fixture@localhost' };
+        const FIXTURE_TRANSACTIONS = [
+            { id: 'f1', symbol: 'BITCOIN', asset_type: 'crypto', type: 'buy', shares: 0.01, price: 62000, fee: 0, date: '2025-11-03', note: '定期定額' },
+            { id: 'f2', symbol: 'BITCOIN', asset_type: 'crypto', type: 'buy', shares: 0.012, price: 58000, fee: 0, date: '2026-02-12', note: '恐懼加碼' },
+            { id: 'f3', symbol: 'ETHEREUM', asset_type: 'crypto', type: 'buy', shares: 0.4, price: 2350, fee: 0, date: '2026-03-01', note: '' },
+            { id: 'f4', symbol: 'ETHEREUM', asset_type: 'crypto', type: 'sell', shares: 0.1, price: 2600, fee: 0, date: '2026-08-20', note: '' },
+            { id: 'f5', symbol: 'VOO', asset_type: 'us_stock', type: 'buy', shares: 3, price: 560, fee: 1, date: '2025-12-15', note: '' },
+            { id: 'f6', symbol: 'VOO', asset_type: 'us_stock', type: 'buy', shares: 2, price: 590, fee: 1, date: '2026-04-02', note: '' },
+            { id: 'f7', symbol: 'VOO', asset_type: 'us_stock', type: 'dividend', shares: 0, price: 18.4, fee: 0, date: '2026-06-28', note: '' },
+            { id: 'f8', symbol: 'USD', asset_type: 'cash', type: 'buy', shares: 1200, price: 1, fee: 0, date: '2026-05-10', note: '備用金' },
+        ];
 
         // Compute current holdings from a flat list of transactions
         const computeHoldings = (transactions) => {
@@ -6380,7 +6427,7 @@ import economicCalendar from '../economic_calendar.json';
             const [saving, setSaving] = useState(false);
             const [error, setError] = useState(null);
 
-            const inputStyle = { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', color: 'var(--text)' };
+            const inputStyle = { background: 'var(--wash)', border: '1px solid var(--line)', color: 'var(--text)' };
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
@@ -6543,7 +6590,7 @@ import economicCalendar from '../economic_calendar.json';
                             </div>
 
                             {error && (
-                                <div className="text-xs text-center px-3 py-2 rounded-lg" style={{ background: 'rgba(255,91,110,0.08)', color: '#ff7d8c', border: '1px solid rgba(255,91,110,0.2)' }}>
+                                <div className="text-xs text-center px-3 py-2 rounded-lg" style={{ background: 'rgba(255,91,110,0.08)', color: 'var(--down)', border: '1px solid rgba(255,91,110,0.2)' }}>
                                     {error}
                                 </div>
                             )}
@@ -6572,6 +6619,7 @@ import economicCalendar from '../economic_calendar.json';
             const [timeRange, setTimeRange] = useState('1y');  // 1mo|3mo|6mo|1y|max
             const [historicalPrices, setHistoricalPrices] = useState({}); // {symbol::asset_type: [{date, price}]}
             const [historyLoading, setHistoryLoading] = useState(false);
+            const themeV = useThemeVersion();
 
             const ccyMatch = currency === 'TWD' ? ['tw_stock'] : ['us_stock', 'crypto'];
 
@@ -6726,13 +6774,13 @@ import economicCalendar from '../economic_calendar.json';
                                 fill: true,
                                 pointRadius: 0,
                                 pointHoverRadius: 4,
-                                borderWidth: 2.5,
-                                tension: 0.3,
+                                borderWidth: 1.8,
+                                tension: 0.2,
                             },
                             {
                                 label: '累計投入成本',
                                 data: costSeries,
-                                borderColor: 'rgba(255,255,255,0.35)',
+                                borderColor: CHART.tick,
                                 borderDash: [5, 5],
                                 fill: false,
                                 pointRadius: 0,
@@ -6759,7 +6807,7 @@ import economicCalendar from '../economic_calendar.json';
                             }
                         },
                         scales: {
-                            x: { grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: 6, font: { family: "'JetBrains Mono', monospace", size: 10 } } },
+                            x: figureX(),
                             y: {
                                 grid: { color: CHART.grid },
                                 ticks: {
@@ -6768,7 +6816,6 @@ import economicCalendar from '../economic_calendar.json';
                                         const sym = currency === 'TWD' ? 'NT$' : '$';
                                         return `${sym}${val.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
                                     },
-                                    font: { family: "'JetBrains Mono', monospace", size: 10 }
                                 }
                             }
                         }
@@ -6779,7 +6826,7 @@ import economicCalendar from '../economic_calendar.json';
                 return () => {
                     if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
                 };
-            }, [dates, valueSeries, costSeries, currency]);
+            }, [dates, valueSeries, costSeries, currency, themeV]);
 
             if (symbolKeys.length === 0) return null;
 
@@ -6790,67 +6837,68 @@ import economicCalendar from '../economic_calendar.json';
 
             const rangeBtn = (key, label) => (
                 <button
+                    key={key}
                     onClick={() => setTimeRange(key)}
-                    className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${timeRange === key ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                    style={timeRange === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                    className="px-2 py-0.5 num transition-colors"
+                    style={timeRange === key
+                        ? { border: '1.5px solid var(--ink)', color: 'var(--ink)', fontWeight: 700 }
+                        : { border: '1.5px solid transparent', color: 'var(--ink-2)' }}
                 >
                     {label}
                 </button>
             );
 
             return (
-                <div className="rounded-2xl ring-soft p-4 md:p-5 relative overflow-hidden" style={{ background: 'var(--surface)' }}>
-                    <div className="flex items-start justify-between mb-3 flex-wrap gap-3">
+                <section className="fs-section mt-6">
+                    <div className="flex items-end justify-between gap-4 flex-wrap mb-4">
                         <div>
-                            <p className="label">TOTAL · {currency}</p>
-                            <p className="text-3xl font-extrabold text-white mt-1 num">
+                            <p className="fs-lbl">TOTAL · {currency}</p>
+                            <p className="text-[34px] md:text-[40px] font-black leading-none mt-1 num tracking-tight" style={{ color: 'var(--ink)' }}>
                                 {sym}{currentMarketValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                             </p>
-                            <p className="text-xs mono mt-1" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                            <p className="text-[13px] num mt-2 font-semibold" style={{ color: isUp ? 'var(--up)' : 'var(--down)' }}>
                                 {isUp ? '▲' : '▼'} {sym}{Math.abs(pl).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                                ({isUp ? '+' : ''}{plPct.toFixed(2)}%)
-                                <span className="ml-2" style={{ color: 'var(--text-3)' }}>vs 成本 {sym}{totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                {' '}({isUp ? '+' : ''}{plPct.toFixed(2)}%)
+                                <span className="ml-2 font-normal" style={{ color: 'var(--ink-3)' }}>vs 成本 {sym}{totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                             </p>
                         </div>
-                        {historyLoading && (
-                            <div className="flex items-center gap-1.5 text-[11px] mono" style={{ color: 'var(--text-3)' }}>
-                                <RefreshCw className="animate-spin" size={11} />
-                                載入歷史價...
+                        <div className="flex items-center gap-3">
+                            {historyLoading && (
+                                <span className="flex items-center gap-1.5 text-[12px]" style={{ color: 'var(--ink-3)' }}>
+                                    <RefreshCw className="animate-spin" size={11} />
+                                    載入歷史價...
+                                </span>
+                            )}
+                            <div className="flex gap-1 text-[13px]">
+                                {rangeBtn('1mo', '1M')}
+                                {rangeBtn('3mo', '3M')}
+                                {rangeBtn('6mo', '6M')}
+                                {rangeBtn('1y', '1Y')}
+                                {rangeBtn('max', 'ALL')}
                             </div>
-                        )}
+                        </div>
                     </div>
 
-                    {/* Time range buttons */}
-                    <div className="flex gap-1 mb-3 flex-wrap">
-                        {rangeBtn('1mo', '1M')}
-                        {rangeBtn('3mo', '3M')}
-                        {rangeBtn('6mo', '6M')}
-                        {rangeBtn('1y', '1Y')}
-                        {rangeBtn('max', 'ALL')}
-                    </div>
-
-                    {/* Chart */}
-                    <div className="relative" style={{ height: '240px' }}>
+                    <div className="relative" style={{ height: '260px' }}>
                         {dates.length === 0 && !historyLoading && (
-                            <div className="absolute inset-0 flex items-center justify-center text-xs" style={{ color: 'var(--text-3)' }}>
+                            <div className="absolute inset-0 flex items-center justify-center text-[13px]" style={{ color: 'var(--ink-3)' }}>
                                 等待歷史價...
                             </div>
                         )}
                         <canvas ref={canvasRef}></canvas>
                     </div>
 
-                    {/* Legend */}
-                    <div className="flex items-center gap-4 mt-2 text-[10px] mono" style={{ color: 'var(--text-3)' }}>
+                    <div className="flex items-center gap-5 mt-3 text-[12px]" style={{ color: 'var(--ink-3)' }}>
                         <span className="flex items-center gap-1.5">
-                            <span className="inline-block w-3 h-0.5 rounded" style={{ background: '#3b82f6' }}></span>
+                            <span className="inline-block w-4" style={{ height: 2, background: 'var(--ink)' }}></span>
                             總市值
                         </span>
                         <span className="flex items-center gap-1.5">
-                            <span className="inline-block w-3 h-0 border-t border-dashed" style={{ borderColor: 'rgba(255,255,255,0.35)', height: '1px' }}></span>
+                            <span className="inline-block w-4" style={{ borderTop: '1.5px dashed var(--ink-3)' }}></span>
                             累計投入成本
                         </span>
                     </div>
-                </div>
+                </section>
             );
         };
 
@@ -6858,7 +6906,59 @@ import economicCalendar from '../economic_calendar.json';
         // PortfolioDashboard — main component
         // ─────────────────────────────────────────────
         // ─── ForumGate：論壇函式庫(marked/KaTeX/EasyMDE 等)改為點開論壇才載入,首頁不再背這些成本 ───
-        const ForumGate = (props) => {
+        // Dev-only forum sample (?forumFixture=1): an in-memory stand-in for the forum_posts table so the
+        // list / post / editor layouts can be reviewed without an account. Stripped from `vite build`.
+        const FORUM_FIXTURE = import.meta.env.DEV && new URLSearchParams(window.location.search).get('forumFixture') === '1';
+        const makeForumFixtureDb = () => {
+            const posts = [
+                { id: 'p1', title: '週線 MACD 底背離實戰：2026 年 BTC 的兩次訊號', tags: ['BTC', 'MACD', '背離'], published: true, created_at: '2026-09-20T09:30:00Z',
+                  content: `## 為什麼看週線
+
+日線雜訊太多，**週線**的背離參考性較高。
+
+| 日期 | 收盤 | DIF |
+|---|---:|---:|
+| 2025/12/20 | 54,970 | -6,256 |
+| 2026/06/20 | 52,593 | -2,966 |
+
+價格破底、DIF 沒破底 → 底背離。
+
+\`\`\`js
+const isBull = price2 < price1 && dif2 > dif1;
+\`\`\`` },
+                { id: 'p2', title: '恐懼貪婪指數低於 25 時分批加碼的回測', tags: ['DCA', '恐懼貪婪'], published: true, created_at: '2026-09-12T14:05:00Z',
+                  content: `過去一年有 112 天處於極度恐懼。
+
+- 每週定額
+- 極度恐懼時加倍
+
+> 紀律比預測重要。` },
+                { id: 'p3', title: '（草稿）Wyckoff LPS 進場清單', tags: ['Wyckoff'], published: false, created_at: '2026-09-25T02:00:00Z',
+                  content: `待整理。` },
+            ];
+            const builder = () => {
+                const q = { filters: {}, single: false };
+                const api = {
+                    select() { return api; }, order() { return api; }, insert() { return api; }, update() { return api; }, delete() { return api; },
+                    eq(k, v) { q.filters[k] = v; return api; },
+                    single() { q.single = true; return api; },
+                    then(resolve, reject) {
+                        const rows = q.filters.id ? posts.filter(r => r.id === q.filters.id) : posts;
+                        return Promise.resolve({ data: q.single ? (rows[0] || null) : rows, error: null }).then(resolve, reject);
+                    },
+                };
+                return api;
+            };
+            return {
+                from: () => builder(),
+                storage: { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: '' } }) }) },
+            };
+        };
+
+        const ForumGate = (rawProps) => {
+            const props = FORUM_FIXTURE
+                ? { ...rawProps, supabase: makeForumFixtureDb(), user: { id: 'fixture-user', email: 'fixture@localhost' }, isAdmin: true, isPremium: true }
+                : rawProps;
             const [ready, setReady] = useState(false);
             useEffect(() => {
                 let cancelled = false;
@@ -7189,7 +7289,7 @@ import economicCalendar from '../economic_calendar.json';
                                     <label className={labelCls}>保證金模式</label>
                                     <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-soft)', border: '1px solid var(--line)' }}>
                                         <button onClick={() => setForm(f => ({ ...f, margin_mode: 'cross' }))} className="flex-1 py-1 rounded-lg text-xs font-bold transition-all" style={form.margin_mode === 'cross' ? { background: 'rgba(59,130,246,0.18)', color: 'var(--brand-1)' } : { color: 'var(--text-3)' }}>全倉</button>
-                                        <button onClick={() => setForm(f => ({ ...f, margin_mode: 'isolated' }))} className="flex-1 py-1 rounded-lg text-xs font-bold transition-all" style={form.margin_mode === 'isolated' ? { background: 'rgba(255,255,255,0.1)', color: 'var(--text)' } : { color: 'var(--text-3)' }}>逐倉</button>
+                                        <button onClick={() => setForm(f => ({ ...f, margin_mode: 'isolated' }))} className="flex-1 py-1 rounded-lg text-xs font-bold transition-all" style={form.margin_mode === 'isolated' ? { background: 'var(--wash-2)', color: 'var(--text)' } : { color: 'var(--text-3)' }}>逐倉</button>
                                     </div>
                                 </div>
                                 <div>
@@ -7257,7 +7357,7 @@ import economicCalendar from '../economic_calendar.json';
                                     <label className="label">狀態</label>
                                     <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-soft)', border: '1px solid var(--line)' }}>
                                         <button onClick={() => setForm(f => ({ ...f, status: 'open' }))} className="px-3 py-1 rounded-lg text-xs font-bold transition-all" style={form.status === 'open' ? { background: 'rgba(245,158,11,0.18)', color: 'var(--warn)' } : { color: 'var(--text-3)' }}>持倉中</button>
-                                        <button onClick={() => setForm(f => ({ ...f, status: 'closed' }))} className="px-3 py-1 rounded-lg text-xs font-bold transition-all" style={form.status === 'closed' ? { background: 'rgba(255,255,255,0.1)', color: 'var(--text)' } : { color: 'var(--text-3)' }}>已平倉</button>
+                                        <button onClick={() => setForm(f => ({ ...f, status: 'closed' }))} className="px-3 py-1 rounded-lg text-xs font-bold transition-all" style={form.status === 'closed' ? { background: 'var(--wash-2)', color: 'var(--text)' } : { color: 'var(--text-3)' }}>已平倉</button>
                                     </div>
                                 </div>
                                 {form.status === 'closed' && (
@@ -7281,12 +7381,12 @@ import economicCalendar from '../economic_calendar.json';
                                 )}
                             </div>
                             <div className="flex justify-end gap-2 pt-2">
-                                <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }}>取消</button>
+                                <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: 'var(--wash)', border: '1px solid var(--line)', color: 'var(--text-2)' }}>取消</button>
                                 <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded-xl text-sm font-bold pill-grad glow-brand">{saving ? '儲存中…' : '儲存'}</button>
                             </div>
                         </div>
                         {showGuide && (
-                            <div className="rounded-xl p-3 lg:max-h-[70vh] lg:overflow-y-auto" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--line)' }}>
+                            <div className="rounded-xl p-3 lg:max-h-[70vh] lg:overflow-y-auto" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }}>
                                 <p className="text-sm font-extrabold text-white mb-2">開倉邏輯 · Wyckoff + 全倉風控</p>
                                 <EntryLogicGuide />
                             </div>
@@ -7372,17 +7472,15 @@ import economicCalendar from '../economic_calendar.json';
                             <div><p className="label">勝率</p><p className="text-xl font-extrabold num mt-0.5 text-white">{stats.winRate == null ? '—' : stats.winRate.toFixed(0) + '%'}</p></div>
                             <div><p className="label">平均報酬</p><p className="text-xl font-extrabold num mt-0.5" style={{ color: stats.avgPnl == null ? 'var(--text)' : stats.avgPnl >= 0 ? 'var(--up)' : 'var(--down)' }}>{stats.avgPnl == null ? '—' : (stats.avgPnl >= 0 ? '+' : '') + stats.avgPnl.toFixed(1) + '%'}</p></div>
                         </div>
-                        <button onClick={() => { setEditing(null); setShowForm(true); }} className="px-4 py-2 rounded-xl text-sm font-bold pill-grad glow-brand flex items-center gap-1.5">
+                        <button onClick={() => { setEditing(null); setShowForm(true); }} className="fs-btn solid">
                             <span>＋</span> 新增開單
                         </button>
                     </div>
 
                     {/* Filter pills */}
-                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
+                    <div className="fs-toggle">
                         {[['all', '全部'], ['open', '持倉中'], ['closed', '已平倉']].map(([k, label]) => (
-                            <button key={k} onClick={() => setFilter(k)}
-                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${filter === k ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                                style={filter === k ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>
+                            <button key={k} onClick={() => setFilter(k)} className={filter === k ? 'on' : ''}>
                                 {label}
                             </button>
                         ))}
@@ -7392,8 +7490,7 @@ import economicCalendar from '../economic_calendar.json';
 
                     {shown.length === 0 && !error && (
                         <div className="rounded-2xl ring-soft p-10 text-center" style={{ background: 'var(--surface)' }}>
-                            <p className="text-4xl mb-3">📓</p>
-                            <h3 className="text-lg font-bold text-white mb-1">還沒有開單紀錄</h3>
+                            <h3 className="fs-title-sm mb-1">還沒有開單紀錄</h3>
                             <p className="text-sm" style={{ color: 'var(--text-2)' }}>每一單都寫下「為什麼進場」與事後反省，是最快變強的方式。</p>
                         </div>
                     )}
@@ -7405,7 +7502,7 @@ import economicCalendar from '../economic_calendar.json';
                         const er = calcJournalRisk(e);
                         const st = setupMeta(e.setup);
                         return (
-                            <div key={e.id} className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)', borderLeft: `3px solid ${e.status === 'open' ? 'var(--warn)' : pnl == null ? 'var(--line-2)' : pnl >= 0 ? 'var(--up)' : 'var(--down)'}` }}>
+                            <div key={e.id} className="rounded-2xl ring-soft p-4" style={{ borderTop: `2px solid ${e.status === 'open' ? 'var(--warn)' : pnl == null ? 'var(--ink)' : pnl >= 0 ? 'var(--up)' : 'var(--down)'}` }}>
                                 <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <span className="font-extrabold text-white mono">{e.symbol}</span>
@@ -7418,11 +7515,11 @@ import economicCalendar from '../economic_calendar.json';
                                             </span>
                                         )}
                                         {e.margin_mode && (
-                                            <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-3)' }}>
+                                            <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={{ background: 'var(--wash)', color: 'var(--text-3)' }}>
                                                 {e.margin_mode === 'cross' ? '全倉' : '逐倉'}
                                             </span>
                                         )}
-                                        <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={e.status === 'open' ? { background: 'rgba(245,158,11,0.15)', color: 'var(--warn)' } : { background: 'rgba(255,255,255,0.08)', color: 'var(--text-2)' }}>
+                                        <span className="px-2 py-0.5 rounded-full text-xs font-bold" style={e.status === 'open' ? { background: 'rgba(245,158,11,0.15)', color: 'var(--warn)' } : { background: 'var(--wash-2)', color: 'var(--text-2)' }}>
                                             {e.status === 'open' ? '持倉中' : '已平倉'}
                                         </span>
                                         {pnl != null && (
@@ -7501,6 +7598,7 @@ import economicCalendar from '../economic_calendar.json';
 
             // 1. Fetch transactions
             const reload = async () => {
+                if (PORTFOLIO_FIXTURE) { setTransactions(FIXTURE_TRANSACTIONS); setLoading(false); return; }
                 if (!user || !supabase) return;
                 setLoading(true);
                 const { data, error: err } = await supabase
@@ -7513,6 +7611,7 @@ import economicCalendar from '../economic_calendar.json';
             };
 
             useEffect(() => { reload(); }, [user, supabase]);
+            useThemeVersion();
 
             // 2. Compute holdings
             const holdings = useMemo(() => computeHoldings(transactions), [transactions]);
@@ -7593,95 +7692,79 @@ import economicCalendar from '../economic_calendar.json';
 
             if (!user) {
                 return (
-                    <div className="rounded-2xl ring-soft p-10 text-center" style={{ background: 'var(--surface)' }}>
-                        <p className="text-5xl mb-4">🔒</p>
-                        <h3 className="text-xl font-bold text-white mb-2">請先登入</h3>
-                        <p className="text-sm" style={{ color: 'var(--text-2)' }}>登入後才能管理你的投資組合</p>
-                    </div>
+                    <section className="fs-section mt-6">
+                        <div className="flex items-start gap-3 py-4">
+                            <Lock size={20} className="mt-1 shrink-0" style={{ color: 'var(--ink-3)' }} />
+                            <div>
+                                <h3 className="fs-title-sm">請先登入</h3>
+                                <p className="text-sm mt-1" style={{ color: 'var(--ink-2)' }}>登入後才能管理你的投資組合</p>
+                            </div>
+                        </div>
+                    </section>
                 );
             }
 
             if (loading) {
                 return (
-                    <div className="text-center py-16">
-                        <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.1)', borderTopColor: 'var(--brand-1)' }}></div>
+                    <div className="flex justify-center py-16">
+                        <RefreshCw className="animate-spin" size={26} style={{ color: 'var(--ink-3)' }} />
                     </div>
                 );
             }
 
-            return (
-                <div className="space-y-4">
-                    {/* Header */}
-                    <div className="rounded-2xl ring-soft p-5 flex items-center justify-between flex-wrap gap-3" style={{ background: 'var(--surface)' }}>
-                        <div>
-                            <p className="label">MY INVESTMENTS</p>
-                            <h2 className="text-2xl font-extrabold text-white mt-1 tracking-tight">
-                                {subTab === 'holdings' ? '我的投資組合' : subTab === 'watchlist' ? '觀察清單' : '交易日誌'}
-                            </h2>
-                            <p className="text-xs mt-1 mono" style={{ color: 'var(--text-3)' }}>
-                                {subTab === 'holdings'
-                                    ? `${holdings.length} 檔持股 · ${transactions.length} 筆交易`
-                                    : subTab === 'watchlist'
-                                        ? `${(watchlist || []).length} 檔追蹤中`
-                                        : '合約開單備忘 · 進場邏輯與事後檢討'
-                                }
-                            </p>
-                        </div>
-                        {subTab === 'holdings' && (
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={reload}
-                                    className="px-3 py-2 rounded-xl text-xs font-semibold transition-colors"
-                                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }}
-                                    title="重新整理"
-                                >
-                                    <RefreshCw size={14} className={pricesLoading ? "animate-spin" : ""} />
-                                </button>
-                                <button
-                                    onClick={() => { setEditingTx(null); setShowModal(true); }}
-                                    className="px-4 py-2 rounded-xl text-sm font-bold pill-grad glow-brand flex items-center gap-1.5"
-                                >
-                                    <span>＋</span> 新增交易
-                                </button>
-                            </div>
-                        )}
-                    </div>
+            const SUB_TABS = [
+                { k: 'holdings', l: '持股' },
+                { k: 'watchlist', l: '觀察清單' },
+                { k: 'journal', l: '交易日誌' },
+            ];
 
-                    {/* Sub-tab switcher */}
-                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
-                        <button
-                            onClick={() => setSubTab('holdings')}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${subTab === 'holdings' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                            style={subTab === 'holdings' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                        >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
-                                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
-                            </svg>
-                            持股
-                        </button>
-                        <button
-                            onClick={() => setSubTab('watchlist')}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${subTab === 'watchlist' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                            style={subTab === 'watchlist' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                        >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                            </svg>
-                            觀察清單
-                        </button>
-                        <button
-                            onClick={() => setSubTab('journal')}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${subTab === 'journal' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                            style={subTab === 'journal' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                        >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M12 20h9"/>
-                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-                            </svg>
-                            交易日誌
-                        </button>
-                    </div>
+            return (
+                <div>
+                    {/* Header */}
+                    <section className="fs-section mt-6">
+                        <div className="flex items-end justify-between flex-wrap gap-3">
+                            <div>
+                                <div className="flex items-baseline gap-3 flex-wrap">
+                                    <h2 className="fs-title">
+                                        {subTab === 'holdings' ? '我的投資組合' : subTab === 'watchlist' ? '觀察清單' : '交易日誌'}
+                                    </h2>
+                                    <span className="fs-lbl">MY INVESTMENTS</span>
+                                </div>
+                                <p className="text-[13px] mt-1 num" style={{ color: 'var(--ink-2)' }}>
+                                    {subTab === 'holdings'
+                                        ? `${holdings.length} 檔持股 · ${transactions.length} 筆交易`
+                                        : subTab === 'watchlist'
+                                            ? `${(watchlist || []).length} 檔追蹤中`
+                                            : '合約開單備忘 · 進場邏輯與事後檢討'
+                                    }
+                                </p>
+                            </div>
+                            {subTab === 'holdings' && (
+                                <div className="flex gap-1.5">
+                                    <button onClick={reload} className="fs-btn icon" title="重新整理" aria-label="重新整理">
+                                        <RefreshCw size={15} className={pricesLoading ? "animate-spin" : ""} />
+                                    </button>
+                                    <button onClick={() => { setEditingTx(null); setShowModal(true); }} className="fs-btn solid">
+                                        ＋ 新增交易
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Sub-tab switcher */}
+                        <div className="flex gap-6 mt-4 overflow-x-auto scrollbar-none" style={{ borderBottom: '1px solid var(--rule)' }}>
+                            {SUB_TABS.map(t => (
+                                <button
+                                    key={t.k}
+                                    onClick={() => setSubTab(t.k)}
+                                    className="py-2 text-[15px] whitespace-nowrap"
+                                    style={subTab === t.k
+                                        ? { color: 'var(--ink)', fontWeight: 700, boxShadow: 'inset 0 -3px 0 var(--ink)' }
+                                        : { color: 'var(--ink-2)' }}
+                                >{t.l}</button>
+                            ))}
+                        </div>
+                    </section>
 
                     {/* Watchlist sub-view */}
                     {subTab === 'watchlist' && (
@@ -7715,16 +7798,9 @@ import economicCalendar from '../economic_calendar.json';
                             <>
                                 {/* 幣別切換:僅在同時持有多種計價幣別時顯示(例如 USD / TWD) */}
                                 {ccyList.length > 1 && (
-                                    <div className="flex gap-1 p-1 rounded-full glass" style={{ width: 'fit-content' }}>
+                                    <div className="fs-toggle mt-5">
                                         {ccyList.map(ccy => (
-                                            <button
-                                                key={ccy}
-                                                onClick={() => setCcyView(ccy)}
-                                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${activeCcy === ccy ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
-                                                style={activeCcy === ccy ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                                            >
-                                                {ccy}
-                                            </button>
+                                            <button key={ccy} onClick={() => setCcyView(ccy)} className={activeCcy === ccy ? 'on' : ''}>{ccy}</button>
                                         ))}
                                     </div>
                                 )}
@@ -7737,34 +7813,32 @@ import economicCalendar from '../economic_calendar.json';
                                     currency={activeCcy}
                                 />
 
-                                {/* Summary cards(選中幣別) */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
-                                        <p className="label">{activeCcy} · 總市值</p>
-                                        <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                {/* Summary figures(選中幣別) */}
+                                <div className="fs-kv num mt-6" style={{ borderTop: '1px solid var(--ink)' }}>
+                                    <div>
+                                        <div className="text-[12px]" style={{ color: 'var(--ink-3)' }}>{activeCcy} · 總市值</div>
+                                        <div className="text-lg md:text-[22px] font-bold" style={{ color: 'var(--ink)' }}>
                                             {sym}{s.marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                        </p>
+                                        </div>
                                     </div>
-                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
-                                        <p className="label">總成本</p>
-                                        <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                    <div>
+                                        <div className="text-[12px]" style={{ color: 'var(--ink-3)' }}>總成本</div>
+                                        <div className="text-lg md:text-[22px] font-bold" style={{ color: 'var(--ink)' }}>
                                             {sym}{s.cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                        </p>
+                                        </div>
                                     </div>
-                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
-                                        <p className="label">未實現損益</p>
-                                        <p className="text-xl md:text-2xl font-extrabold mt-1 num" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                    <div>
+                                        <div className="text-[12px]" style={{ color: 'var(--ink-3)' }}>未實現損益</div>
+                                        <div className="text-lg md:text-[22px] font-bold" style={{ color: isUp ? 'var(--up)' : 'var(--down)' }}>
                                             {isUp ? '+' : ''}{sym}{pl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                        </p>
-                                        <p className="text-xs mono mt-0.5" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
-                                            {isUp ? '+' : ''}{plPct.toFixed(2)}%
-                                        </p>
+                                            <span className="text-[13px] font-semibold ml-1.5">{isUp ? '▲' : '▼'} {isUp ? '+' : ''}{plPct.toFixed(2)}%</span>
+                                        </div>
                                     </div>
-                                    <div className="rounded-2xl ring-soft p-4" style={{ background: 'var(--surface)' }}>
-                                        <p className="label">累計配息</p>
-                                        <p className="text-xl md:text-2xl font-extrabold text-white mt-1 num">
+                                    <div>
+                                        <div className="text-[12px]" style={{ color: 'var(--ink-3)' }}>累計配息</div>
+                                        <div className="text-lg md:text-[22px] font-bold" style={{ color: 'var(--ink)' }}>
                                             {sym}{s.dividends.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                                        </p>
+                                        </div>
                                     </div>
                                 </div>
                             </>
@@ -7773,38 +7847,26 @@ import economicCalendar from '../economic_calendar.json';
 
                     {/* Empty state */}
                     {holdings.length === 0 && transactions.length === 0 && (
-                        <div className="rounded-2xl ring-soft p-10 text-center relative overflow-hidden" style={{ background: 'var(--surface)' }}>
-                            <div className="absolute inset-0 dotgrid opacity-40 pointer-events-none"></div>
-                            <div className="relative">
-                                <p className="text-5xl mb-3">📊</p>
-                                <h3 className="text-lg font-bold text-white mb-2">還沒有任何交易</h3>
-                                <p className="text-sm mb-5" style={{ color: 'var(--text-2)' }}>新增第一筆交易來開始追蹤你的投資組合</p>
-                                <button
-                                    onClick={() => { setEditingTx(null); setShowModal(true); }}
-                                    className="px-5 py-2.5 rounded-xl text-sm font-bold pill-grad glow-brand"
-                                >
-                                    ＋ 新增第一筆交易
-                                </button>
-                            </div>
-                        </div>
+                        <section className="fs-section mt-8">
+                            <h3 className="fs-title-sm">還沒有任何交易</h3>
+                            <p className="text-sm mt-1 mb-4" style={{ color: 'var(--ink-2)' }}>新增第一筆交易來開始追蹤你的投資組合</p>
+                            <button onClick={() => { setEditingTx(null); setShowModal(true); }} className="fs-btn solid">
+                                ＋ 新增第一筆交易
+                            </button>
+                        </section>
                     )}
 
                     {/* Holdings table */}
                     {holdings.length > 0 && (
-                        <div className="rounded-2xl ring-soft overflow-hidden" style={{ background: 'var(--surface)' }}>
-                            <div className="p-4 border-b" style={{ borderColor: 'var(--line)' }}>
-                                <h3 className="font-bold text-white">目前持股</h3>
-                            </div>
+                        <section className="fs-section mt-10">
+                            <div className="fs-head"><h3 className="fs-title">目前持股</h3></div>
                             <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
+                                <table className="w-full text-[14px] num" style={{ minWidth: 620 }}>
                                     <thead>
-                                        <tr style={{ borderBottom: '1px solid var(--line)' }}>
-                                            <th className="text-left p-3 label">代號</th>
-                                            <th className="text-right p-3 label">持股</th>
-                                            <th className="text-right p-3 label">均價</th>
-                                            <th className="text-right p-3 label">現價</th>
-                                            <th className="text-right p-3 label">市值</th>
-                                            <th className="text-right p-3 label">損益</th>
+                                        <tr style={{ borderBottom: '1px solid var(--ink)' }}>
+                                            {['代號', '持股', '均價', '現價', '市值', '損益'].map((h, i) => (
+                                                <th key={h} className={`py-2 font-medium text-[12px] ${i === 0 ? 'text-left sticky left-0 z-[1]' : 'text-right'} ${i ? 'pl-3' : ''}`} style={{ color: 'var(--ink-3)', background: i === 0 ? 'var(--paper)' : undefined }}>{h}</th>
+                                            ))}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -7818,43 +7880,41 @@ import economicCalendar from '../economic_calendar.json';
                                             const plPct = pl !== null && h.totalCost > 0 && !isCash ? (pl / h.totalCost) * 100 : null;
                                             const sym = getHoldingSymbol(h);
                                             const isUp = pl !== null && pl >= 0;
+                                            const plColor = isUp ? 'var(--up)' : 'var(--down)';
                                             return (
-                                                <tr key={`${h.symbol}::${h.asset_type}`} className="hover:bg-white/[0.02]" style={{ borderBottom: '1px solid var(--line)' }}>
-                                                    <td className="p-3">
-                                                        <div className="font-bold text-white flex items-center gap-2">
-                                                            {isCash && <span className="text-base">💵</span>}
-                                                            {isCash ? `${h.symbol} 現金` : h.symbol}
-                                                        </div>
-                                                        <div className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>
+                                                <tr key={`${h.symbol}::${h.asset_type}`} style={{ borderBottom: '1px solid var(--rule)' }}>
+                                                    <td className="py-3 pr-3 sticky left-0 z-[1]" style={{ background: 'var(--paper)' }}>
+                                                        <div className="font-bold" style={{ color: 'var(--ink)' }}>{isCash ? `${h.symbol} 現金` : h.symbol}</div>
+                                                        <div className="text-[12px]" style={{ color: 'var(--ink-3)' }}>
                                                             {ASSET_TYPES[h.asset_type].label}
                                                             {h.dividends > 0 && ` · 配息 ${sym}${h.dividends.toFixed(0)}`}
                                                         </div>
                                                     </td>
-                                                    <td className="p-3 text-right mono">
+                                                    <td className="py-3 pl-3 text-right" style={{ color: 'var(--ink)' }}>
                                                         {isCash ? `${sym}${h.totalShares.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : h.totalShares.toLocaleString(undefined, { maximumFractionDigits: 6 })}
                                                     </td>
-                                                    <td className="p-3 text-right mono" style={{ color: 'var(--text-2)' }}>
+                                                    <td className="py-3 pl-3 text-right" style={{ color: 'var(--ink-2)' }}>
                                                         {isCash ? '—' : `${sym}${avgCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
                                                     </td>
-                                                    <td className="p-3 text-right mono">
+                                                    <td className="py-3 pl-3 text-right" style={{ color: 'var(--ink)' }}>
                                                         {isCash ? '—' : (currentPrice !== null ? `${sym}${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—')}
                                                         {!isCash && p?.changePercent !== null && p?.changePercent !== undefined && (
-                                                            <div className="text-[10px] mono" style={{ color: p.changePercent >= 0 ? '#3ce0a8' : '#ff7d8c' }}>
-                                                                {p.changePercent >= 0 ? '+' : ''}{p.changePercent.toFixed(2)}%
+                                                            <div className="text-[12px]" style={{ color: p.changePercent >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                                                                {p.changePercent >= 0 ? '▲ +' : '▼ '}{p.changePercent.toFixed(2)}%
                                                             </div>
                                                         )}
                                                     </td>
-                                                    <td className="p-3 text-right mono font-semibold">
+                                                    <td className="py-3 pl-3 text-right font-semibold" style={{ color: 'var(--ink)' }}>
                                                         {marketValue !== null ? `${sym}${marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
                                                     </td>
-                                                    <td className="p-3 text-right">
-                                                        {isCash ? <span style={{ color: 'var(--text-3)' }}>—</span> : (pl !== null ? (
+                                                    <td className="py-3 pl-3 text-right">
+                                                        {isCash ? <span style={{ color: 'var(--ink-3)' }}>—</span> : (pl !== null ? (
                                                             <div>
-                                                                <div className="mono font-bold" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
+                                                                <div className="font-bold" style={{ color: plColor }}>
                                                                     {isUp ? '+' : ''}{sym}{pl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                                                                 </div>
-                                                                <div className="text-[10px] mono" style={{ color: isUp ? '#3ce0a8' : '#ff7d8c' }}>
-                                                                    {isUp ? '+' : ''}{plPct.toFixed(2)}%
+                                                                <div className="text-[12px]" style={{ color: plColor }}>
+                                                                    {isUp ? '▲ +' : '▼ '}{plPct.toFixed(2)}%
                                                                 </div>
                                                             </div>
                                                         ) : '—')}
@@ -7865,33 +7925,32 @@ import economicCalendar from '../economic_calendar.json';
                                     </tbody>
                                 </table>
                             </div>
-                        </div>
+                        </section>
                     )}
 
                     {/* Recent transactions */}
                     {transactions.length > 0 && (
-                        <div className="rounded-2xl ring-soft overflow-hidden" style={{ background: 'var(--surface)' }}>
-                            <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--line)' }}>
-                                <h3 className="font-bold text-white">交易紀錄</h3>
-                                <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>共 {transactions.length} 筆</span>
+                        <section className="fs-section mt-10">
+                            <div className="fs-head">
+                                <h3 className="fs-title">交易紀錄</h3>
+                                <span className="text-[12px] num" style={{ color: 'var(--ink-3)' }}>共 {transactions.length} 筆</span>
                             </div>
-                            <div className="divide-y" style={{ borderColor: 'var(--line)' }}>
+                            <div>
                                 {transactions.slice(0, 20).map((tx) => {
                                     const isCashTx = tx.asset_type === 'cash';
                                     const sym = isCashTx ? (tx.symbol === 'TWD' ? 'NT$' : '$') : (ASSET_TYPES[tx.asset_type]?.symbol || '$');
-                                    const typeColor = tx.type === 'buy' ? '#3ce0a8' : tx.type === 'sell' ? '#ff7d8c' : '#fbbf24';
+                                    const typeColor = tx.type === 'buy' ? 'var(--up)' : tx.type === 'sell' ? 'var(--down)' : 'var(--amber)';
                                     const typeLabel = isCashTx
                                         ? (tx.type === 'buy' ? '存入' : '提領')
                                         : (tx.type === 'buy' ? '買入' : tx.type === 'sell' ? '賣出' : '配息');
                                     return (
-                                        <div key={tx.id} className="p-3 flex items-center gap-3 hover:bg-white/[0.02]" style={{ borderColor: 'var(--line)' }}>
-                                            <span className="chip whitespace-nowrap" style={{ background: `${typeColor}22`, color: typeColor }}>{typeLabel}</span>
+                                        <div key={tx.id} className="py-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--rule)' }}>
+                                            <span className="fs-chip whitespace-nowrap" style={{ color: typeColor }}>{typeLabel}</span>
                                             <div className="flex-1 min-w-0">
-                                                <div className="font-semibold text-white text-sm flex items-center gap-1.5">
-                                                    {isCashTx && <span>💵</span>}
+                                                <div className="font-semibold text-[15px]" style={{ color: 'var(--ink)' }}>
                                                     {isCashTx ? `${tx.symbol} 現金` : tx.symbol}
                                                 </div>
-                                                <div className="text-[10px] mono mt-0.5" style={{ color: 'var(--text-3)' }}>
+                                                <div className="text-[12px] num mt-0.5 truncate" style={{ color: 'var(--ink-3)' }}>
                                                     {tx.date}
                                                     {isCashTx && ` · ${sym}${Number(tx.shares).toLocaleString()}`}
                                                     {!isCashTx && tx.type !== 'dividend' && ` · ${Number(tx.shares).toLocaleString()} 股 @ ${sym}${Number(tx.price).toLocaleString()}`}
@@ -7901,15 +7960,15 @@ import economicCalendar from '../economic_calendar.json';
                                             </div>
                                             <button
                                                 onClick={() => { setEditingTx(tx); setShowModal(true); }}
-                                                className="px-2 py-1 text-[11px] rounded hover:bg-white/10"
-                                                style={{ color: 'var(--text-2)' }}
+                                                className="px-2 py-1 text-[13px] underline-offset-4 hover:underline"
+                                                style={{ color: 'var(--ink-2)' }}
                                             >
                                                 編輯
                                             </button>
                                             <button
                                                 onClick={() => handleDelete(tx.id)}
-                                                className="px-2 py-1 text-[11px] rounded hover:bg-red-500/20"
-                                                style={{ color: '#ff7d8c' }}
+                                                className="px-2 py-1 text-[13px] underline-offset-4 hover:underline"
+                                                style={{ color: 'var(--down)' }}
                                             >
                                                 刪除
                                             </button>
@@ -7918,11 +7977,11 @@ import economicCalendar from '../economic_calendar.json';
                                 })}
                             </div>
                             {transactions.length > 20 && (
-                                <div className="p-3 text-center text-[11px] mono" style={{ color: 'var(--text-3)', borderTop: '1px solid var(--line)' }}>
+                                <div className="pt-3 text-[12px] num" style={{ color: 'var(--ink-3)' }}>
                                     僅顯示最近 20 筆 · 總共 {transactions.length} 筆
                                 </div>
                             )}
-                        </div>
+                        </section>
                     )}
 
                     </>}
@@ -7985,7 +8044,7 @@ import economicCalendar from '../economic_calendar.json';
                         </div>
 
                         {/* Platform tabs */}
-                        <div className="flex gap-1 p-1 rounded-xl mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)' }}>
+                        <div className="flex gap-1 p-1 rounded-xl mb-4" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }}>
                             {tabBtn('desktop', '🖥 電腦')}
                             {tabBtn('ios', '📱 iPhone')}
                             {tabBtn('android', '🤖 Android')}
@@ -7994,7 +8053,7 @@ import economicCalendar from '../economic_calendar.json';
                         {/* ─── Desktop ─── */}
                         {tab === 'desktop' && (
                             <div className="space-y-4 text-sm" style={{ color: 'var(--text-2)' }}>
-                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'var(--wash)' }}>
                                     <p className="font-bold text-white mb-2">Chrome / Edge</p>
                                     <ol className="space-y-1.5 list-decimal list-inside pl-1 text-xs">
                                         <li>看網址列右側的 <strong className="text-white">安裝圖示</strong> (⊕ 或 螢幕+下載)</li>
@@ -8003,7 +8062,7 @@ import economicCalendar from '../economic_calendar.json';
                                     </ol>
                                 </div>
 
-                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'var(--wash)' }}>
                                     <p className="font-bold text-white mb-2">Safari (macOS)</p>
                                     <ol className="space-y-1.5 list-decimal list-inside pl-1 text-xs">
                                         <li>選單列點 <strong className="text-white">檔案</strong></li>
@@ -8011,7 +8070,7 @@ import economicCalendar from '../economic_calendar.json';
                                     </ol>
                                 </div>
 
-                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'var(--wash)' }}>
                                     <p className="font-bold text-white mb-2">Firefox</p>
                                     <p className="text-xs">桌面版 Firefox 目前不支援 PWA 安裝，請改用 Chrome 或 Edge。</p>
                                 </div>
@@ -8102,7 +8161,7 @@ import economicCalendar from '../economic_calendar.json';
             const [success, setSuccess] = useState(false);
             const [section, setSection] = useState('profile'); // 'profile' | 'preferences' | 'api'
 
-            const inputStyle = { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', color: 'var(--text)' };
+            const inputStyle = { background: 'var(--wash)', border: '1px solid var(--line)', color: 'var(--text)' };
 
             const handleSave = async () => {
                 setSaving(true);
@@ -8177,7 +8236,7 @@ import economicCalendar from '../economic_calendar.json';
 
                                     <div>
                                         <label className="label block mb-1.5">Email</label>
-                                        <div className="px-3.5 py-2.5 rounded-xl text-sm mono" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--line)', color: 'var(--text-3)' }}>
+                                        <div className="px-3.5 py-2.5 rounded-xl text-sm mono" style={{ background: 'var(--wash)', border: '1px solid var(--line)', color: 'var(--text-3)' }}>
                                             {user?.email}
                                         </div>
                                         <p className="text-[10px] mt-1" style={{ color: 'var(--text-3)' }}>無法修改</p>
@@ -8270,12 +8329,12 @@ import economicCalendar from '../economic_calendar.json';
 
                             {/* Footer */}
                             <div className="mt-6 pt-4 flex items-center gap-2 justify-end" style={{ borderTop: '1px solid var(--line)' }}>
-                                {error && <p className="text-xs flex-1" style={{ color: '#ff7d8c' }}>{error}</p>}
-                                {success && <p className="text-xs flex-1" style={{ color: '#3ce0a8' }}>✓ 已儲存</p>}
+                                {error && <p className="text-xs flex-1" style={{ color: 'var(--down)' }}>{error}</p>}
+                                {success && <p className="text-xs flex-1" style={{ color: 'var(--up)' }}>✓ 已儲存</p>}
                                 <button
                                     onClick={onClose}
                                     className="px-4 py-2 rounded-xl text-xs font-semibold transition-colors"
-                                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--line)', color: 'var(--text-2)' }}
+                                    style={{ background: 'var(--wash)', border: '1px solid var(--line)', color: 'var(--text-2)' }}
                                 >
                                     關閉
                                 </button>
@@ -8293,9 +8352,25 @@ import economicCalendar from '../economic_calendar.json';
             );
         };
 
+        // Market tab: engraved-free text tab, underline marks the current market
+        const NavTab = ({ active, onClick, full, short }) => (
+            <button
+                onClick={onClick}
+                aria-current={active ? 'page' : undefined}
+                className="py-2.5 text-[15px] whitespace-nowrap shrink-0 transition-colors"
+                style={active
+                    ? { color: 'var(--ink)', fontWeight: 700, boxShadow: 'inset 0 -3px 0 var(--ink)' }
+                    : { color: 'var(--ink-2)', fontWeight: 500 }}
+            >
+                <span className="hidden md:inline">{full}</span>
+                <span className="md:hidden">{short}</span>
+            </button>
+        );
+
         const App = () => {
+            const [theme, setTheme] = useTheme();
             const [activeTab, setActiveTab] = useState(() =>
-                window.location.hash.startsWith('#/forum') ? 'forum' : 'crypto'
+                window.location.hash.startsWith('#/forum') ? 'forum' : (PORTFOLIO_FIXTURE ? 'portfolio' : 'crypto')
             );
             const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
@@ -8614,57 +8689,49 @@ import economicCalendar from '../economic_calendar.json';
             };
 
             return (
-                <div className="min-h-screen text-slate-300 font-sans selection:bg-blue-500/30 pb-20">
-                    <div className="max-w-4xl mx-auto p-4">
+                <div className="min-h-screen pb-20" style={{ color: 'var(--ink)' }}>
+                    <div className="max-w-5xl mx-auto px-4 sm:px-6">
                         {/* Header */}
-                        <header className="flex justify-between items-center mb-6 relative">
+                        <header className="flex justify-between items-center gap-3 pt-4 pb-3 relative" style={{ borderBottom: '3px solid var(--ink)' }}>
                             {/* Logo */}
-                            <div className="flex items-center gap-3">
-                                <div className="relative w-11 h-11 rounded-2xl overflow-hidden ring-soft" style={{ background: '#0a0c12' }}>
-                                    <div className="absolute -inset-2 rounded-full opacity-40 blur-lg" style={{ background: 'linear-gradient(135deg,#3b82f6,#8b5cf6)' }}></div>
-                                    <img src="./app-icon.png" alt="Smart DCA Logo" className="relative w-full h-full object-cover" />
-                                </div>
-                                <div>
-                                    <h1 className="text-[20px] font-extrabold tracking-tight leading-tight">
-                                        Smart <span className="text-grad">DCA</span>
-                                    </h1>
-                                    <p className="label mt-0.5">Intelligent investing</p>
-                                </div>
+                            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink">
+                                <LogoMark size={24} className="sm:w-7 sm:h-7" />
+                                <h1 className="text-[18px] sm:text-[22px] font-black tracking-tight leading-tight whitespace-nowrap" style={{ color: 'var(--ink)' }}>Smart DCA</h1>
+                                <p className="label hidden sm:block whitespace-nowrap">Intelligent investing</p>
                             </div>
 
                             {/* Right controls */}
-                            <div className="flex items-center gap-2">
-                                {/* PWA Install button — glass style, always visible until installed */}
+                            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                                {/* PWA Install button — always visible until installed */}
                                 {!isPwaInstalled && (
                                     <button
                                         onClick={handleInstallApp}
-                                        className="hidden sm:flex items-center gap-1.5 h-10 px-3.5 rounded-full text-xs font-bold glass hover:bg-white/[0.10] transition-all"
-                                        style={{ color: 'var(--text)' }}
+                                        className="hidden sm:inline-flex fs-btn sm h-9"
                                         title="安裝為桌面 App"
                                     >
-                                        <Smartphone size={14} style={{ color: 'var(--brand-1)' }} />
+                                        <Smartphone size={14} />
                                         <span>安裝 App</span>
                                     </button>
                                 )}
                                 {!isPwaInstalled && (
                                     <button
                                         onClick={handleInstallApp}
-                                        className="sm:hidden w-10 h-10 rounded-full flex items-center justify-center glass hover:bg-white/[0.10] transition-all"
+                                        className="sm:hidden fs-btn icon"
                                         title="安裝為桌面 App"
                                     >
-                                        <Smartphone size={16} style={{ color: 'var(--brand-1)' }} />
+                                        <Smartphone size={16} />
                                     </button>
                                 )}
 
                                 {/* Economic Calendar */}
                                 <button
                                     onClick={() => setShowCalendar(true)}
-                                    className="relative w-10 h-10 rounded-full flex items-center justify-center glass hover:bg-white/[0.08] transition-colors"
+                                    className="relative fs-btn icon"
                                     title="經濟日曆"
                                 >
-                                    <CalendarDays size={18} className="text-slate-300" />
+                                    <CalendarDays size={17} />
                                     {hasHighImpactSoon() && (
-                                        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse" style={{ background: '#f59e0b', boxShadow: '0 0 0 2px #07080c' }}></span>
+                                        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--amber)', boxShadow: '0 0 0 2px #07080c' }}></span>
                                     )}
                                 </button>
 
@@ -8673,21 +8740,18 @@ import economicCalendar from '../economic_calendar.json';
                                     <button
                                         onClick={handleBellClick}
                                         disabled={!user}
-                                        className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-colors ${!user
-                                            ? "text-slate-600 bg-white/[0.02] border border-white/5 cursor-not-allowed opacity-50"
-                                            : "glass hover:bg-white/[0.08]"
-                                            }`}
+                                        className="relative fs-btn icon"
                                     >
-                                        <BellRing size={18} className={!user ? "text-slate-600" : (notificationsEnabled ? "text-blue-400" : "text-slate-300")} />
+                                        <BellRing size={17} style={{ color: !user ? 'var(--ink-3)' : (notificationsEnabled ? 'var(--accent)' : 'var(--ink)') }} />
                                         {unreadCount > 0 && user && (
-                                            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse" style={{ background: '#ff5b6e', boxShadow: '0 0 0 2px #07080c' }}></span>
+                                            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--down)', boxShadow: '0 0 0 2px #07080c' }}></span>
                                         )}
                                     </button>
 
                                     {showNotificationDropdown && (
                                         <div className="fixed top-28 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm glass-strong rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 z-[100] md:absolute md:top-full md:left-auto md:right-0 md:translate-x-0 md:w-96 md:mt-2">
                                             {/* Dropdown Header */}
-                                            <div className="p-4 border-b flex justify-between items-center" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,0.02)' }}>
+                                            <div className="p-4 border-b flex justify-between items-center" style={{ borderColor: 'var(--line)', background: 'var(--wash)' }}>
                                                 <h3 className="font-bold text-white">通知中心</h3>
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-[11px] mono" style={{ color: 'var(--text-3)' }}>{notificationsEnabled ? "DAILY · ON" : "DAILY · OFF"}</span>
@@ -8721,101 +8785,40 @@ import economicCalendar from '../economic_calendar.json';
                                             </div>
 
                                             {/* Footer */}
-                                            <div className="p-3 text-center border-t" style={{ borderColor: 'var(--line)', background: 'rgba(255,255,255,0.02)' }}>
+                                            <div className="p-3 text-center border-t" style={{ borderColor: 'var(--line)', background: 'var(--wash)' }}>
                                                 <p className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>DAILY REPORT · 08:00 AM</p>
                                             </div>
                                         </div>
                                     )}
                                 </div>
 
+                                {/* Theme switch: follows the system until the visitor picks one */}
+                                <button
+                                    onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                                    className="fs-btn icon"
+                                    aria-label={theme === 'dark' ? '切換為淺色' : '切換為深色'}
+                                    title={theme === 'dark' ? '切換為淺色' : '切換為深色'}
+                                >
+                                    {theme === 'dark'
+                                        ? <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5" /><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8 6 18M18 6l1.8-1.8" /></svg>
+                                        : <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z" /></svg>}
+                                </button>
+
                                 <AuthComponent user={user} setUser={setUser} isPremium={isPremium} onOpenSettings={() => setShowSettings(true)} userProfile={userProfile} />
                             </div>
                         </header>
 
                         {/* Navigation Tabs */}
-                        <nav className="glass flex p-1 rounded-full mb-6 sticky top-4 z-50 shadow-2xl gap-1 overflow-x-auto scrollbar-none">
-                            <button
-                                onClick={() => setActiveTab('crypto')}
-                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
-                                    activeTab === 'crypto'
-                                        ? 'pill-grad text-white shadow-lg'
-                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
-                                }`}
-                                style={activeTab === 'crypto' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
-                            >
-                                <img src="https://assets.coingecko.com/coins/images/1/small/bitcoin.png" className={`w-4 h-4 ${activeTab === 'crypto' ? '' : 'opacity-70'}`} alt="Crypto" />
-                                <span className="hidden md:inline">加密貨幣</span>
-                                <span className="md:hidden">加密</span>
-                            </button>
-
-                            <button
-                                onClick={() => setActiveTab('stock')}
-                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
-                                    activeTab === 'stock'
-                                        ? 'pill-grad text-white shadow-lg'
-                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
-                                }`}
-                                style={activeTab === 'stock' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
-                            >
-                                <Globe size={15} />
-                                <span className="hidden md:inline">美股市場</span>
-                                <span className="md:hidden">美股</span>
-                            </button>
-
-                            <button
-                                onClick={() => setActiveTab('taiwan')}
-                                className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
-                                    activeTab === 'taiwan'
-                                        ? 'pill-grad text-white shadow-lg'
-                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
-                                }`}
-                                style={activeTab === 'taiwan' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
-                            >
-                                <Activity size={15} />
-                                <span className="hidden md:inline">台股市場</span>
-                                <span className="md:hidden">台股</span>
-                            </button>
-
-                            {user && (
-                                <button
-                                    onClick={() => setActiveTab('portfolio')}
-                                    className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
-                                        activeTab === 'portfolio'
-                                            ? 'pill-grad text-white shadow-lg'
-                                            : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
-                                    }`}
-                                    style={activeTab === 'portfolio' ? { boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
-                                >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-                                        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-                                    </svg>
-                                    <span className="hidden md:inline">我的投資</span>
-                                    <span className="md:hidden">投資</span>
-                                </button>
-                            )}
-
-                            {FORUM_ENABLED && (
-                                <button
-                                    onClick={() => { setActiveTab('forum'); window.location.hash = '#/forum'; }}
-                                    className={`flex-1 min-w-fit px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 whitespace-nowrap ${
-                                        activeTab === 'forum'
-                                            ? 'text-white shadow-lg'
-                                            : 'text-slate-400 hover:text-white hover:bg-white/[0.06]'
-                                    }`}
-                                    style={activeTab === 'forum' ? { background: 'linear-gradient(135deg,#8b5cf6,#ec4899)', boxShadow: '0 8px 24px -8px rgba(139,92,246,0.5)' } : {}}
-                                >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                    </svg>
-                                    <span className="hidden md:inline">論壇</span>
-                                    <span className="md:hidden">論壇</span>
-                                </button>
-                            )}
+                        <nav className="flex gap-6 sticky top-0 z-50 overflow-x-auto scrollbar-none" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--rule)' }}>
+                            <NavTab active={activeTab === 'crypto'} onClick={() => setActiveTab('crypto')} full="加密貨幣" short="加密" />
+                            <NavTab active={activeTab === 'stock'} onClick={() => setActiveTab('stock')} full="美股市場" short="美股" />
+                            <NavTab active={activeTab === 'taiwan'} onClick={() => setActiveTab('taiwan')} full="台股市場" short="台股" />
+                            {(user || PORTFOLIO_FIXTURE) && <NavTab active={activeTab === 'portfolio'} onClick={() => setActiveTab('portfolio')} full="我的投資" short="投資" />}
+                            {FORUM_ENABLED && <NavTab active={activeTab === 'forum'} onClick={() => { setActiveTab('forum'); window.location.hash = '#/forum'; }} full="論壇" short="論壇" />}
                         </nav>
 
                         {/* Content Area */}
-                        <main>
+                        <main className="pt-2">
                             {appLoading ? (
                                 <div className="flex justify-center py-20"><RefreshCw className="animate-spin text-slate-500" /></div>
                             ) : (
@@ -8845,7 +8848,7 @@ import economicCalendar from '../economic_calendar.json';
                                     {activeTab === 'portfolio' && (
                                         <PortfolioDashboard
                                             supabase={supabase}
-                                            user={user}
+                                            user={user || (PORTFOLIO_FIXTURE ? FIXTURE_USER : null)}
                                             watchlist={watchlist}
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                             isPremium={isPremium}

@@ -19,3 +19,8 @@ supabase/.temp/
 node_modules/
 dist/
 .env.local
+
+# Impeccable review captures (local only)
+.impeccable/review/
+preview/
+.impeccable/questions/
