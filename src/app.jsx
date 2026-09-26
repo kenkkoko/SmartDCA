@@ -365,6 +365,21 @@ import economicCalendar from '../economic_calendar.json';
         const { Bell, TrendingUp, AlertTriangle, Info, RefreshCw, Smartphone, ArrowUp, ArrowDown, Newspaper, Sparkles, ExternalLink, Bot, Globe, Activity, BellRing, BellOff, LogOut, User, Lock, CalendarDays } = Icons;
 
         // --- Auth Component ---
+        // Logo mark "每月一格": a 4x4 month grid. Filled dots = periods invested,
+        // the ultramarine square = this period, hollow dots = periods to come.
+        // Same geometry as py/gen_logo.py (the raster icons).
+        const LogoMark = ({ size = 28, className = '' }) => (
+            <svg width={size} height={size} viewBox="0 0 64 64" className={className} aria-hidden="true" style={{ flex: 'none' }}>
+                {Array.from({ length: 16 }, (_, i) => {
+                    const r = Math.floor(i / 4), c = i % 4, x = 12 + c * 13, y = 12 + r * 13;
+                    if (i === 13) return <rect key={i} x={x - 6} y={y - 6} width="12" height="12" style={{ fill: 'var(--accent)' }} />;
+                    return i < 13
+                        ? <circle key={i} cx={x} cy={y} r="4.2" style={{ fill: 'var(--ink)' }} />
+                        : <circle key={i} cx={x} cy={y} r="3.4" fill="none" style={{ stroke: 'var(--ink)', strokeWidth: 1.6 }} />;
+                })}
+            </svg>
+        );
+
         const AuthComponent = ({ user, setUser, isPremium, onOpenSettings, userProfile }) => {
             const [localLoading, setLocalLoading] = useState(false);
             const [showLoginModal, setShowLoginModal] = useState(false);
@@ -562,10 +577,7 @@ import economicCalendar from '../economic_calendar.json';
                                 </button>
 
                                 <div className="flex items-center gap-3 mb-6">
-                                    <div className="relative w-10 h-10 rounded-xl overflow-hidden ring-soft" style={{ background: '#0a0c12' }}>
-                                        <div className="absolute -inset-2 rounded-full opacity-40 blur-lg pill-grad"></div>
-                                        <img src="./app-icon.png" alt="" className="relative w-full h-full object-cover" />
-                                    </div>
+                                    <LogoMark size={36} />
                                     <div>
                                         <h3 className="text-lg font-extrabold text-white tracking-tight">
                                             {isSignUp ? '建立帳號' : '歡迎回來'}
@@ -8738,7 +8750,8 @@ import economicCalendar from '../economic_calendar.json';
                         {/* Header */}
                         <header className="flex justify-between items-center gap-3 pt-4 pb-3 relative" style={{ borderBottom: '3px solid var(--ink)' }}>
                             {/* Logo */}
-                            <div className="flex items-baseline gap-3 min-w-0">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                                <LogoMark size={28} />
                                 <h1 className="text-[22px] font-black tracking-tight leading-tight whitespace-nowrap" style={{ color: 'var(--ink)' }}>Smart DCA</h1>
                                 <p className="label hidden sm:block whitespace-nowrap">Intelligent investing</p>
                             </div>
