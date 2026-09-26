@@ -6906,7 +6906,59 @@ import economicCalendar from '../economic_calendar.json';
         // PortfolioDashboard — main component
         // ─────────────────────────────────────────────
         // ─── ForumGate：論壇函式庫(marked/KaTeX/EasyMDE 等)改為點開論壇才載入,首頁不再背這些成本 ───
-        const ForumGate = (props) => {
+        // Dev-only forum sample (?forumFixture=1): an in-memory stand-in for the forum_posts table so the
+        // list / post / editor layouts can be reviewed without an account. Stripped from `vite build`.
+        const FORUM_FIXTURE = import.meta.env.DEV && new URLSearchParams(window.location.search).get('forumFixture') === '1';
+        const makeForumFixtureDb = () => {
+            const posts = [
+                { id: 'p1', title: '週線 MACD 底背離實戰：2026 年 BTC 的兩次訊號', tags: ['BTC', 'MACD', '背離'], published: true, created_at: '2026-09-20T09:30:00Z',
+                  content: `## 為什麼看週線
+
+日線雜訊太多，**週線**的背離參考性較高。
+
+| 日期 | 收盤 | DIF |
+|---|---:|---:|
+| 2025/12/20 | 54,970 | -6,256 |
+| 2026/06/20 | 52,593 | -2,966 |
+
+價格破底、DIF 沒破底 → 底背離。
+
+\`\`\`js
+const isBull = price2 < price1 && dif2 > dif1;
+\`\`\`` },
+                { id: 'p2', title: '恐懼貪婪指數低於 25 時分批加碼的回測', tags: ['DCA', '恐懼貪婪'], published: true, created_at: '2026-09-12T14:05:00Z',
+                  content: `過去一年有 112 天處於極度恐懼。
+
+- 每週定額
+- 極度恐懼時加倍
+
+> 紀律比預測重要。` },
+                { id: 'p3', title: '（草稿）Wyckoff LPS 進場清單', tags: ['Wyckoff'], published: false, created_at: '2026-09-25T02:00:00Z',
+                  content: `待整理。` },
+            ];
+            const builder = () => {
+                const q = { filters: {}, single: false };
+                const api = {
+                    select() { return api; }, order() { return api; }, insert() { return api; }, update() { return api; }, delete() { return api; },
+                    eq(k, v) { q.filters[k] = v; return api; },
+                    single() { q.single = true; return api; },
+                    then(resolve, reject) {
+                        const rows = q.filters.id ? posts.filter(r => r.id === q.filters.id) : posts;
+                        return Promise.resolve({ data: q.single ? (rows[0] || null) : rows, error: null }).then(resolve, reject);
+                    },
+                };
+                return api;
+            };
+            return {
+                from: () => builder(),
+                storage: { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: '' } }) }) },
+            };
+        };
+
+        const ForumGate = (rawProps) => {
+            const props = FORUM_FIXTURE
+                ? { ...rawProps, supabase: makeForumFixtureDb(), user: { id: 'fixture-user', email: 'fixture@localhost' }, isAdmin: true, isPremium: true }
+                : rawProps;
             const [ready, setReady] = useState(false);
             useEffect(() => {
                 let cancelled = false;
