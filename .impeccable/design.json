@@ -1,0 +1,864 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-26T16:02:28+00:00",
+  "title": "Design System: Smart DCA",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "#ffffff",
+        "oklch": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Proof Grey",
+        "canonical": "#f7f7f5",
+        "oklch": "oklch(97.6% 0.003 106.4)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#252524",
+          "#424240",
+          "#616160",
+          "#828281",
+          "#a5a5a3",
+          "#c9c9c7",
+          "#eeeeed"
+        ]
+      },
+      "surface-2": {
+        "role": "neutral",
+        "displayName": "Proof Grey Deep",
+        "canonical": "#efefec",
+        "oklch": "oklch(95.1% 0.004 106.5)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#252523",
+          "#424240",
+          "#61615f",
+          "#828280",
+          "#a5a5a2",
+          "#c9c9c6",
+          "#eeeeed"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Press Ink",
+        "canonical": "#111111",
+        "oklch": "oklch(17.8% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Body Ink",
+        "canonical": "#4a4a4a",
+        "oklch": "oklch(40.9% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "ink-3": {
+        "role": "neutral",
+        "displayName": "Caption Ink",
+        "canonical": "#6b6b6b",
+        "oklch": "oklch(52.8% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#d9d9d9",
+        "oklch": "oklch(88.5% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Grid Faint",
+        "canonical": "#ececec",
+        "oklch": "oklch(94.3% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Factsheet Ultramarine",
+        "canonical": "#1b39c4",
+        "oklch": "oklch(43.2% 0.216 266.3)",
+        "tonalRamp": [
+          "#030040",
+          "#0d008b",
+          "#1124b2",
+          "#294ed9",
+          "#4674ff",
+          "#6699ff",
+          "#88c0ff",
+          "#c6ecff"
+        ]
+      },
+      "accent-ink": {
+        "role": "primary",
+        "displayName": "On Ultramarine",
+        "canonical": "#ffffff",
+        "oklch": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "accent-sub": {
+        "role": "primary",
+        "displayName": "Ultramarine Label",
+        "canonical": "#c9d1ff",
+        "oklch": "oklch(87.0% 0.064 277.2)",
+        "tonalRamp": [
+          "#08091b",
+          "#1e2144",
+          "#3a3e64",
+          "#585e86",
+          "#787fa9",
+          "#9ba2ce",
+          "#bec6f4",
+          "#e7edff"
+        ]
+      },
+      "up": {
+        "role": "semantic",
+        "displayName": "Up Green",
+        "canonical": "#13804a",
+        "oklch": "oklch(52.9% 0.125 154.9)",
+        "tonalRamp": [
+          "#001300",
+          "#003402",
+          "#005421",
+          "#007540",
+          "#359860",
+          "#5cbc82",
+          "#82e1a5",
+          "#c7fed9"
+        ]
+      },
+      "down": {
+        "role": "semantic",
+        "displayName": "Down Red",
+        "canonical": "#c62f2f",
+        "oklch": "oklch(54.5% 0.188 26.1)",
+        "tonalRamp": [
+          "#2c0000",
+          "#640000",
+          "#8c0000",
+          "#b4171f",
+          "#dc4642",
+          "#ff6c64",
+          "#ff9287",
+          "#ffd1c7"
+        ]
+      },
+      "amber": {
+        "role": "semantic",
+        "displayName": "Fear Amber",
+        "canonical": "#96600c",
+        "oklch": "oklch(53.6% 0.112 70.1)",
+        "tonalRamp": [
+          "#1d0200",
+          "#480e00",
+          "#6a3000",
+          "#8e5100",
+          "#b2721c",
+          "#d79547",
+          "#feba6c",
+          "#ffe6ba"
+        ]
+      },
+      "zone-extreme-fear": {
+        "role": "semantic",
+        "displayName": "Zone: Extreme Fear",
+        "canonical": "#c62f2f",
+        "oklch": "oklch(54.5% 0.188 26.1)",
+        "tonalRamp": [
+          "#2c0000",
+          "#640000",
+          "#8c0000",
+          "#b4171f",
+          "#dc4642",
+          "#ff6c64",
+          "#ff9287",
+          "#ffd1c7"
+        ]
+      },
+      "zone-fear": {
+        "role": "semantic",
+        "displayName": "Zone: Fear",
+        "canonical": "#e39a3b",
+        "oklch": "oklch(74.2% 0.138 69.3)",
+        "tonalRamp": [
+          "#1f0100",
+          "#4b0900",
+          "#6e2d00",
+          "#914e00",
+          "#b67000",
+          "#dc9333",
+          "#ffb85c",
+          "#ffe5b2"
+        ]
+      },
+      "zone-neutral": {
+        "role": "semantic",
+        "displayName": "Zone: Neutral",
+        "canonical": "#b9b9b9",
+        "oklch": "oklch(78.6% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "zone-greed": {
+        "role": "semantic",
+        "displayName": "Zone: Greed",
+        "canonical": "#5aa37a",
+        "oklch": "oklch(65.6% 0.096 157.7)",
+        "tonalRamp": [
+          "#001203",
+          "#003210",
+          "#00512d",
+          "#26714b",
+          "#4b946c",
+          "#6eb88e",
+          "#92ddb1",
+          "#cffbe0"
+        ]
+      },
+      "zone-extreme-greed": {
+        "role": "semantic",
+        "displayName": "Zone: Extreme Greed",
+        "canonical": "#13804a",
+        "oklch": "oklch(52.9% 0.125 154.9)",
+        "tonalRamp": [
+          "#001300",
+          "#003402",
+          "#005421",
+          "#007540",
+          "#359860",
+          "#5cbc82",
+          "#82e1a5",
+          "#c7fed9"
+        ]
+      },
+      "paper-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal Paper",
+        "canonical": "#121314",
+        "oklch": "oklch(18.6% 0.003 248.0)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242526",
+          "#414243",
+          "#606163",
+          "#818284",
+          "#a4a5a6",
+          "#c8c9cb",
+          "#eeeeef"
+        ]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal Surface",
+        "canonical": "#1a1b1d",
+        "oklch": "oklch(22.2% 0.004 264.5)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242527",
+          "#414244",
+          "#606164",
+          "#818285",
+          "#a4a5a8",
+          "#c8c9cc",
+          "#edeef0"
+        ]
+      },
+      "surface-2-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal Surface Deep",
+        "canonical": "#222326",
+        "oklch": "oklch(25.6% 0.006 271.2)",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242528",
+          "#414245",
+          "#606165",
+          "#818286",
+          "#a3a5a9",
+          "#c8c9cd",
+          "#edeef1"
+        ]
+      },
+      "ink-dark": {
+        "role": "neutral",
+        "displayName": "Bone Ink",
+        "canonical": "#f1efea",
+        "oklch": "oklch(95.2% 0.007 88.6)",
+        "tonalRamp": [
+          "#0c0b09",
+          "#262521",
+          "#43423e",
+          "#63615d",
+          "#84827e",
+          "#a7a5a0",
+          "#cbc9c4",
+          "#efeeeb"
+        ]
+      },
+      "ink-2-dark": {
+        "role": "neutral",
+        "displayName": "Bone Body Ink",
+        "canonical": "#bdbab3",
+        "oklch": "oklch(78.9% 0.010 87.5)",
+        "tonalRamp": [
+          "#0c0b08",
+          "#27251f",
+          "#44423c",
+          "#64615b",
+          "#85827b",
+          "#a8a59e",
+          "#ccc9c2",
+          "#f0eeea"
+        ]
+      },
+      "ink-3-dark": {
+        "role": "neutral",
+        "displayName": "Bone Caption Ink",
+        "canonical": "#9a968f",
+        "oklch": "oklch(67.4% 0.011 81.8)",
+        "tonalRamp": [
+          "#0d0b08",
+          "#28251f",
+          "#45413b",
+          "#64615a",
+          "#86827b",
+          "#a9a49d",
+          "#cdc9c1",
+          "#f1eee9"
+        ]
+      },
+      "rule-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal Hairline",
+        "canonical": "#2f3032",
+        "oklch": "oklch(30.9% 0.004 264.5)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242527",
+          "#414244",
+          "#606163",
+          "#818285",
+          "#a4a5a7",
+          "#c8c9cc",
+          "#eeeef0"
+        ]
+      },
+      "faint-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal Grid",
+        "canonical": "#252628",
+        "oklch": "oklch(26.8% 0.004 264.5)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242527",
+          "#414244",
+          "#606163",
+          "#818285",
+          "#a4a5a7",
+          "#c8c9cc",
+          "#eeeef0"
+        ]
+      },
+      "accent-dark": {
+        "role": "primary",
+        "displayName": "Lifted Ultramarine",
+        "canonical": "#6f8bff",
+        "oklch": "oklch(67.1% 0.174 270.9)",
+        "tonalRamp": [
+          "#040036",
+          "#120077",
+          "#252f9c",
+          "#3f53c2",
+          "#5d77e9",
+          "#7e9bff",
+          "#a0c0ff",
+          "#d4ebff"
+        ]
+      },
+      "accent-ink-dark": {
+        "role": "primary",
+        "displayName": "On Lifted Ultramarine",
+        "canonical": "#0b0d1a",
+        "oklch": "oklch(16.4% 0.028 276.3)",
+        "tonalRamp": [
+          "#090b12",
+          "#212433",
+          "#3e4151",
+          "#5d6071",
+          "#7e8193",
+          "#a0a4b7",
+          "#c4c8dc",
+          "#ebeefa"
+        ]
+      },
+      "accent-sub-dark": {
+        "role": "primary",
+        "displayName": "Lifted Ultramarine Label",
+        "canonical": "#141d4f",
+        "oklch": "oklch(25.7% 0.092 270.8)",
+        "tonalRamp": [
+          "#040725",
+          "#131d58",
+          "#2c3c7a",
+          "#4a5d9e",
+          "#697ec2",
+          "#8ba2e8",
+          "#aec6ff",
+          "#ddedff"
+        ]
+      },
+      "up-dark": {
+        "role": "semantic",
+        "displayName": "Up Green (dark)",
+        "canonical": "#45c07e",
+        "oklch": "oklch(72.3% 0.146 156.1)",
+        "tonalRamp": [
+          "#001400",
+          "#003600",
+          "#00561c",
+          "#00783b",
+          "#059b5c",
+          "#45c07e",
+          "#6ee5a1",
+          "#bfffd6"
+        ]
+      },
+      "down-dark": {
+        "role": "semantic",
+        "displayName": "Down Red (dark)",
+        "canonical": "#f0655f",
+        "oklch": "oklch(68.0% 0.173 25.2)",
+        "tonalRamp": [
+          "#290000",
+          "#600000",
+          "#870003",
+          "#ae2529",
+          "#d64d4a",
+          "#ff726b",
+          "#ff988e",
+          "#ffd4cb"
+        ]
+      },
+      "amber-dark": {
+        "role": "semantic",
+        "displayName": "Fear Amber (dark)",
+        "canonical": "#e7a948",
+        "oklch": "oklch(77.6% 0.133 75.4)",
+        "tonalRamp": [
+          "#1d0300",
+          "#471100",
+          "#693200",
+          "#8b5300",
+          "#b07500",
+          "#d59834",
+          "#fbbc5d",
+          "#ffe8b3"
+        ]
+      },
+      "zone-extreme-fear-dark": {
+        "role": "semantic",
+        "displayName": "Zone: Extreme Fear (dark)",
+        "canonical": "#f0655f",
+        "oklch": "oklch(68.0% 0.173 25.2)",
+        "tonalRamp": [
+          "#290000",
+          "#600000",
+          "#870003",
+          "#ae2529",
+          "#d64d4a",
+          "#ff726b",
+          "#ff988e",
+          "#ffd4cb"
+        ]
+      },
+      "zone-fear-dark": {
+        "role": "semantic",
+        "displayName": "Zone: Fear (dark)",
+        "canonical": "#e7a948",
+        "oklch": "oklch(77.6% 0.133 75.4)",
+        "tonalRamp": [
+          "#1d0300",
+          "#471100",
+          "#693200",
+          "#8b5300",
+          "#b07500",
+          "#d59834",
+          "#fbbc5d",
+          "#ffe8b3"
+        ]
+      },
+      "zone-neutral-dark": {
+        "role": "semantic",
+        "displayName": "Zone: Neutral (dark)",
+        "canonical": "#6d6c69",
+        "oklch": "oklch(53.1% 0.005 91.5)",
+        "tonalRamp": [
+          "#0c0b0a",
+          "#262522",
+          "#43423f",
+          "#62615e",
+          "#83827f",
+          "#a6a5a2",
+          "#cac9c6",
+          "#efeeec"
+        ]
+      },
+      "zone-greed-dark": {
+        "role": "semantic",
+        "displayName": "Zone: Greed (dark)",
+        "canonical": "#6fbf8e",
+        "oklch": "oklch(74.0% 0.107 155.8)",
+        "tonalRamp": [
+          "#001201",
+          "#00320a",
+          "#005228",
+          "#1d7346",
+          "#459567",
+          "#69b988",
+          "#8edeac",
+          "#cdfcdd"
+        ]
+      },
+      "zone-extreme-greed-dark": {
+        "role": "semantic",
+        "displayName": "Zone: Extreme Greed (dark)",
+        "canonical": "#45c07e",
+        "oklch": "oklch(72.3% 0.146 156.1)",
+        "tonalRamp": [
+          "#001400",
+          "#003600",
+          "#00561c",
+          "#00783b",
+          "#059b5c",
+          "#45c07e",
+          "#6ee5a1",
+          "#bfffd6"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The Fear & Greed reading at the dial centre. One per page."
+      },
+      "verdict": {
+        "displayName": "Verdict",
+        "purpose": "DCA strategy title, the action in the ultramarine block, MACD status title (20px mobile)."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section titles under the 3px ink rule; 18px under 640px."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Minor section titles."
+      },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "Ticker prices, tabular; 19px under 640px. MACD key figures use 700 at 22px."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Descriptions and news headlines; notes cap at 80ch."
+      },
+      "nav": {
+        "displayName": "Nav",
+        "purpose": "Market tabs; 700 when active."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, legends, axis and meta text in ink-3."
+      }
+    },
+    "themes": {
+      "attribute": "html[data-theme]",
+      "values": [
+        "light",
+        "dark"
+      ],
+      "default": "system (prefers-color-scheme)",
+      "override": "localStorage('theme') written by the header switch",
+      "darkTokenSuffix": "-dark"
+    },
+    "shadows": [
+      {
+        "name": "selected-underline",
+        "value": "inset 0 -2px 0 var(--ink)",
+        "purpose": "Selected toggle / ticker name; a rule, not elevation."
+      },
+      {
+        "name": "nav-underline",
+        "value": "inset 0 -3px 0 var(--ink)",
+        "purpose": "Active market tab."
+      },
+      {
+        "name": "current-step-bar",
+        "value": "inset 0 3px 0 var(--accent)",
+        "purpose": "Current step of the action scale."
+      }
+    ],
+    "strokes": [
+      {
+        "name": "section-rule",
+        "value": "3px solid var(--ink)"
+      },
+      {
+        "name": "outline",
+        "value": "1.5px solid var(--ink)"
+      },
+      {
+        "name": "hairline",
+        "value": "1px solid var(--rule)"
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "System easing."
+      },
+      {
+        "name": "button-colour",
+        "value": "150ms ease-out",
+        "purpose": "Button background/colour change."
+      },
+      {
+        "name": "needle",
+        "value": "transform 900ms ease-out",
+        "purpose": "Dial needle eases from 0 to the value; none under prefers-reduced-motion."
+      },
+      {
+        "name": "popover-in",
+        "value": "200ms fade + 4px drop",
+        "purpose": "Menus appearing."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "container",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Default button: a 1.5px ink box, square, transparent fill.",
+      "html": "<button class=\"ds-btn\">重試</button> <button class=\"ds-btn ds-btn-sm\">編輯</button>",
+      "css": ":host{--paper:#fff;--ink:#111;--ink-2:#4a4a4a;--ink-3:#6b6b6b;--rule:#d9d9d9;--accent:#1b39c4;--accent-ink:#fff;--accent-sub:#c9d1ff;--up:#13804a;--down:#c62f2f;--wash-2:rgba(17,17,17,.08);--ease-out:cubic-bezier(0.16,1,0.3,1)} .ds-btn{display:inline-flex;align-items:center;gap:6px;font:500 14px 'Schibsted Grotesk', 'Noto Sans TC', ui-sans-serif, system-ui, sans-serif;color:var(--ink);background:transparent;border:1.5px solid var(--ink);border-radius:0;padding:6px 14px;cursor:pointer;transition:background-color 150ms var(--ease-out),color 150ms var(--ease-out)} .ds-btn:hover{background:var(--wash-2)} .ds-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px} .ds-btn:disabled{color:var(--ink-3);border-color:var(--rule);background:transparent;cursor:not-allowed} .ds-btn-sm{font-size:13px;padding:4px 10px}"
+    },
+    {
+      "name": "Solid Button",
+      "kind": "button",
+      "refersTo": "button-solid",
+      "description": "Primary action in a row: ink fill, paper text.",
+      "html": "<button class=\"ds-btn-solid\">登入</button>",
+      "css": ":host{--paper:#fff;--ink:#111;--ink-2:#4a4a4a;--ink-3:#6b6b6b;--rule:#d9d9d9;--accent:#1b39c4;--accent-ink:#fff;--accent-sub:#c9d1ff;--up:#13804a;--down:#c62f2f;--wash-2:rgba(17,17,17,.08);--ease-out:cubic-bezier(0.16,1,0.3,1)} .ds-btn-solid{display:inline-flex;align-items:center;gap:6px;font:500 14px 'Schibsted Grotesk', 'Noto Sans TC', ui-sans-serif, system-ui, sans-serif;color:var(--paper);background:var(--ink);border:1.5px solid var(--ink);border-radius:0;padding:6px 14px;cursor:pointer;transition:background-color 150ms var(--ease-out)} .ds-btn-solid:hover{background:var(--ink-2);border-color:var(--ink-2)} .ds-btn-solid:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
+    },
+    {
+      "name": "Market Nav",
+      "kind": "nav",
+      "refersTo": "nav-tab-active",
+      "description": "Text tabs on a hairline; 3px ink underline marks the current market.",
+      "html": "<nav class=\"ds-nav\"><button class=\"on\" aria-current=\"page\">加密貨幣</button><button>美股市場</button><button>台股市場</button><button>論壇</button></nav>",
+      "css": ":host{--paper:#fff;--ink:#111;--ink-2:#4a4a4a;--ink-3:#6b6b6b;--rule:#d9d9d9;--accent:#1b39c4;--accent-ink:#fff;--accent-sub:#c9d1ff;--up:#13804a;--down:#c62f2f;--wash-2:rgba(17,17,17,.08);--ease-out:cubic-bezier(0.16,1,0.3,1)} .ds-nav{display:flex;gap:24px;border-bottom:1px solid var(--rule)} .ds-nav button{background:none;border:0;padding:10px 0;font:500 15px 'Schibsted Grotesk', 'Noto Sans TC', ui-sans-serif, system-ui, sans-serif;color:var(--ink-2);cursor:pointer} .ds-nav button:hover{color:var(--ink)} .ds-nav button.on{color:var(--ink);font-weight:700;box-shadow:inset 0 -3px 0 var(--ink)} .ds-nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
+    },
+    {
+      "name": "Text Toggle",
+      "kind": "chip",
+      "refersTo": "toggle-on",
+      "description": "View switch; selected is ink 700 with a 2px underline bar.",
+      "html": "<div class=\"ds-toggle\"><button class=\"on\">恐懼貪婪</button><button>週線 MACD</button></div>",
+      "css": ":host{--paper:#fff;--ink:#111;--ink-2:#4a4a4a;--ink-3:#6b6b6b;--rule:#d9d9d9;--accent:#1b39c4;--accent-ink:#fff;--accent-sub:#c9d1ff;--up:#13804a;--down:#c62f2f;--wash-2:rgba(17,17,17,.08);--ease-out:cubic-bezier(0.16,1,0.3,1)} .ds-toggle{display:inline-flex;gap:16px;font:14px 'Schibsted Grotesk', 'Noto Sans TC', ui-sans-serif, system-ui, sans-serif} .ds-toggle button{background:none;border:0;padding:2px 0;color:var(--ink-2);font:inherit;cursor:pointer;white-space:nowrap} .ds-toggle button:hover{color:var(--ink)} .ds-toggle button.on{color:var(--ink);font-weight:700;box-shadow:inset 0 -2px 0 var(--ink)} .ds-toggle button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
+    },
+    {
+      "name": "Underline Input",
+      "kind": "input",
+      "refersTo": "input-underline",
+      "description": "Search field: no box, a 1.5px ink underline.",
+      "html": "<input class=\"ds-input\" placeholder=\"輸入幣種 (e.g. solana)\">",
+      "css": ":host{--paper:#fff;--ink:#111;--ink-2:#4a4a4a;--ink-3:#6b6b6b;--rule:#d9d9d9;--accent:#1b39c4;--accent-ink:#fff;--accent-sub:#c9d1ff;--up:#13804a;--down:#c62f2f;--wash-2:rgba(17,17,17,.08);--ease-out:cubic-bezier(0.16,1,0.3,1)} .ds-input{width:260px;background:transparent;border:0;border-bottom:1.5px solid var(--ink);border-radius:0;padding:6px 2px;font:15px 'Schibsted Grotesk', 'Noto Sans TC', ui-sans-serif, system-ui, sans-serif;color:var(--ink);outline:none;caret-color:var(--accent)} .ds-input::placeholder{color:var(--ink-3)} .ds-input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Small bordered tag; colour set by meaning via currentColor.",
+      "html": "<span class=\"ds-chip\">GEMINI</span> <span class=\"ds-chip ds-chip-ink\">PRO</span> <span class=\"ds-chip ds-chip-up\">零軸下方，參考性較高</span>",
+      "css": ":host{--paper:#fff;--ink:#111;--ink-2:#4a4a4a;--ink-3:#6b6b6b;--rule:#d9d9d9;--accent:#1b39c4;--accent-ink:#fff;--accent-sub:#c9d1ff;--up:#13804a;--down:#c62f2f;--wash-2:rgba(17,17,17,.08);--ease-out:cubic-bezier(0.16,1,0.3,1)} .ds-chip{display:inline-block;font:700 11px/1.5 'Schibsted Grotesk', 'Noto Sans TC', ui-sans-serif, system-ui, sans-serif;border:1.5px solid currentColor;border-radius:0;padding:0 5px;color:var(--ink-2)} .ds-chip-ink{color:var(--ink)} .ds-chip-up{color:var(--up)}"
+    },
+    {
+      "name": "Ticker Row",
+      "kind": "card",
+      "refersTo": "ticker",
+      "description": "Prices on hairlines, divided by a vertical rule; no cards.",
+      "html": "<div class=\"ds-tickers\"><div class=\"ds-tk on\"><span class=\"n\">BTC</span><span class=\"p\">$84,090.01</span><span class=\"c up\">+0.80%</span></div><div class=\"ds-tk\"><span class=\"n\">ETH</span><span class=\"p\">$2,690</span><span class=\"c up\">+0.67%</span></div></div>",
+      "css": ":host{--paper:#fff;--ink:#111;--ink-2:#4a4a4a;--ink-3:#6b6b6b;--rule:#d9d9d9;--accent:#1b39c4;--accent-ink:#fff;--accent-sub:#c9d1ff;--up:#13804a;--down:#c62f2f;--wash-2:rgba(17,17,17,.08);--ease-out:cubic-bezier(0.16,1,0.3,1)} .ds-tickers{display:flex;border-bottom:1px solid var(--rule);font-family:'Schibsted Grotesk', 'Noto Sans TC', ui-sans-serif, system-ui, sans-serif;font-variant-numeric:tabular-nums} .ds-tk{flex:1;display:flex;align-items:baseline;gap:4px 12px;flex-wrap:wrap;padding:12px 0 14px;cursor:pointer} .ds-tk+.ds-tk{padding-left:20px;border-left:1px solid var(--rule)} .ds-tk .n{font-size:13px;font-weight:700;color:var(--ink-2)} .ds-tk.on .n{color:var(--ink);box-shadow:inset 0 -2px 0 var(--ink)} .ds-tk .p{font-size:26px;font-weight:700;letter-spacing:-0.01em;color:var(--ink)} .ds-tk .c{font-size:13px;font-weight:500} .ds-tk .up{color:var(--up)} .ds-tk:hover .n{color:var(--ink)}"
+    },
+    {
+      "name": "Current Action Block",
+      "kind": "custom",
+      "refersTo": "action-block",
+      "description": "The only ultramarine surface, with the five-step action scale beneath.",
+      "html": "<div class=\"ds-act\"><div class=\"ds-act-b\"><span class=\"l\">當前操作</span><span class=\"v\">停止買入</span></div><div class=\"ds-steps\"><span>強力買入</span><span>分批買入</span><span>持有觀望</span><span class=\"on\">停止買入</span><span>止盈/減倉</span></div></div>",
+      "css": ":host{--paper:#fff;--ink:#111;--ink-2:#4a4a4a;--ink-3:#6b6b6b;--rule:#d9d9d9;--accent:#1b39c4;--accent-ink:#fff;--accent-sub:#c9d1ff;--up:#13804a;--down:#c62f2f;--wash-2:rgba(17,17,17,.08);--ease-out:cubic-bezier(0.16,1,0.3,1)} .ds-act{font-family:'Schibsted Grotesk', 'Noto Sans TC', ui-sans-serif, system-ui, sans-serif;max-width:400px} .ds-act-b{background:var(--accent);color:var(--accent-ink);padding:14px 18px;display:flex;justify-content:space-between;align-items:baseline;gap:12px} .ds-act-b .l{font-size:12px;color:var(--accent-sub)} .ds-act-b .v{font-size:24px;font-weight:900} .ds-steps{display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--ink);margin-top:16px} .ds-steps span{font-size:12px;padding:8px 4px 0 0;color:var(--ink-3);line-height:1.35} .ds-steps span.on{color:var(--accent);font-weight:900;box-shadow:inset 0 3px 0 var(--accent)}"
+    },
+    {
+      "name": "Section Head",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "Heavy 3px ink rule opening a section, 900 headline, toggle on the right.",
+      "html": "<section class=\"ds-sec\"><div class=\"ds-head\"><h2>加密貨幣恐懼與貪婪指數</h2><span class=\"t\"><b>恐懼貪婪</b> 週線 MACD</span></div><p>內容</p></section>",
+      "css": ":host{--paper:#fff;--ink:#111;--ink-2:#4a4a4a;--ink-3:#6b6b6b;--rule:#d9d9d9;--accent:#1b39c4;--accent-ink:#fff;--accent-sub:#c9d1ff;--up:#13804a;--down:#c62f2f;--wash-2:rgba(17,17,17,.08);--ease-out:cubic-bezier(0.16,1,0.3,1)} .ds-sec{border-top:3px solid var(--ink);padding-top:14px;font-family:'Schibsted Grotesk', 'Noto Sans TC', ui-sans-serif, system-ui, sans-serif;color:var(--ink-2)} .ds-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:18px} .ds-head h2{margin:0;font-size:22px;font-weight:900;letter-spacing:-0.01em;color:var(--ink)} .ds-head .t{font-size:14px} .ds-head .t b{color:var(--ink);box-shadow:inset 0 -2px 0 var(--ink)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Fund Factsheet",
+    "overview": "The dashboard is one continuous typeset page on a strict grid, read top to bottom like a monthly fund report. Sections are opened by heavy 3px ink rules, divided by hairlines, and never lifted into floating cards. Ink on paper carries almost everything; colour is reserved for meaning (price direction, sentiment zones) and a single ultramarine for the one thing the reader should do now.\n\nDensity is that of a printed factsheet: tight, tabular, labelled. Numbers are set in tabular figures in the same grotesk as the prose, so the page reads as a single typeset object rather than a UI assembled from widgets. Calm is structural: no glow, no gradient, no motion beyond the dial needle settling on its value.\n\nThe world exists in two papers, light (white paper, near-black ink) and dark (warm charcoal paper, warm off-white ink). Theme follows the system until the header switch writes an explicit choice to `localStorage('theme')`; after that the saved choice wins. The theme is set on `<html data-theme>` before first paint, and charts read their colours from the same CSS variables at build time.\n\nThe category default this world refuses: glowing gradient cards on navy.",
+    "keyCharacteristics": [
+      "Heavy ink rules open sections; hairlines divide within them.",
+      "Sharp corners everywhere; zero radius is the system.",
+      "One ultramarine accent, used only for the current action.",
+      "Green = up, red = down, in every market including Taiwan.",
+      "Tabular figures in the text face; no separate mono face for numbers.",
+      "Flat paper; depth comes from rules and weight, not shadow."
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "Ultramarine marks the current action and nothing else: the action block and the current step of the action scale. Selection, navigation and emphasis elsewhere are done in ink (weight and underline), never in blue.",
+        "section": "colors"
+      },
+      {
+        "name": "The Market-Neutral Direction Rule",
+        "body": "Green is up and red is down in every market, Taiwan stocks included. Never invert for local convention; one signal language across three markets.",
+        "section": "colors"
+      },
+      {
+        "name": "The Zones Stay Home Rule",
+        "body": "The five sentiment zone colours live only inside the dial and the distribution bar. They are not reused as decoration, badges or backgrounds.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Every number that can change is set in tabular figures in the text face. Do not reintroduce a monospace face for prices.",
+        "section": "typography"
+      },
+      {
+        "name": "The Two-Weight Rule",
+        "body": "Headings are 900 or they are not headings; figures are 700; everything else is 400 to 500. No 600s, no light weights.",
+        "section": "typography"
+      },
+      {
+        "name": "The Rules-Not-Shadows Rule",
+        "body": "If something needs separating, give it a rule. Charts draw on plain paper: no glow under lines, no dot grid, no gradient beyond a 6% ink fill under the price line.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do open every top-level section with a 3px ink rule and put its title (Headline, 900) directly beneath.",
+      "Do keep ultramarine to the current action block and the current step of the action scale.",
+      "Do colour price direction green up / red down in every market, Taiwan included.",
+      "Do set every changing number in tabular figures in Schibsted Grotesk / Noto Sans TC.",
+      "Do mark selection with ink weight plus an underline bar (2px toggles, 3px nav), not with fills or colour.",
+      "Do read chart and SVG colours from the CSS variables so both papers render correctly.",
+      "Do keep corners square (0px) on every new element."
+    ],
+    "donts": [
+      "Don't build glowing gradient cards on navy, or any card stack; this page is one continuous sheet.",
+      "Don't use ultramarine for links, tabs, icons, chips or hover states.",
+      "Don't use the sentiment zone colours outside the dial and the distribution bar.",
+      "Don't add shadows, glows or dot grids to surfaces or chart lines.",
+      "Don't invert red/green for Taiwan stocks.",
+      "Don't reintroduce a monospace face for prices."
+    ],
+    "pendingMigration": "美股市場, 台股市場, 投資組合, 論壇, all modals and popovers, and TechnicalChartModal still run on the index.html compatibility shim; shim output is not part of this system."
+  }
+}

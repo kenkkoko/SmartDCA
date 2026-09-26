@@ -8,7 +8,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
         <title>Smart DCA — 智慧定期定額投資追蹤</title>
     <meta name="description" content="Smart DCA：加密貨幣、美股、台股的智慧定期定額（DCA）投資工具。恐懼與貪婪指數、買入訊號、投資組合追蹤、AI 投資顧問與技術分析論壇。">
-    <meta name="theme-color" content="#07080c">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#121314" media="(prefers-color-scheme: dark)">
     <meta property="og:type" content="website">
     <meta property="og:title" content="Smart DCA — 智慧定期定額投資追蹤">
     <meta property="og:description" content="恐懼與貪婪指數、DCA 買入訊號、投資組合追蹤、AI 投資顧問。支援加密貨幣、美股、台股。">
@@ -29,11 +30,20 @@
 
         <!-- 引入 Tailwind CSS -->
        
-        <!-- Fonts: Manrope (UI) + JetBrains Mono (numbers/timestamps) -->
+        <!-- Fonts: Schibsted Grotesk + Noto Sans TC (UI, tabular figures); JetBrains Mono only for forum code blocks -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700;900&family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <!-- Theme before first paint: saved choice, else the system preference -->
+    <script>
+        (function () {
+            var t = null;
+            try { t = localStorage.getItem('theme'); } catch (e) {}
+            if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
 
         <!-- 引入 React 和 ReactDOM -->
        
@@ -101,162 +111,229 @@
 
         <style>
     /* ─────────────────────────────────────────────
-       Smart DCA · Design tokens (NEW)
+       Smart DCA · Factsheet system (light / dark)
+       One continuous typeset page: heavy ink rules open sections,
+       hairlines divide, one ultramarine accent marks the current action.
+       Theme: <html data-theme="light|dark">, set before paint from
+       localStorage('theme') or the system preference.
        ───────────────────────────────────────────── */
+    :root, :root[data-theme="light"] {
+        --paper:     #ffffff;
+        --surface:   #f7f7f5;
+        --surface-2: #efefec;
+        --ink:       #111111;
+        --ink-2:     #4a4a4a;
+        --ink-3:     #6b6b6b;
+        --rule:      #d9d9d9;
+        --faint:     #ececec;
+        --wash:      rgba(17, 17, 17, 0.04);
+        --wash-2:    rgba(17, 17, 17, 0.08);
+        --accent:    #1b39c4;
+        --accent-ink:#ffffff;
+        --accent-sub:#c9d1ff;
+        --up:        #13804a;
+        --down:      #c62f2f;
+        --amber:     #96600c;
+        --z0: #c62f2f; --z1: #e39a3b; --z2: #b9b9b9; --z3: #5aa37a; --z4: #13804a;
+        color-scheme: light;
+    }
+    :root[data-theme="dark"] {
+        --paper:     #121314;
+        --surface:   #1a1b1d;
+        --surface-2: #222326;
+        --ink:       #f1efea;
+        --ink-2:     #bdbab3;
+        --ink-3:     #9a968f;
+        --rule:      #2f3032;
+        --faint:     #252628;
+        --wash:      rgba(241, 239, 234, 0.05);
+        --wash-2:    rgba(241, 239, 234, 0.09);
+        --accent:    #6f8bff;
+        --accent-ink:#0b0d1a;
+        --accent-sub:#141d4f;
+        --up:        #45c07e;
+        --down:      #f0655f;
+        --amber:     #e7a948;
+        --z0: #f0655f; --z1: #e7a948; --z2: #6d6c69; --z3: #6fbf8e; --z4: #45c07e;
+        color-scheme: dark;
+    }
     :root {
-        --bg:        #07080c;
-        --bg-soft:   #0d0f15;
-        --surface:   #12141c;
-        --surface-2: #181b25;
-        --line:      rgba(255, 255, 255, 0.07);
-        --line-2:    rgba(255, 255, 255, 0.12);
-        --text:      #ffffff;
-        --text-2:    #b8bcc8;
-        --text-3:    #6b7080;
-        --brand-1:   #3b82f6;
-        --brand-2:   #8b5cf6;
-        --accent:    #4cc2ff;
-        --up:        #00d68f;
-        --down:      #ff5b6e;
-        --warn:      #f59e0b;
+        /* Legacy token names used by inline styles across the app */
+        --bg: var(--paper);
+        --bg-soft: var(--surface);
+        --line: var(--rule);
+        --line-2: var(--rule);
+        --text: var(--ink);
+        --text-2: var(--ink-2);
+        --text-3: var(--ink-3);
+        --brand-1: var(--accent);
+        --brand-2: var(--accent);
+        --brand-ink: var(--accent-ink);
+        --warn: var(--amber);
+        --font: 'Schibsted Grotesk', 'Noto Sans TC', ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     html, body {
-        background-color: var(--bg);
-        color: var(--text);
-        font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        background-color: var(--paper);
+        color: var(--ink);
+        font-family: var(--font);
         -webkit-font-smoothing: antialiased;
+        caret-color: var(--accent);
+        accent-color: var(--accent);
     }
-
     body {
-        background-color: var(--bg); /* override original slate-950 */
-        /* PWA 全螢幕(black-translucent)時內容不被瀏海/狀態列/Home 條蓋住;
-           一般瀏覽器中 env() 為 0,完全無影響 */
         padding-top: env(safe-area-inset-top, 0px);
         padding-left: env(safe-area-inset-left, 0px);
         padding-right: env(safe-area-inset-right, 0px);
         padding-bottom: env(safe-area-inset-bottom, 0px);
     }
-
-    /* 行動瀏覽器網址列收合時高度會變:dvh 追蹤實際可視高度,取代固定的 100vh */
     @supports (height: 100dvh) {
         .min-h-screen { min-height: 100dvh; }
         .h-screen { height: 100dvh; }
     }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    a { text-underline-offset: 3px; }
+    ::selection { background: var(--accent); color: var(--accent-ink); }
+    input::placeholder, textarea::placeholder { color: var(--ink-3); opacity: 1; }
 
-    /* Numeric displays */
-    .num {
-        font-variant-numeric: tabular-nums;
-        letter-spacing: -0.02em;
-    }
-    .mono {
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-    }
+    .num { font-variant-numeric: tabular-nums; }
+    .mono { font-family: var(--font); font-variant-numeric: tabular-nums; }
+    .font-mono { font-family: var(--font) !important; font-variant-numeric: tabular-nums; }
 
-    /* Section eyebrow labels (small caps) */
+    /* Small legend text (kept for existing markup) */
     .label {
-        font-size: 10px;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: var(--text-3);
-        font-weight: 600;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--ink-3);
     }
 
-    /* Surfaces */
+    /* ── Factsheet building blocks ── */
+    .fs-section { border-top: 3px solid var(--ink); padding-top: 14px; }
+    .fs-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+    .fs-title { font-size: 22px; font-weight: 900; letter-spacing: -0.01em; color: var(--ink); }
+    .fs-title-sm { font-size: 17px; font-weight: 900; color: var(--ink); }
+    .fs-rule { border-top: 1px solid var(--rule); }
+    .fs-lbl { font-size: 12px; color: var(--ink-3); }
+    @media (max-width: 640px) {
+        .fs-head { margin-bottom: 12px; gap: 8px 10px; }
+        .fs-title { font-size: 18px; }
+        .fs-head .fs-toggle { font-size: 13px; gap: 12px; }
+    }
+
+    /* Text toggles: underline marks the selected one */
+    .fs-toggle { display: inline-flex; gap: 16px; font-size: 14px; }
+    .fs-toggle button { color: var(--ink-2); padding: 2px 0; white-space: nowrap; }
+    .fs-toggle button:hover { color: var(--ink); }
+    .fs-toggle button.on { color: var(--ink); font-weight: 700; box-shadow: inset 0 -2px 0 var(--ink); }
+
+    /* Outline / solid buttons */
+    :where(.fs-btn) { display: inline-flex; }
+    .fs-btn {
+        align-items: center; justify-content: center; gap: 6px;
+        font: 500 14px var(--font);
+        color: var(--ink);
+        background: transparent;
+        border: 1.5px solid var(--ink);
+        padding: 6px 14px;
+        white-space: nowrap;
+        transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out);
+    }
+    .fs-btn:hover { background: var(--wash-2); }
+    .fs-btn:disabled { color: var(--ink-3); border-color: var(--rule); cursor: not-allowed; background: transparent; }
+    .fs-btn.solid { background: var(--ink); color: var(--paper); }
+    .fs-btn.solid:hover { background: var(--ink-2); border-color: var(--ink-2); }
+    .fs-btn.sm { font-size: 13px; padding: 4px 10px; }
+    .fs-btn.icon { padding: 0; width: 36px; height: 36px; }
+
+    /* The one accent: current action */
+    .fs-action { background: var(--accent); color: var(--accent-ink); padding: 14px 18px; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .fs-action .fs-lbl { color: var(--accent-sub); }
+    .fs-steps { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--ink); }
+    .fs-steps span { font-size: 12px; padding: 8px 4px 0 0; color: var(--ink-3); line-height: 1.35; }
+    .fs-steps span.on { color: var(--accent); font-weight: 900; box-shadow: inset 0 3px 0 var(--accent); }
+
+    .fs-chip { font-size: 11px; font-weight: 700; border: 1.5px solid currentColor; padding: 0 5px; line-height: 1.5; display: inline-block; }
+
+    .tick-up { color: var(--up); }
+    .tick-down { color: var(--down); }
+
+    /* Former glass / gradient helpers → flat paper */
     .surface  { background: var(--surface); }
     .surface-2{ background: var(--surface-2); }
-    .ring-soft{ box-shadow: inset 0 0 0 1px var(--line); }
-
-    /* Glass nav / glass buttons (you liked these) */
+    .ring-soft{ box-shadow: inset 0 0 0 1px var(--rule); }
     .glass {
-        background: rgba(18, 20, 28, 0.55);
-        backdrop-filter: blur(20px) saturate(160%);
-        -webkit-backdrop-filter: blur(20px) saturate(160%);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: var(--paper);
+        border: 1px solid var(--rule);
     }
     .glass-strong {
-        background: rgba(10, 11, 16, 0.72);
-        backdrop-filter: blur(24px) saturate(180%);
-        -webkit-backdrop-filter: blur(24px) saturate(180%);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: var(--paper);
+        border: 1px solid var(--ink);
+        box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.35);
     }
-
-    /* Brand gradient (logo's blue → violet) */
     .pill-grad {
-        background-image: linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 100%);
+        background: var(--ink) !important;
+        color: var(--paper) !important;
     }
-    .text-grad {
-        background-image: linear-gradient(135deg, #5fa8ff 0%, #b78cff 100%);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-    }
-    .glow-brand {
-        box-shadow:
-            0 0 0 1px rgba(139, 92, 246, 0.25),
-            0 20px 60px -20px rgba(59, 130, 246, 0.55),
-            0 8px 32px -8px rgba(139, 92, 246, 0.45);
-    }
+    .text-grad { color: var(--ink); }
+    .glow-brand { box-shadow: none; }
+    .spark-glow, .up-glow, .down-glow, .gauge-glow { filter: none; }
+    .dotgrid { background-image: none; }
 
-    /* Sparkline / chart glows */
-    .spark-glow { filter: drop-shadow(0 0 8px rgba(76, 194, 255, 0.55)); }
-    .up-glow    { filter: drop-shadow(0 0 8px rgba(0, 214, 143, 0.6)); }
-    .down-glow  { filter: drop-shadow(0 0 8px rgba(255, 91, 110, 0.55)); }
-    .gauge-glow { filter: drop-shadow(0 0 10px rgba(255, 191, 71, 0.5)); }
-
-    /* Dot grid texture (use on hero cards) */
-    .dotgrid {
-        background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-        background-size: 18px 18px;
-        background-position: -1px -1px;
-    }
-
-    /* Up/Down/Neutral pill chips */
     .chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 3px 8px;
-        border-radius: 999px;
-        font-size: 11px;
-        font-weight: 600;
-        line-height: 1;
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 1px 6px; font-size: 11px; font-weight: 700; line-height: 1.4;
+        border: 1.5px solid currentColor; border-radius: 0;
     }
-    .chip-up      { background: rgba(0, 214, 143, 0.12);  color: #3ce0a8; }
-    .chip-down    { background: rgba(255, 91, 110, 0.12); color: #ff7d8c; }
-    .chip-neutral { background: rgba(255, 255, 255, 0.06); color: var(--text-2); }
-    .chip-warn    { background: rgba(245, 158, 11, 0.12); color: #fbbf24; }
+    .chip-up      { color: var(--up); }
+    .chip-down    { color: var(--down); }
+    .chip-neutral { color: var(--ink-2); }
+    .chip-warn    { color: var(--amber); }
 
-    /* Scrollbar — switched to new palette */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    ::-webkit-scrollbar-track {
-        background: transparent;
-    }
-    ::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.10);
-        border-radius: 4px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.18);
-    }
+    /* Scrollbars */
+    * { scrollbar-color: var(--rule) transparent; scrollbar-width: thin; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--rule); border: 2px solid var(--paper); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
     .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 4px; }
-
-    /* Hide scrollbar for nav horizontal scroll on mobile */
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--rule); }
     .scrollbar-none::-webkit-scrollbar { display: none; }
     .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 
-    /* Fade / zoom animation for dropdowns (keeps original Tailwind animate-in working) */
-    @keyframes om-fade-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
-    .animate-in.fade-in.zoom-in-95 { animation: om-fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+    @keyframes om-fade-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+    .animate-in.fade-in.zoom-in-95 { animation: om-fade-in 200ms var(--ease-out); }
 
-    /* Selection */
-    ::selection { background: rgba(139, 92, 246, 0.35); color: #fff; }
+    /* Ticker row: prices sit on hairlines, no cards */
+    .fs-tickers:has(.fs-ticker) { gap: 0 !important; flex-wrap: nowrap; border-bottom: 1px solid var(--rule); }
+    .fs-tickers:has(.fs-ticker) > div { min-width: 0 !important; }
+    .fs-tickers > div + div .fs-ticker { padding-left: 20px; border-left: 1px solid var(--rule); }
+    .fs-ticker { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; padding: 12px 0 14px; height: 100%; }
+    .fs-ticker-name { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
+    .fs-ticker.on .fs-ticker-name { color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
+    .fs-ticker-price { font-size: 26px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); }
+    .fs-ticker-change { font-size: 13px; font-weight: 500; }
+    @media (max-width: 640px) {
+        .fs-ticker-price { font-size: 19px; }
+        .fs-ticker-name, .fs-ticker-price { flex-basis: 100%; }
+        .fs-tickers > div + div .fs-ticker { padding-left: 12px; }
+    }
+
+    /* Four key figures on hairlines (MACD) */
+    .fs-kv { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--rule); }
+    .fs-kv > div { padding: 12px 0; min-width: 0; }
+    .fs-kv > div + div { padding-left: 16px; border-left: 1px solid var(--rule); }
+    @media (max-width: 767px) {
+        .fs-kv { grid-template-columns: repeat(2, 1fr); }
+        .fs-kv > div:nth-child(3) { padding-left: 0; border-left: 0; }
+        .fs-kv > div:nth-child(n+3) { border-top: 1px solid var(--rule); }
+    }
+
+    /* Dial needle eases to its value */
+    .fs-needle { transition: transform 900ms var(--ease-out); }
+    @media (prefers-reduced-motion: reduce) { .fs-needle { transition: none; } }
 
 
     /* ────────────────────────────────
@@ -264,31 +341,31 @@
        (Tailwind preflight resets headings/lists, so we restore them here)
        ──────────────────────────────── */
     .forum-md { color: var(--text-2); line-height: 1.75; }
-    .forum-md h1 { font-size: 1.875rem; font-weight: 700; color: #fff; margin: 1.5rem 0 0.75rem; }
-    .forum-md h2 { font-size: 1.5rem;   font-weight: 700; color: #fff; margin: 1.25rem 0 0.5rem; border-bottom: 1px solid var(--line); padding-bottom: 0.35rem; }
-    .forum-md h3 { font-size: 1.25rem;  font-weight: 700; color: #fff; margin: 1rem 0 0.5rem; }
-    .forum-md h4 { font-size: 1.05rem;  font-weight: 700; color: #fff; margin: 0.75rem 0 0.25rem; }
+    .forum-md h1 { font-size: 1.875rem; font-weight: 700; color: var(--ink); margin: 1.5rem 0 0.75rem; }
+    .forum-md h2 { font-size: 1.5rem;   font-weight: 700; color: var(--ink); margin: 1.25rem 0 0.5rem; border-bottom: 1px solid var(--line); padding-bottom: 0.35rem; }
+    .forum-md h3 { font-size: 1.25rem;  font-weight: 700; color: var(--ink); margin: 1rem 0 0.5rem; }
+    .forum-md h4 { font-size: 1.05rem;  font-weight: 700; color: var(--ink); margin: 0.75rem 0 0.25rem; }
     .forum-md p  { margin: 0.5rem 0; }
     .forum-md ul { list-style: disc;    padding-left: 1.5rem; margin: 0.5rem 0; }
     .forum-md ol { list-style: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
     .forum-md li { margin: 0.25rem 0; }
-    .forum-md a  { color: #c4b5fd; text-decoration: underline; text-decoration-color: rgba(196,181,253,0.3); text-underline-offset: 3px; }
-    .forum-md a:hover { color: #ddd6fe; text-decoration-color: rgba(196,181,253,0.8); }
-    .forum-md strong { color: #fff; font-weight: 700; }
+    .forum-md a  { color: var(--accent); text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; }
+    .forum-md a:hover { text-decoration-color: var(--accent); }
+    .forum-md strong { color: var(--ink); font-weight: 700; }
     .forum-md em { font-style: italic; }
     .forum-md hr { border: none; border-top: 1px solid var(--line); margin: 1.5rem 0; }
     .forum-md blockquote {
-        border-left: 3px solid var(--brand-2);
+        border-left: 3px solid var(--ink);
         padding: 0.5rem 0 0.5rem 1rem;
         color: var(--text-2);
         margin: 0.75rem 0;
-        background: rgba(139,92,246,0.05);
-        border-radius: 0 8px 8px 0;
+        background: var(--surface);
+        border-radius: 0;
     }
     /* Inline code */
     .forum-md code:not(pre code) {
-        background: rgba(139,92,246,0.12);
-        color: #c4b5fd;
+        background: var(--surface-2);
+        color: var(--ink);
         padding: 0.125rem 0.4rem;
         border-radius: 0.35rem;
         font-size: 0.875em;
@@ -296,7 +373,7 @@
     }
     /* Code block (highlight.js handles inner coloring) */
     .forum-md pre {
-        background: #07080c !important;
+        background: var(--surface) !important;
         border: 1px solid var(--line);
         border-radius: 0.75rem;
         padding: 1rem;
@@ -326,7 +403,7 @@
         padding: 0.5rem 0.75rem;
         text-align: left;
     }
-    .forum-md th { background: var(--surface-2); color: #fff; }
+    .forum-md th { background: var(--surface-2); color: var(--ink); }
     /* KaTeX display math gets some breathing room */
     .forum-md .katex-display { margin: 1rem 0; overflow-x: auto; }
 
@@ -340,116 +417,102 @@
        EasyMDE dark theme overrides
        ──────────────────────────────── */
     .EasyMDEContainer .CodeMirror {
-        background: #0f172a;
-        color: #e2e8f0;
-        border-color: #334155;
+        background: var(--paper);
+        color: var(--ink);
+        border-color: var(--rule);
         min-height: 320px;
     }
-    .EasyMDEContainer .CodeMirror-cursor { border-left-color: #e2e8f0; }
-    .EasyMDEContainer .CodeMirror-selected { background: #1e40af66 !important; }
+    .EasyMDEContainer .CodeMirror-cursor { border-left-color: var(--ink); }
+    .EasyMDEContainer .CodeMirror-selected { background: var(--wash-2) !important; }
     .EasyMDEContainer .editor-toolbar {
-        background: #1e293b;
-        border-color: #334155;
+        background: var(--surface);
+        border-color: var(--rule);
     }
     .EasyMDEContainer .editor-toolbar button {
-        color: #cbd5e1 !important;
+        color: var(--ink-2) !important;
     }
     .EasyMDEContainer .editor-toolbar button:hover,
     .EasyMDEContainer .editor-toolbar button.active {
-        background: #334155 !important;
-        border-color: #475569 !important;
+        background: var(--rule) !important;
+        border-color: var(--ink-3) !important;
     }
     .EasyMDEContainer .editor-toolbar i.separator {
-        border-left-color: #334155;
-        border-right-color: #475569;
+        border-left-color: var(--rule);
+        border-right-color: var(--ink-3);
     }
-    .EasyMDEContainer .editor-statusbar { color: #64748b; }
+    .EasyMDEContainer .editor-statusbar { color: var(--ink-3); }
     .EasyMDEContainer .editor-preview,
     .EasyMDEContainer .editor-preview-side {
-        background: #0f172a;
-        color: #cbd5e1;
-        border-color: #334155;
+        background: var(--paper);
+        color: var(--ink-2);
+        border-color: var(--rule);
     }
     /* Editor's drop-zone feedback while dragging an image */
-    .EasyMDEContainer.CodeMirror.dragging { background: #1e3a8a !important; }
-
-    /* Force dark dropdown option background on all selects (browsers don't inherit) */
-    select option, select optgroup {
-        background-color: #0e1014 !important;
-        color: #ffffff !important;
-    }
-    select option:checked, select option:hover {
-        background-color: #181b25 !important;
-    }
+    .EasyMDEContainer.CodeMirror.dragging { background: var(--wash-2) !important; }
 
     /* ─────────────────────────────────────────────
-       Compatibility shim · 把舊的 Tailwind slate-900
-       卡片視覺接管到新系統，不用改各個 dashboard 的 JSX
+       Compatibility shim · 把舊的深色 Tailwind 類別接管到月報系統的 tokens，
+       讓尚未重做的分頁在淺色／深色模式下都可讀。
        ───────────────────────────────────────────── */
 
-    .bg-slate-900 {
-        background-color: var(--surface) !important;
-        border-color: var(--line) !important;
-    }
-    .bg-slate-800 {
-        background-color: var(--surface-2) !important;
-    }
-    .bg-slate-800\/50, .bg-slate-800\/30 {
-        background-color: rgba(255,255,255,0.04) !important;
-    }
-    .bg-slate-900\/50 {
-        background-color: rgba(13,15,21,0.6) !important;
+    /* Surfaces */
+    .bg-slate-950, .bg-gray-950 { background-color: var(--paper) !important; }
+    .bg-slate-900, .bg-gray-900 { background-color: var(--paper) !important; border-color: var(--rule) !important; }
+    .bg-slate-800, .bg-gray-800, .bg-slate-700, .bg-gray-700 { background-color: var(--surface-2) !important; }
+    [class*="bg-slate-900/"], [class*="bg-slate-800/"], [class*="bg-gray-900/"], [class*="bg-gray-800/"],
+    [class*="bg-slate-700/"], [class*="bg-black/"] { background-color: var(--surface) !important; }
+    [class*=" bg-white/"], [class^="bg-white/"] { background-color: var(--wash) !important; }
+    [class*="hover:bg-white/"]:hover, [class*="hover:bg-slate-"]:hover, [class*="hover:bg-gray-"]:hover { background-color: var(--wash-2) !important; }
+    .bg-gradient-to-r, .bg-gradient-to-br, .bg-gradient-to-b, .bg-gradient-to-l, .bg-gradient-to-t {
+        background-image: none !important;
     }
 
-    .border-slate-700, .border-slate-800 {
-        border-color: var(--line) !important;
+    /* Borders */
+    [class*="border-slate-"], [class*="border-gray-"], [class*="border-white/"] { border-color: var(--rule) !important; }
+    .divide-slate-800 > * + *, .divide-slate-700 > * + * { border-color: var(--rule) !important; }
+
+    /* Text */
+    .text-white:not([class*="bg-"]), .text-white[class*="bg-slate"], .text-white[class*="bg-gray"],
+    .text-white[class*="bg-white"], .text-white[class*="bg-transparent"] { color: var(--ink) !important; }
+    .text-slate-50, .text-slate-100, .text-slate-200, .text-gray-100, .text-gray-200 { color: var(--ink) !important; }
+    .text-slate-300, .text-slate-400, .text-gray-300, .text-gray-400 { color: var(--ink-2) !important; }
+    .text-slate-500, .text-slate-600, .text-gray-500, .text-gray-600 { color: var(--ink-3) !important; }
+    [class*="hover:text-white"]:hover { color: var(--ink) !important; }
+
+    /* Accent family (old blue / indigo / violet / purple / cyan) → the one accent */
+    .text-blue-300, .text-blue-400, .text-blue-500, .text-indigo-300, .text-indigo-400, .text-violet-400,
+    .text-purple-300, .text-purple-400, .text-cyan-400, .text-sky-400 { color: var(--accent) !important; }
+    .bg-blue-500, .bg-blue-600, .bg-indigo-500, .bg-indigo-600, .bg-violet-600, .bg-purple-600 {
+        background-color: var(--ink) !important;
+        background-image: none !important;
+        color: var(--paper) !important;
     }
-    .border-slate-700\/50, .border-slate-800\/50 {
-        border-color: var(--line) !important;
-    }
+    .hover\:bg-blue-500:hover, .hover\:bg-indigo-500:hover, .hover\:bg-blue-700:hover { background-color: var(--ink-2) !important; }
+    [class*="bg-blue-900/"], [class*="bg-blue-500/"], [class*="bg-indigo-900/"], [class*="bg-indigo-500/"],
+    [class*="bg-purple-900/"], [class*="bg-purple-500/"], [class*="bg-violet-500/"] { background-color: var(--wash) !important; }
+    [class*="border-blue-"], [class*="border-indigo-"], [class*="border-purple-"], [class*="border-violet-"] { border-color: var(--accent) !important; }
+    [class*="shadow-blue-"], [class*="shadow-indigo-"], [class*="shadow-purple-"], [class*="shadow-amber-"] { --tw-shadow-color: transparent !important; }
 
-    .bg-indigo-600, .bg-blue-600 {
-        background-image: linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 100%) !important;
-        background-color: transparent !important;
-    }
-    .bg-indigo-500, .bg-blue-500 {
-        background-image: linear-gradient(135deg, #5fa8ff 0%, #b78cff 100%) !important;
-        background-color: transparent !important;
-    }
-    .hover\:bg-indigo-500:hover, .hover\:bg-blue-500:hover {
-        background-image: linear-gradient(135deg, #5fa8ff 0%, #b78cff 100%) !important;
-        background-color: transparent !important;
-    }
+    /* Status colours: flat tints that work on both papers */
+    .text-red-300, .text-red-400, .text-red-500, .text-rose-400 { color: var(--down) !important; }
+    .text-green-300, .text-green-400, .text-green-500, .text-emerald-300, .text-emerald-400, .text-emerald-500 { color: var(--up) !important; }
+    .text-yellow-300, .text-yellow-400, .text-orange-400, .text-amber-300, .text-amber-400, .text-amber-500 { color: var(--amber) !important; }
+    [class*="bg-red-900/"], [class*="bg-red-500/"] { background-color: rgba(198, 47, 47, 0.08) !important; }
+    [class*="bg-green-900/"], [class*="bg-green-500/"], [class*="bg-emerald-900/"], [class*="bg-emerald-500/"] { background-color: rgba(19, 128, 74, 0.08) !important; }
+    [class*="bg-orange-900/"], [class*="bg-yellow-900/"], [class*="bg-amber-900/"], [class*="bg-amber-500/"], [class*="bg-yellow-500/"] { background-color: rgba(200, 130, 20, 0.09) !important; }
+    [class*="border-red-"] { border-color: var(--down) !important; }
+    [class*="border-green-"], [class*="border-emerald-"] { border-color: var(--up) !important; }
+    [class*="border-orange-"], [class*="border-yellow-"], [class*="border-amber-"] { border-color: var(--amber) !important; }
 
-    .text-slate-200 { color: #e8eaef !important; }
-    .text-slate-300 { color: var(--text-2) !important; }
-    .text-slate-400 { color: var(--text-2) !important; }
-    .text-slate-500 { color: var(--text-3) !important; }
-    .text-slate-600 { color: rgba(255,255,255,0.18) !important; }
+    /* Geometry: factsheet corners are sharp */
+    .rounded-lg  { border-radius: 2px !important; }
+    .rounded-xl  { border-radius: 2px !important; }
+    .rounded-2xl { border-radius: 3px !important; }
+    .rounded-3xl { border-radius: 4px !important; }
 
-    .rounded-xl  { border-radius: 14px !important; }
-    .rounded-2xl { border-radius: 18px !important; }
-
-    .shadow-indigo-500\/20, .shadow-blue-500\/20, .shadow-indigo-900\/20, .shadow-blue-900\/20 {
-        box-shadow: 0 8px 24px -8px rgba(139,92,246,0.5) !important;
-    }
-
-    /* DCA 建議卡片 (action card) - 強化視覺 */
-    .bg-red-900\/30      { background: linear-gradient(135deg, rgba(255,91,110,0.12), rgba(255,91,110,0.04)) !important; }
-    .border-red-500\/50  { border-color: rgba(255,91,110,0.4) !important; }
-    .text-red-400        { color: #ff7d8c !important; }
-
-    .bg-orange-900\/30   { background: linear-gradient(135deg, rgba(245,158,11,0.12), rgba(245,158,11,0.04)) !important; }
-    .border-orange-500\/50 { border-color: rgba(245,158,11,0.4) !important; }
-    .text-orange-400     { color: #fbbf24 !important; }
-
-    .bg-yellow-900\/30   { background: linear-gradient(135deg, rgba(250,204,21,0.10), rgba(250,204,21,0.04)) !important; }
-    .border-yellow-500\/50 { border-color: rgba(250,204,21,0.3) !important; }
-    .text-yellow-400     { color: #facc15 !important; }
-
-    .bg-green-900\/30    { background: linear-gradient(135deg, rgba(0,214,143,0.12), rgba(0,214,143,0.04)) !important; }
-    .border-green-500\/50 { border-color: rgba(0,214,143,0.4) !important; }
-    .text-green-400      { color: #3ce0a8 !important; }
+    /* Native form controls follow the paper */
+    select option, select optgroup { background-color: var(--paper) !important; color: var(--ink) !important; }
+    select option:checked, select option:hover { background-color: var(--surface-2) !important; }
 </style>
 </head>
 
