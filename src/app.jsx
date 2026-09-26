@@ -8003,7 +8003,7 @@ const isBull = price2 < price1 && dif2 > dif1;
         // ─────────────────────────────────────────────
         // InstallHelpModal — tabbed instructions for all platforms
         // ─────────────────────────────────────────────
-        const InstallHelpModal = ({ detectedPlatform, onClose }) => {
+        const InstallHelpModal = ({ detectedPlatform, onClose, canPrompt, onPrompt }) => {
             // Decide initial tab from detected platform
             const initialTab = (detectedPlatform === 'ios') ? 'ios'
                 : (detectedPlatform === 'android') ? 'android'
@@ -8011,138 +8011,101 @@ const isBull = price2 < price1 && dif2 > dif1;
             const [tab, setTab] = useState(initialTab);
 
             const isFile = typeof window !== 'undefined' && window.location.protocol === 'file:';
+            // LINE / Facebook / Instagram in-app browsers cannot install web apps at all
+            const inApp = typeof navigator !== 'undefined' && /\bLine\/|FBAN|FBAV|Instagram/i.test(navigator.userAgent);
 
-            const tabBtn = (key, label) => (
-                <button
-                    onClick={() => setTab(key)}
-                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-colors ${tab === key ? 'pill-grad' : 'hover:bg-white/[0.05]'}`}
-                    style={tab === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                >
-                    {label}
-                </button>
+            const Step = ({ n, children }) => (
+                <li className="flex gap-3 py-2.5" style={{ borderTop: n > 1 ? '1px solid var(--rule)' : 'none' }}>
+                    <span className="num font-black text-[15px] w-5 shrink-0" style={{ color: 'var(--ink)' }}>{n}</span>
+                    <div className="text-[14px] leading-relaxed" style={{ color: 'var(--ink-2)' }}>{children}</div>
+                </li>
+            );
+            const B = ({ children }) => <strong style={{ color: 'var(--ink)' }}>{children}</strong>;
+            const Note = ({ children }) => (
+                <p className="text-[13px] leading-relaxed mt-3 pt-3" style={{ color: 'var(--ink-2)', borderTop: '1px solid var(--rule)' }}>{children}</p>
             );
 
             return (
-                <div className="fixed inset-0 flex items-center justify-center z-[100] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }}>
-                    <div className="glass-strong p-6 rounded-3xl shadow-2xl max-w-md w-full relative max-h-[90vh] overflow-y-auto custom-scrollbar">
-                        <button
-                            onClick={onClose}
-                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
-                            style={{ color: 'var(--text-3)' }}
-                        >
-                            ✕
+                <div className="fixed inset-0 flex items-center justify-center z-[100] p-4" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={onClose}>
+                    <div className="max-w-md w-full relative max-h-[90vh] overflow-y-auto custom-scrollbar p-6"
+                        style={{ background: 'var(--paper)', borderTop: '3px solid var(--ink)', boxShadow: '0 24px 48px -16px rgba(0,0,0,0.45)' }}
+                        onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="install-title">
+                        <button onClick={onClose} className="absolute top-4 right-4 fs-btn icon" aria-label="關閉">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
                         </button>
 
-                        <div className="flex items-center gap-3 mb-5">
-                            <div className="w-11 h-11 rounded-2xl flex items-center justify-center pill-grad">
-                                <Smartphone size={20} style={{ color: 'var(--brand-ink)' }} />
-                            </div>
+                        <div className="flex items-center gap-3 mb-5 pr-10">
+                            <LogoMark size={36} />
                             <div>
-                                <p className="label">INSTALL AS APP</p>
-                                <h3 className="text-lg font-extrabold text-white mt-0.5 tracking-tight">將 SmartDCA 加到主畫面</h3>
+                                <p className="fs-lbl">INSTALL AS APP</p>
+                                <h3 id="install-title" className="fs-title-sm">將 SmartDCA 加到主畫面</h3>
                             </div>
                         </div>
+
+                        {inApp && (
+                            <p className="text-[13px] leading-relaxed mb-4 p-3" style={{ color: 'var(--ink)', border: '1.5px solid var(--amber)' }}>
+                                你正在 LINE／Facebook 的內建瀏覽器中，這裡無法安裝 App。請點右上角選單，選 <B>「以瀏覽器開啟」</B>（iPhone 用 Safari、Android 用 Chrome），再按一次「安裝 App」。
+                            </p>
+                        )}
+
+                        {canPrompt && (
+                            <button onClick={onPrompt} className="fs-btn solid w-full mb-4">立即安裝</button>
+                        )}
 
                         {/* Platform tabs */}
-                        <div className="flex gap-1 p-1 rounded-xl mb-4" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }}>
-                            {tabBtn('desktop', '🖥 電腦')}
-                            {tabBtn('ios', '📱 iPhone')}
-                            {tabBtn('android', '🤖 Android')}
+                        <div className="flex gap-6 mb-2" style={{ borderBottom: '1px solid var(--rule)' }}>
+                            {[['desktop', '電腦'], ['ios', 'iPhone / iPad'], ['android', 'Android']].map(([k, l]) => (
+                                <button key={k} onClick={() => setTab(k)} className="py-2 text-[14px] whitespace-nowrap"
+                                    style={tab === k ? { color: 'var(--ink)', fontWeight: 700, boxShadow: 'inset 0 -3px 0 var(--ink)' } : { color: 'var(--ink-2)' }}>
+                                    {l}
+                                </button>
+                            ))}
                         </div>
 
-                        {/* ─── Desktop ─── */}
                         {tab === 'desktop' && (
-                            <div className="space-y-4 text-sm" style={{ color: 'var(--text-2)' }}>
-                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'var(--wash)' }}>
-                                    <p className="font-bold text-white mb-2">Chrome / Edge</p>
-                                    <ol className="space-y-1.5 list-decimal list-inside pl-1 text-xs">
-                                        <li>看網址列右側的 <strong className="text-white">安裝圖示</strong> (⊕ 或 螢幕+下載)</li>
-                                        <li>點下去 → 確認 <strong className="text-white">「安裝」</strong></li>
-                                        <li>SmartDCA 會像 App 顯示在桌面 / 開始選單</li>
-                                    </ol>
-                                </div>
-
-                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'var(--wash)' }}>
-                                    <p className="font-bold text-white mb-2">Safari (macOS)</p>
-                                    <ol className="space-y-1.5 list-decimal list-inside pl-1 text-xs">
-                                        <li>選單列點 <strong className="text-white">檔案</strong></li>
-                                        <li>選 <strong className="text-white">「加入 Dock」</strong></li>
-                                    </ol>
-                                </div>
-
-                                <div className="p-3 rounded-xl ring-soft" style={{ background: 'var(--wash)' }}>
-                                    <p className="font-bold text-white mb-2">Firefox</p>
-                                    <p className="text-xs">桌面版 Firefox 目前不支援 PWA 安裝，請改用 Chrome 或 Edge。</p>
-                                </div>
-
+                            <div>
+                                <p className="fs-title-sm mt-3">Chrome / Edge</p>
+                                <ol>
+                                    <Step n={1}>網址列右側出現 <B>安裝圖示</B>（螢幕加向下箭頭）時，直接點它，再按 <B>「安裝」</B>。</Step>
+                                    <Step n={2}>沒看到圖示：Chrome 點右上角 <B>⋮</B> → <B>「投放、儲存與分享」</B> → <B>「安裝網頁…」</B>；Edge 點 <B>⋯</B> → <B>「應用程式」</B> → <B>「將此網站安裝為應用程式」</B>。</Step>
+                                    <Step n={3}>安裝後 SmartDCA 會出現在桌面與開始選單，像一般 App 一樣開啟。</Step>
+                                </ol>
+                                <Note>如果之前關掉過安裝提示、或安裝後又移除，Chrome 會暫時不主動詢問，請用第 2 步的選單安裝。</Note>
+                                <p className="fs-title-sm mt-5">Safari（macOS）</p>
+                                <ol>
+                                    <Step n={1}>選單列點 <B>檔案</B> → <B>「加入 Dock」</B>（macOS Sonoma 以上）。</Step>
+                                </ol>
+                                <p className="fs-title-sm mt-5">Firefox</p>
+                                <p className="text-[14px] mt-1" style={{ color: 'var(--ink-2)' }}>桌面版 Firefox 目前不支援 PWA 安裝，請改用 Chrome 或 Edge。</p>
                                 {isFile && (
-                                    <div className="p-3 rounded-xl text-xs" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24' }}>
-                                        ⚠️ 你目前用 <code className="mono">file://</code> 開啟，PWA 必須在 HTTPS 或 localhost 才能安裝。請部署到網站或執行本機 server：
-                                        <pre className="mt-2 p-2 rounded mono text-[10px]" style={{ background: 'rgba(0,0,0,0.4)', color: 'var(--brand-1)' }}>python -m http.server 8000</pre>
-                                    </div>
+                                    <Note>你目前用 <code>file://</code> 開啟，PWA 必須在 HTTPS 或 localhost 才能安裝。</Note>
                                 )}
                             </div>
                         )}
 
-                        {/* ─── iOS ─── */}
                         {tab === 'ios' && (
-                            <div className="space-y-3 text-sm" style={{ color: 'var(--text-2)' }}>
-                                <p>在 iPhone / iPad 上用 <strong className="text-white">Safari</strong> 瀏覽器打開此網站：</p>
-                                <ol className="space-y-3 pl-1">
-                                    <li className="flex gap-3">
-                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>1</span>
-                                        <div>
-                                            點下方工具列的 <strong className="text-white">分享</strong> 按鈕
-                                            <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>（一個向上箭頭從方框射出的圖示 ↑）</div>
-                                        </div>
-                                    </li>
-                                    <li className="flex gap-3">
-                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>2</span>
-                                        <div>下滑找到 <strong className="text-white">「加入主畫面」</strong></div>
-                                    </li>
-                                    <li className="flex gap-3">
-                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>3</span>
-                                        <div>右上角點 <strong className="text-white">「新增」</strong> 完成 ✨</div>
-                                    </li>
+                            <div>
+                                <ol className="mt-2">
+                                    <Step n={1}>用 <B>Safari</B> 開啟本網站（iOS 16.4 以上的 Chrome、Edge 也可以），點 <B>分享</B> 按鈕（方框加向上箭頭）。Safari 在下方工具列，Chrome 在網址列右側。</Step>
+                                    <Step n={2}>往下滑，選 <B>「加入主畫面」</B>。</Step>
+                                    <Step n={3}>右上角點 <B>「新增」</B> 完成。</Step>
                                 </ol>
-                                <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: 'rgba(196,244,50,0.06)', border: '1px solid rgba(196,244,50,0.2)', color: 'var(--text-2)' }}>
-                                    💡 必須用 <strong className="text-white">Safari</strong>，Chrome / Firefox 等其他瀏覽器無法安裝
-                                </div>
+                                <Note>主畫面上的舊圖示不會自動更新：長按舊圖示 → 移除 App，再依上面步驟重新加入，就會換成新 Logo。</Note>
                             </div>
                         )}
 
-                        {/* ─── Android ─── */}
                         {tab === 'android' && (
-                            <div className="space-y-3 text-sm" style={{ color: 'var(--text-2)' }}>
-                                <p>在 Android 上用 <strong className="text-white">Chrome</strong> 瀏覽器打開此網站：</p>
-                                <ol className="space-y-3 pl-1">
-                                    <li className="flex gap-3">
-                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>1</span>
-                                        <div>
-                                            點右上角的 <strong className="text-white">⋮</strong> (三個點) 選單
-                                        </div>
-                                    </li>
-                                    <li className="flex gap-3">
-                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>2</span>
-                                        <div>選擇 <strong className="text-white">「加到主畫面」</strong> 或 <strong className="text-white">「安裝應用程式」</strong></div>
-                                    </li>
-                                    <li className="flex gap-3">
-                                        <span className="flex-shrink-0 w-6 h-6 rounded-full pill-grad flex items-center justify-center text-xs font-bold" style={{ color: 'var(--brand-ink)' }}>3</span>
-                                        <div>確認 <strong className="text-white">「安裝」</strong> ✨</div>
-                                    </li>
+                            <div>
+                                <ol className="mt-2">
+                                    <Step n={1}>用 <B>Chrome</B> 開啟本網站，點右上角 <B>⋮</B> 選單。</Step>
+                                    <Step n={2}>選 <B>「安裝應用程式」</B>（舊版 Chrome 顯示為「加到主畫面」）。</Step>
+                                    <Step n={3}>確認 <B>「安裝」</B>，App 會出現在主畫面與應用程式清單。</Step>
                                 </ol>
-                                <div className="mt-3 p-3 rounded-lg text-xs" style={{ background: 'rgba(196,244,50,0.06)', border: '1px solid rgba(196,244,50,0.2)', color: 'var(--text-2)' }}>
-                                    💡 Samsung Internet / Firefox Mobile 也支援，但選單位置可能略不同
-                                </div>
+                                <Note>已安裝的 App 圖示，Chrome 通常會在一天內自動更新成新 Logo；若沒有，長按圖示解除安裝後重新安裝。Samsung Internet 也支援安裝，選單位置略有不同。</Note>
                             </div>
                         )}
 
-                        <button
-                            onClick={onClose}
-                            className="w-full mt-5 py-2.5 rounded-xl text-sm font-bold pill-grad transition-all glow-brand"
-                        >
-                            知道了
-                        </button>
+                        <button onClick={onClose} className="fs-btn w-full mt-6">知道了</button>
                     </div>
                 </div>
             );
@@ -8375,8 +8338,9 @@ const isBull = price2 < price1 && dif2 > dif1;
             const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
             // PWA install prompt
-            const [installPrompt, setInstallPrompt] = useState(null);
-            const [isPwaInstalled, setIsPwaInstalled] = useState(false);
+            // index.html captures beforeinstallprompt before this bundle mounts (window.__installPrompt)
+            const [installPrompt, setInstallPrompt] = useState(() => window.__installPrompt || null);
+            const [isPwaInstalled, setIsPwaInstalled] = useState(() => !!window.__appInstalled);
             const [showInstallHelp, setShowInstallHelp] = useState(false);
 
             useEffect(() => {
@@ -8388,31 +8352,37 @@ const isBull = price2 < price1 && dif2 > dif1;
                     return;
                 }
 
-                const onBeforeInstall = (e) => {
-                    e.preventDefault();
-                    setInstallPrompt(e);
-                };
+                const onInstallable = () => setInstallPrompt(window.__installPrompt || null);
                 const onInstalled = () => {
                     setInstallPrompt(null);
                     setIsPwaInstalled(true);
+                    setShowInstallHelp(false);
                 };
-
-                window.addEventListener('beforeinstallprompt', onBeforeInstall);
-                window.addEventListener('appinstalled', onInstalled);
+                onInstallable();
+                window.addEventListener('smartdca-installable', onInstallable);
+                window.addEventListener('smartdca-installed', onInstalled);
                 return () => {
-                    window.removeEventListener('beforeinstallprompt', onBeforeInstall);
-                    window.removeEventListener('appinstalled', onInstalled);
+                    window.removeEventListener('smartdca-installable', onInstallable);
+                    window.removeEventListener('smartdca-installed', onInstalled);
                 };
             }, []);
 
             const handleInstallApp = async () => {
-                // Native prompt available (Chrome / Edge on HTTPS / localhost)
-                if (installPrompt) {
-                    installPrompt.prompt();
-                    const { outcome } = await installPrompt.userChoice;
-                    if (outcome === 'accepted') {
-                        setIsPwaInstalled(true);
+                // Native prompt available (Chrome / Edge / Samsung Internet on HTTPS / localhost)
+                const promptEvent = installPrompt || window.__installPrompt;
+                if (promptEvent) {
+                    try {
+                        promptEvent.prompt();
+                        const { outcome } = await promptEvent.userChoice;
+                        if (outcome === 'accepted') {
+                            setIsPwaInstalled(true);
+                            setShowInstallHelp(false);
+                        }
+                    } catch (e) {
+                        // A prompt event can only be used once; fall back to the instructions
+                        setShowInstallHelp(true);
                     }
+                    window.__installPrompt = null;
                     setInstallPrompt(null);
                     return;
                 }
@@ -8870,6 +8840,8 @@ const isBull = price2 < price1 && dif2 > dif1;
                         {showInstallHelp && (
                             <InstallHelpModal
                                 detectedPlatform={getPlatform()}
+                                canPrompt={!!installPrompt}
+                                onPrompt={handleInstallApp}
                                 onClose={() => setShowInstallHelp(false)}
                             />
                         )}
