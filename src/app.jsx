@@ -860,97 +860,223 @@ import economicCalendar from '../economic_calendar.json';
             return `${Math.round(hours / 24)} 天後`;
         };
 
+        // Month grid in the logo's language: today = the ultramarine square,
+        // high impact = filled dot, medium = hollow dot, released = greyed.
+        const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+        const TW_MONTH = new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: 'long' });
+        const keyToParts = (key) => key.split('-').map(Number); // 'YYYY-MM-DD' → [y, m, d]
+        const monthKey = (y, m) => `${y}-${String(m).padStart(2, '0')}`;
+
+        const ImpactDot = ({ impact, past, size = 7 }) => {
+            const color = past ? 'var(--ink-3)' : 'var(--ink)';
+            return impact === 'high'
+                ? <span aria-hidden="true" style={{ width: size, height: size, borderRadius: '50%', background: color, display: 'inline-block', flex: 'none' }} />
+                : <span aria-hidden="true" style={{ width: size, height: size, borderRadius: '50%', border: `1.5px solid ${color}`, display: 'inline-block', flex: 'none' }} />;
+        };
+
         const EconomicCalendarModal = ({ onClose }) => {
-            const [onlyHigh, setOnlyHigh] = useState(false);
-            const [days, setDays] = useState(30);
             const now = Date.now();
-            const upcoming = CALENDAR_EVENTS.filter(e =>
-                e.at > now - 2 * 3600 * 1000 &&
-                e.at - now < days * 86400 * 1000 &&
-                (!onlyHigh || e.impact === 'high')
-            );
-            const hasMore = CALENDAR_EVENTS.some(e => e.at - now >= days * 86400 * 1000);
-            const groups = [];
-            upcoming.forEach(e => {
-                const key = TW_KEY.format(e.at);
-                if (!groups.length || groups[groups.length - 1].key !== key) groups.push({ key, items: [] });
-                groups[groups.length - 1].items.push(e);
-            });
             const todayKey = TW_KEY.format(now);
+            const [onlyHigh, setOnlyHigh] = useState(false);
+
+            const events = CALENDAR_EVENTS.filter(e => !onlyHigh || e.impact === 'high');
+            const byDay = new Map();
+            events.forEach(e => {
+                const k = TW_KEY.format(e.at);
+                if (!byDay.has(k)) byDay.set(k, []);
+                byDay.get(k).push(e);
+            });
+            const nextHigh = CALENDAR_EVENTS.find(e => e.impact === 'high' && e.at > now);
+
+            // Months the data covers (in Taipei dates), bounded for navigation
+            const firstKey = CALENDAR_EVENTS.length ? TW_KEY.format(CALENDAR_EVENTS[0].at) : todayKey;
+            const lastKey = CALENDAR_EVENTS.length ? TW_KEY.format(CALENDAR_EVENTS[CALENDAR_EVENTS.length - 1].at) : todayKey;
+            const [ty, tm] = keyToParts(todayKey);
+            const [view, setView] = useState({ y: ty, m: tm });
+            const [selected, setSelected] = useState(() => {
+                if (byDay.has(todayKey)) return todayKey;
+                const next = CALENDAR_EVENTS.find(e => e.at > now);
+                const k = next ? TW_KEY.format(next.at) : todayKey;
+                return k.slice(0, 7) === monthKey(ty, tm) ? k : todayKey;
+            });
+
+            const vKey = monthKey(view.y, view.m);
+            const canPrev = vKey > firstKey.slice(0, 7);
+            const canNext = vKey < lastKey.slice(0, 7);
+            const shift = (delta) => setView(({ y, m }) => {
+                const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+                return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 };
+            });
+            const goToday = () => { setView({ y: ty, m: tm }); setSelected(todayKey); };
+
+            // Grid cells: leading blanks, days of month, trailing blanks to complete the last week
+            const firstDow = new Date(Date.UTC(view.y, view.m - 1, 1)).getUTCDay();
+            const daysInMonth = new Date(Date.UTC(view.y, view.m, 0)).getUTCDate();
+            const cells = [];
+            for (let i = 0; i < firstDow; i++) cells.push(null);
+            for (let d = 1; d <= daysInMonth; d++) cells.push(`${vKey}-${String(d).padStart(2, '0')}`);
+            while (cells.length % 7) cells.push(null);
+
+            const monthEvents = events.filter(e => TW_KEY.format(e.at).startsWith(vKey));
+            const selectedEvents = byDay.get(selected) || [];
+            const selDate = new Date(`${selected}T12:00:00+08:00`);
 
             return (
-                <div className="fixed inset-0 flex items-center justify-center z-[110] p-4" style={{ background: 'rgba(7,8,12,0.78)', backdropFilter: 'blur(8px)' }} onClick={onClose}>
-                    <div className="glass-strong rounded-3xl shadow-2xl max-w-lg w-full relative max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-                        <div className="p-5 border-b" style={{ borderColor: 'var(--line)' }}>
-                            <button
-                                onClick={onClose}
-                                className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
-                                style={{ color: 'var(--text-3)' }}
-                            >
-                                ✕
+                <div className="fixed inset-0 flex items-end sm:items-center justify-center z-[110] sm:p-4" style={{ background: 'rgba(0,0,0,0.55)' }} onClick={onClose}>
+                    <div className="w-full sm:max-w-2xl max-h-[92vh] sm:max-h-[88vh] overflow-hidden flex flex-col relative"
+                        style={{ background: 'var(--paper)', borderTop: '3px solid var(--ink)', boxShadow: '0 24px 48px -16px rgba(0,0,0,0.45)' }}
+                        onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="cal-title">
+
+                        <div className="px-5 pt-4 pb-3" style={{ borderBottom: '1px solid var(--rule)' }}>
+                            <button onClick={onClose} className="absolute top-3 right-3 fs-btn icon" aria-label="關閉">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
                             </button>
-                            <p className="label">ECONOMIC CALENDAR</p>
-                            <h3 className="text-base font-extrabold text-white mt-1">美國經濟日曆</h3>
-                            <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>台灣時間 · 已自動換算美國日光節約時間</p>
-                            <div className="flex gap-2 mt-3">
-                                {[[false, '全部'], [true, '僅高影響']].map(([val, label]) => (
-                                    <button
-                                        key={label}
-                                        onClick={() => setOnlyHigh(val)}
-                                        className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${onlyHigh === val ? 'pill-grad text-white' : 'bg-white/5 hover:bg-white/10'}`}
-                                        style={onlyHigh === val ? {} : { color: 'var(--text-2)' }}
-                                    >
-                                        {label}
+                            <div className="flex items-baseline gap-3 flex-wrap pr-12">
+                                <h3 id="cal-title" className="fs-title">美國經濟日曆</h3>
+                                <span className="fs-lbl">ECONOMIC CALENDAR</span>
+                            </div>
+                            <p className="text-[13px] mt-1" style={{ color: 'var(--ink-3)' }}>台灣時間 · 已自動換算美國日光節約時間</p>
+
+                            {nextHigh && (
+                                <button
+                                    onClick={() => { const k = TW_KEY.format(nextHigh.at); const [y, m] = keyToParts(k); setView({ y, m }); setSelected(k); }}
+                                    className="w-full mt-3 flex items-center justify-between gap-3 py-2.5 px-3 text-left"
+                                    style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}
+                                >
+                                    <span className="min-w-0">
+                                        <span className="block text-[12px] opacity-80">下一個高影響事件</span>
+                                        <span className="block text-[15px] font-bold truncate">{nextHigh.title}</span>
+                                    </span>
+                                    <span className="text-right shrink-0">
+                                        <span className="block text-[12px] opacity-80 num">{TW_DAY.format(nextHigh.at)} {TW_TIME.format(nextHigh.at)}</span>
+                                        <span className="block text-[15px] font-bold">{relativeLabel(nextHigh.at, now)}</span>
+                                    </span>
+                                </button>
+                            )}
+
+                            <div className="flex items-center justify-between gap-3 mt-3 flex-wrap">
+                                <div className="flex items-center gap-1">
+                                    <button onClick={() => canPrev && shift(-1)} disabled={!canPrev} className="fs-btn icon" aria-label="上個月">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
                                     </button>
-                                ))}
+                                    <span className="text-[17px] font-black num min-w-[7.5em] text-center" style={{ color: 'var(--ink)' }}>
+                                        {TW_MONTH.format(new Date(Date.UTC(view.y, view.m - 1, 15)))}
+                                    </span>
+                                    <button onClick={() => canNext && shift(1)} disabled={!canNext} className="fs-btn icon" aria-label="下個月">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+                                    </button>
+                                    <button onClick={goToday} className="fs-btn sm ml-1">今天</button>
+                                </div>
+                                <div className="fs-toggle">
+                                    {[[false, '全部'], [true, '僅高影響']].map(([val, label]) => (
+                                        <button key={label} onClick={() => setOnlyHigh(val)} className={onlyHigh === val ? 'on' : ''}>{label}</button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-4">
-                            {groups.length === 0 && (
-                                <p className="text-sm text-center py-8" style={{ color: 'var(--text-3)' }}>這段期間沒有符合條件的事件</p>
-                            )}
-                            {groups.map(g => (
-                                <div key={g.key}>
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <span className="text-xs font-bold" style={{ color: g.key === todayKey ? 'var(--accent)' : 'var(--text-2)' }}>
-                                            {TW_DAY.format(g.items[0].at)}{g.key === todayKey ? ' · 今天' : ''}
-                                        </span>
-                                        <div className="h-px flex-1" style={{ background: 'var(--line)' }}></div>
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        {g.items.map(e => {
-                                            const s = IMPACT_STYLE[e.impact] || IMPACT_STYLE.low;
-                                            const past = e.at <= now;
-                                            return (
-                                                <div key={e.date + e.type + e.title} className={`flex items-center gap-3 p-2.5 rounded-xl ${past ? 'opacity-50' : ''}`} style={{ background: 'var(--wash)' }}>
-                                                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }}></span>
-                                                    <span className="text-sm font-bold num w-12 shrink-0 text-white">{TW_TIME.format(e.at)}</span>
-                                                    <div className="min-w-0 flex-1">
-                                                        <div className="text-sm text-white leading-snug">
-                                                            {e.title}
-                                                            {!e.confirmed && <span className="ml-1.5 text-[10px]" style={{ color: 'var(--text-3)' }}>暫定</span>}
-                                                        </div>
-                                                        {e.note && <div className="text-[11px]" style={{ color: 'var(--text-3)' }}>{e.note}</div>}
-                                                    </div>
-                                                    <span className="text-[11px] mono shrink-0" style={{ color: past ? 'var(--text-3)' : s.color }}>
-                                                        {past ? '已公布' : relativeLabel(e.at, now)}
-                                                    </span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            {/* Month grid */}
+                            <div className="px-5 pt-3">
+                                <div className="grid grid-cols-7" style={{ borderBottom: '1px solid var(--ink)' }}>
+                                    {WEEKDAYS.map(w => (
+                                        <div key={w} className="text-center text-[12px] py-1.5" style={{ color: 'var(--ink-3)' }}>{w}</div>
+                                    ))}
                                 </div>
-                            ))}
-                            {hasMore && (
-                                <button onClick={() => setDays(d => d + 60)} className="w-full py-2 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 transition-colors" style={{ color: 'var(--text-2)' }}>
-                                    顯示更多
-                                </button>
-                            )}
+                                <div className="grid grid-cols-7">
+                                    {cells.map((k, i) => {
+                                        if (!k) return <div key={`b${i}`} style={{ borderBottom: '1px solid var(--rule)' }} />;
+                                        const list = byDay.get(k) || [];
+                                        const isToday = k === todayKey;
+                                        const isSel = k === selected;
+                                        const isPast = k < todayKey;
+                                        const day = keyToParts(k)[2];
+                                        return (
+                                            <button
+                                                key={k}
+                                                onClick={() => setSelected(k)}
+                                                aria-pressed={isSel}
+                                                aria-label={`${view.m} 月 ${day} 日${list.length ? `，${list.length} 個事件` : ''}`}
+                                                className="relative flex flex-col items-start gap-1 p-1.5 sm:p-2 text-left min-h-[52px] sm:min-h-[76px] transition-colors hover:bg-[color:var(--wash)]"
+                                                style={{
+                                                    borderBottom: '1px solid var(--rule)',
+                                                    boxShadow: isSel ? 'inset 0 0 0 2px var(--ink)' : 'none',
+                                                    background: isSel ? 'var(--wash)' : undefined,
+                                                }}
+                                            >
+                                                <span
+                                                    className="num text-[13px] sm:text-[14px] leading-none inline-flex items-center justify-center"
+                                                    style={isToday
+                                                        ? { background: 'var(--accent)', color: 'var(--accent-ink)', fontWeight: 900, width: 22, height: 22 }
+                                                        : { color: isPast ? 'var(--ink-3)' : 'var(--ink)', fontWeight: list.length ? 800 : 500, height: 22 }}
+                                                >{day}</span>
+                                                {list.length > 0 && (
+                                                    <>
+                                                        {/* phones: dots only */}
+                                                        <span className="flex gap-1 flex-wrap sm:hidden">
+                                                            {list.map(e => <ImpactDot key={e.type + e.title} impact={e.impact} past={e.at <= now} size={6} />)}
+                                                        </span>
+                                                        {/* desktop: dot + event code */}
+                                                        <span className="hidden sm:flex flex-col gap-0.5 w-full">
+                                                            {list.slice(0, 3).map(e => (
+                                                                <span key={e.type + e.title} className="flex items-center gap-1 text-[11px] font-bold leading-tight num truncate"
+                                                                    style={{ color: e.at <= now ? 'var(--ink-3)' : 'var(--ink)' }}>
+                                                                    <ImpactDot impact={e.impact} past={e.at <= now} size={6} />{e.type}
+                                                                </span>
+                                                            ))}
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <div className="flex items-center gap-4 flex-wrap py-2.5 text-[12px]" style={{ color: 'var(--ink-3)' }}>
+                                    <span className="inline-flex items-center gap-1.5"><ImpactDot impact="high" />高影響</span>
+                                    <span className="inline-flex items-center gap-1.5"><ImpactDot impact="medium" />中影響</span>
+                                    <span className="inline-flex items-center gap-1.5"><span style={{ width: 10, height: 10, background: 'var(--accent)', display: 'inline-block' }} />今天</span>
+                                    <span className="ml-auto num">本月 {monthEvents.length} 個事件</span>
+                                </div>
+                            </div>
+
+                            {/* Selected day */}
+                            <div className="px-5 pb-5">
+                                <div className="fs-section">
+                                    <div className="flex items-baseline justify-between gap-3 mb-1">
+                                        <h4 className="fs-title-sm">{TW_DAY.format(selDate)}{selected === todayKey ? ' · 今天' : ''}</h4>
+                                        <span className="text-[12px] num" style={{ color: 'var(--ink-3)' }}>{selectedEvents.length ? `${selectedEvents.length} 個事件` : ''}</span>
+                                    </div>
+                                    {selectedEvents.length === 0 && (
+                                        <p className="text-[14px] py-3" style={{ color: 'var(--ink-3)' }}>這天沒有符合條件的事件</p>
+                                    )}
+                                    {selectedEvents.map(e => {
+                                        const s = IMPACT_STYLE[e.impact] || IMPACT_STYLE.low;
+                                        const past = e.at <= now;
+                                        return (
+                                            <div key={e.date + e.type + e.title} className="flex items-center gap-3 py-3" style={{ borderBottom: '1px solid var(--rule)', opacity: past ? 0.6 : 1 }}>
+                                                <ImpactDot impact={e.impact} past={past} size={9} />
+                                                <span className="text-[15px] font-bold num w-12 shrink-0" style={{ color: 'var(--ink)' }}>{TW_TIME.format(e.at)}</span>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="text-[15px] leading-snug" style={{ color: 'var(--ink)' }}>
+                                                        {e.title}
+                                                        {!e.confirmed && <span className="ml-1.5 text-[11px]" style={{ color: 'var(--ink-3)' }}>暫定</span>}
+                                                    </div>
+                                                    <div className="text-[12px]" style={{ color: 'var(--ink-3)' }}>
+                                                        {s.label}影響{e.note ? ` · ${e.note}` : ''}
+                                                    </div>
+                                                </div>
+                                                <span className="text-[12px] num shrink-0 font-semibold" style={{ color: past ? 'var(--ink-3)' : 'var(--ink)' }}>
+                                                    {past ? '已公布' : relativeLabel(e.at, now)}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </div>
 
-                        <div className="p-3 text-center border-t" style={{ borderColor: 'var(--line)', background: 'var(--wash)' }}>
-                            <p className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>SOURCE · FED / BLS / BEA / CENSUS · 暫定=依規則推估</p>
+                        <div className="px-5 py-2.5" style={{ borderTop: '1px solid var(--rule)' }}>
+                            <p className="text-[11px] num" style={{ color: 'var(--ink-3)' }}>SOURCE · FED / BLS / BEA / CENSUS · 暫定=依規則推估</p>
                         </div>
                     </div>
                 </div>
