@@ -473,7 +473,7 @@
     .divide-slate-800 > * + *, .divide-slate-700 > * + * { border-color: var(--rule) !important; }
 
     /* Text */
-    .text-white:not([class*="bg-"]), .text-white[class*="bg-slate"], .text-white[class*="bg-gray"],
+    .text-white:not([class*="bg-"]):not(.pill-grad), .text-white[class*="bg-slate"], .text-white[class*="bg-gray"],
     .text-white[class*="bg-white"], .text-white[class*="bg-transparent"] { color: var(--ink) !important; }
     .text-slate-50, .text-slate-100, .text-slate-200, .text-gray-100, .text-gray-200 { color: var(--ink) !important; }
     .text-slate-300, .text-slate-400, .text-gray-300, .text-gray-400 { color: var(--ink-2) !important; }
@@ -504,6 +504,17 @@
     [class*="border-red-"] { border-color: var(--down) !important; }
     [class*="border-green-"], [class*="border-emerald-"] { border-color: var(--up) !important; }
     [class*="border-orange-"], [class*="border-yellow-"], [class*="border-amber-"] { border-color: var(--amber) !important; }
+
+    /* Legacy rounded 'ring-soft' cards → factsheet blocks: ink rule on top, no fill, no ring */
+    .ring-soft.rounded-2xl {
+        background: transparent !important;
+        box-shadow: none !important;
+        border-top: 1px solid var(--ink);
+        border-radius: 0 !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+    .ring-soft.rounded-xl { box-shadow: inset 0 0 0 1px var(--rule) !important; border-radius: 0 !important; }
 
     /* Geometry: factsheet corners are sharp */
     .rounded-lg  { border-radius: 2px !important; }
