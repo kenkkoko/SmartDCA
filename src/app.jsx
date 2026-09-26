@@ -1050,8 +1050,10 @@ import economicCalendar from '../economic_calendar.json';
             const zi = fngZoneIndex(v);
             const [armed, setArmed] = useState(false);
             useEffect(() => {
+                // Arm after first paint; the timeout covers throttled or hidden frames where rAF never fires
                 const id = requestAnimationFrame(() => requestAnimationFrame(() => setArmed(true)));
-                return () => cancelAnimationFrame(id);
+                const t = setTimeout(() => setArmed(true), 120);
+                return () => { cancelAnimationFrame(id); clearTimeout(t); };
             }, []);
 
             const W = Math.max(280, Math.min(width || 560, 620));
@@ -1117,10 +1119,10 @@ import economicCalendar from '../economic_calendar.json';
 
         // DCA strategy column that sits beside the dial: verdict, the one accent block, action scale
         const DCA_ACTIONS = ['強力買入', '分批買入', '持有觀望', '停止買入', '止盈/減倉'];
-        const DcaStrategy = ({ suggestion, children }) => (
+        const DcaStrategy = ({ suggestion, children, label = 'DCA 策略', actions = DCA_ACTIONS }) => (
             <div className="min-w-0">
                 <div className="flex items-baseline gap-3 flex-wrap">
-                    <span className="fs-lbl">DCA 策略</span>
+                    <span className="fs-lbl">{label}</span>
                     <span className="text-2xl font-black" style={{ color: 'var(--ink)' }}>{suggestion.title}</span>
                 </div>
                 <p className="mt-1.5 text-[15px] leading-relaxed" style={{ color: 'var(--ink-2)' }}>{suggestion.desc}</p>
@@ -1129,10 +1131,63 @@ import economicCalendar from '../economic_calendar.json';
                     <span className="text-2xl font-black">{suggestion.action}</span>
                 </div>
                 <div className="fs-steps mt-4">
-                    {DCA_ACTIONS.map(a => <span key={a} className={a === suggestion.action ? 'on' : ''}>{a}</span>)}
+                    {actions.map(a => <span key={a} className={a === suggestion.action ? 'on' : ''}>{a}</span>)}
                 </div>
                 {children}
             </div>
+        );
+
+        // Stock / Taiwan dashboards end the scale with 考慮止盈 and call the middle step 持有/觀望
+        const MARKET_ACTIONS = ['強力買入', '分批買入', '持有/觀望', '停止買入', '考慮止盈'];
+
+        // Fear buy points on a price line: extreme fear = filled triangle, fear = hollow ring, others unmarked
+        const fearPointProps = (values, extreme = 25, fear = 44) => ({
+            pointStyle: values.map(v => (v <= extreme ? 'triangle' : 'circle')),
+            pointBackgroundColor: values.map(v => (v <= extreme ? CHART.fear : 'rgba(0,0,0,0)')),
+            pointBorderColor: values.map(v => (v <= extreme ? CHART.fear : v <= fear ? CHART.fearLight : 'rgba(0,0,0,0)')),
+            pointBorderWidth: values.map(v => (v <= extreme ? 0 : 1.2)),
+            pointRadius: values.map(v => (v <= extreme ? 3.5 : v <= fear ? 2.2 : 0)),
+            pointHoverRadius: 5,
+        });
+        // Printed-figure chart caption + x axis
+        const figureTitle = (text) => ({ display: true, text, color: CHART.tick, align: 'start', font: { size: 12, weight: '500' } });
+        const figureX = () => ({ grid: { display: false }, ticks: { color: CHART.tick, maxTicksLimit: window.innerWidth < 640 ? 4 : 8, maxRotation: 0, autoSkipPadding: 12 } });
+
+        // Watchlist star drawn in the icon set's stroke
+        const WatchStar = ({ on, onClick }) => (
+            <button onClick={onClick} className="p-1 transition-colors" aria-pressed={on} aria-label="觀察清單"
+                style={{ color: on ? 'var(--accent)' : 'var(--ink-3)' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill={on ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
+                </svg>
+            </button>
+        );
+
+        // A price-history figure: heading with watch star, 進階分析 link, time range, chart
+        const HistorySection = ({ title, watch, onAdvanced, range, onRange, children, height = 'h-[300px] sm:h-[350px]' }) => (
+            <section className="fs-section mt-10">
+                <div className="fs-head">
+                    <h2 className="fs-title flex items-center gap-2">{title}{watch}</h2>
+                    <div className="flex items-center gap-4 flex-wrap">
+                        <button onClick={onAdvanced} className="text-[14px] underline underline-offset-4" style={{ color: 'var(--ink)' }} title="進階技術分析">進階分析</button>
+                        <TimeRangeSelector range={range} onRangeChange={onRange} />
+                    </div>
+                </div>
+                <div className={`${height} w-full relative`}>{children}</div>
+            </section>
+        );
+
+        // Headlines section: AI summary button, top-3 list, full list
+        const NewsBlock = ({ title, news, loading, error, ready, isLocked }) => (
+            <section className="fs-section mt-10">
+                <div className="fs-head"><h2 className="fs-title">{title}</h2></div>
+                {ready && news.length > 0 && <><NewsAIAnalysis newsItems={news} isLocked={isLocked} /><NewsSummary news={news} /></>}
+                <NewsSection news={news} loading={loading} error={error} />
+            </section>
+        );
+
+        const SourceNote = ({ children }) => (
+            <p className="mt-10 pt-3 text-[12px]" style={{ color: 'var(--ink-3)', borderTop: '1px solid var(--rule)' }}>{children}</p>
         );
 
         // --- 新聞摘要元件 ---
@@ -1371,21 +1426,17 @@ import economicCalendar from '../economic_calendar.json';
         const IndexPriceCard = ({ name, symbol, logo, data, active = false, editMode = false, onClick, currency = '$' }) => {
             const handleClick = () => { if (!editMode && onClick) onClick(); };
             return (
-                <div
-                    onClick={handleClick}
-                    className={`${editMode || !onClick ? '' : 'cursor-pointer'} flex flex-col p-2.5 md:p-4 rounded-xl border transition-all h-full ${active ? 'bg-slate-800 border-blue-500 shadow-lg' : 'bg-slate-900/50 border-slate-800'}`}
-                >
-                    <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                            {logo
-                                ? <img src={logo} className="w-5 h-5 md:w-6 md:h-6 shrink-0" alt={name} onError={(e) => { e.target.style.display = 'none'; }} />
-                                : <div className="w-5 h-5 md:w-6 md:h-6 shrink-0 rounded-full bg-slate-700 flex items-center justify-center text-[10px] md:text-xs text-slate-300">{name.slice(0, 1)}</div>
-                            }
-                            <span className="font-bold text-white text-sm md:text-base truncate">{name}</span>
-                        </div>
-                    </div>
-                    <div className="text-base md:text-xl font-mono text-white truncate">{data ? `${currency}${formatPrice(data.price)}` : '...'}</div>
-                    {data && <div className={`text-[11px] md:text-xs ${data.changePercent >= 0 ? 'text-green-400' : 'text-red-400'}`}>{data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%</div>}
+                <div onClick={handleClick} className={`${editMode || !onClick ? '' : 'cursor-pointer'} fs-ticker ${active ? 'on' : ''}`}>
+                    <span className="fs-ticker-name">
+                        {logo && <img src={logo} className="w-4 h-4 shrink-0" alt="" onError={(e) => { e.target.style.display = 'none'; }} />}
+                        {name}
+                    </span>
+                    <span className="fs-ticker-price num">{data ? `${currency}${formatPrice(data.price)}` : '...'}</span>
+                    {data && (
+                        <span className="fs-ticker-change num" style={{ color: data.changePercent >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                            {data.changePercent >= 0 ? '▲' : '▼'} {data.changePercent >= 0 ? '+' : ''}{data.changePercent.toFixed(2)}%
+                        </span>
+                    )}
                 </div>
             );
         };
@@ -1811,6 +1862,7 @@ import economicCalendar from '../economic_calendar.json';
                 };
             };
             const suggestion = fngData ? getSuggestion(fngData.value) : null;
+            useThemeVersion();
 
             // Stock Price vs FNG Chart (Mixed Chart)
             const StockFNGChart = ({ data, symbol }) => {
@@ -1825,25 +1877,10 @@ import economicCalendar from '../economic_calendar.json';
                             borderColor: CHART.line,
                             backgroundColor: makePriceGradient,
                             yAxisID: 'y',
-                            borderWidth: 2,
+                            borderWidth: 1.6,
                             fill: true,
-                            tension: 0.4,
-                            pointBackgroundColor: data.map(d => {
-                                if (d.fng <= 25) return CHART.fear;
-                                if (d.fng <= 44) return CHART.fearLight;
-                                return 'rgba(0,0,0,0)';
-                            }),
-                            pointBorderColor: data.map(d => {
-                                if (d.fng <= 25) return CHART.fear;
-                                if (d.fng <= 44) return CHART.fearLight;
-                                return 'rgba(0,0,0,0)';
-                            }),
-                            pointRadius: data.map(d => {
-                                if (d.fng <= 25) return 3;
-                                if (d.fng <= 44) return 2;
-                                return 0;
-                            }),
-                            pointHoverRadius: 4,
+                            tension: 0.25,
+                            ...fearPointProps(data.map(d => d.fng)),
                         }
                     ]
                 };
@@ -1855,7 +1892,6 @@ import economicCalendar from '../economic_calendar.json';
                     plugins: {
                         legend: { display: false },
                         tooltip: {
-                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
                             callbacks: {
                                 label: (context) => {
                                     const idx = context.dataIndex;
@@ -1868,24 +1904,26 @@ import economicCalendar from '../economic_calendar.json';
                                 }
                             }
                         },
-                        title: { display: true, text: `${symbol} 價格走勢與市場恐懼指數 (紅/橘點代表市場恐懼)`, color: '#94a3b8' }
+                        title: figureTitle(`${symbol} 價格走勢與市場恐懼指數 (紅/橘點代表市場恐懼)`)
                     },
                     scales: {
                         y: { type: 'linear', display: true, position: 'left', grid: { color: CHART.grid }, ticks: { color: CHART.tick } },
-                        x: { ticks: { color: CHART.tick, maxTicksLimit: 8 }, grid: { display: false } }
+                        x: figureX()
                     }
                 };
                 return <ChartComponent data={chartData} options={options} />;
             };
 
             return (
-                <div className="space-y-6">
-                    <SymbolSearch
-                        symbol={selectedSymbol}
-                        onSearch={setSelectedSymbol}
-                        isLocked={!userInfo.isPremium}
-                        userEmail={userInfo.email}
-                    />
+                <div>
+                    <div className="py-2.5 max-w-[520px]" style={{ borderBottom: '1px solid var(--rule)' }}>
+                        <SymbolSearch
+                            symbol={selectedSymbol}
+                            onSearch={setSelectedSymbol}
+                            isLocked={!userInfo.isPremium}
+                            userEmail={userInfo.email}
+                        />
+                    </div>
 
                     <EditableCardGrid
                         title="美股指數 / ETF"
@@ -1927,106 +1965,58 @@ import economicCalendar from '../economic_calendar.json';
                         label={selectedSymbol}
                     >
                         {loading ? (
-                            <div className="py-12"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>
+                            <div className="py-12 flex justify-center"><RefreshCw className="animate-spin" size={28} style={{ color: 'var(--ink-3)' }} /></div>
                         ) : error ? (
-                            <div className="flex flex-col items-center gap-2 py-8">
-                                <AlertTriangle className="text-red-400" size={32} />
-                                <div className="text-red-400">{error}</div>
-                                <button onClick={fetchStockData} className="mt-2 px-4 py-1 bg-slate-800 rounded text-sm hover:bg-slate-700">重試</button>
+                            <div className="flex items-start gap-3 py-6">
+                                <AlertTriangle size={22} className="shrink-0 mt-0.5" style={{ color: 'var(--down)' }} />
+                                <div>
+                                    <div className="text-[15px]" style={{ color: 'var(--down)' }}>{error}</div>
+                                    <button onClick={fetchStockData} className="fs-btn sm mt-3">重試</button>
+                                </div>
                             </div>
                         ) : (
-                            <div className="w-full flex flex-col items-center">
-                                {fngData && <FearGreedGauge fngValue={fngData.value} classification={fngData.classification} />}
-                                {fngHistory && fngHistory.length > 0 && (
-                                    <div className="w-full max-w-2xl mt-4 px-4">
-                                        <SentimentScarcityBar data={fngHistory.map(d => d.y)} title="過去 365 天美股買入機會分佈" />
+                            <>
+                                <div className="grid md:grid-cols-[7fr_5fr] gap-5 md:gap-10 items-start">
+                                    {fngData && <FearGreedGauge fngValue={fngData.value} classification={fngData.classification} />}
+                                    {suggestion && (
+                                        <DcaStrategy suggestion={suggestion} label="DCA 策略建議" actions={MARKET_ACTIONS}>
+                                            {fngHistory && fngHistory.length > 0 && <SentimentScarcityBar data={fngHistory.map(d => d.y)} title="過去 365 天美股買入機會分佈" />}
+                                        </DcaStrategy>
+                                    )}
+                                </div>
+                                {fngData && (
+                                    <div className="mt-7">
+                                        <AIAdviceBlock
+                                            assetName={`美股 (${selectedSymbol})`}
+                                            marketData={`資產: ${selectedSymbol}\n恐懼貪婪指數: ${fngData.value} (${fngData.classification})`}
+                                            priceStats={stockData && stockData.length > 0 ? {
+                                                current: stockData[stockData.length - 1].price,
+                                                high: Math.max(...stockData.map(d => d.price)),
+                                                low: Math.min(...stockData.map(d => d.price))
+                                            } : null}
+                                            isLocked={!userInfo.isPremium}
+                                        />
                                     </div>
                                 )}
-                            </div>
+                            </>
                         )}
                     </SentimentToggleCard>
 
-                    {suggestion && (
-                        <div className={`p-6 rounded-2xl border ${suggestion.border} ${suggestion.bg} relative overflow-hidden transition-all duration-500`}>
-                            <div className="relative z-10 flex flex-col md:flex-row justify-between items-center w-full max-w-lg mx-auto mt-0">
-                                <div className="flex flex-col items-start text-left mb-4 md:mb-0">
-                                    <div className="text-sm uppercase tracking-wider opacity-70 mb-1">DCA 策略建議</div>
-                                    <span className={`text-2xl font-bold ${suggestion.text}`}>{suggestion.title}</span>
-                                    <p className="mt-2 text-slate-300 max-w-lg text-sm">{suggestion.desc}</p>
-                                </div>
-                                <div className="flex flex-col items-center md:items-end gap-2 min-w-[140px] text-center md:text-right">
-                                    <div className="text-sm text-slate-400">當前操作</div>
-                                    <div className={`text-xl font-bold ${suggestion.text} border-2 border-current px-4 py-1 rounded-lg whitespace-nowrap`}>{suggestion.action}</div>
-                                </div>
-                            </div>
-                            {fngData && (
-                                <AIAdviceBlock
-                                    assetName={`美股 (${selectedSymbol})`}
-                                    marketData={`資產: ${selectedSymbol}\n恐懼貪婪指數: ${fngData.value} (${fngData.classification})`}
-                                    priceStats={stockData && stockData.length > 0 ? {
-                                        current: stockData[stockData.length - 1].price,
-                                        high: Math.max(...stockData.map(d => d.price)),
-                                        low: Math.min(...stockData.map(d => d.price))
-                                    } : null}
-                                    isLocked={!userInfo.isPremium}
-                                />
-                            )}
-                        </div>
-                    )}
-
                     {!loading && !error && stockData && stockData.length > 0 && (
-                        <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
-                            <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-lg font-semibold flex items-center gap-2">
-                                    <TrendingUp size={18} className="text-slate-400" />
-                                    {selectedSymbol} 股價與恐懼指數走勢
-                                    {onUpdateWatchlist && (
-                                        <button onClick={toggleWatchlist} className="ml-2 hover:scale-110 transition-transform">
-                                            {isWatchlisted
-                                                ? <span className="text-yellow-400 text-xl">★</span>
-                                                : <span className="text-slate-600 text-xl hover:text-yellow-400">☆</span>
-                                            }
-                                        </button>
-                                    )}
-                                </h2>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    <button
-                                        onClick={() => setShowAdvanced(true)}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold glass hover:bg-white/[0.08] transition-colors"
-                                        style={{ color: 'var(--brand-1)' }}
-                                        title="進階技術分析"
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                                        </svg>
-                                        進階分析
-                                    </button>
-                                    <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
-                                </div>
-                            </div>
-                            <div className="h-[300px] sm:h-[350px] w-full relative">
-                                <StockFNGChart data={stockData} symbol={selectedSymbol} />
-                            </div>
-                        </div>
+                        <HistorySection
+                            title={`${selectedSymbol} 股價與恐懼指數走勢`}
+                            watch={onUpdateWatchlist && <WatchStar on={isWatchlisted} onClick={toggleWatchlist} />}
+                            onAdvanced={() => setShowAdvanced(true)}
+                            range={timeRange}
+                            onRange={setTimeRange}
+                        >
+                            <StockFNGChart data={stockData} symbol={selectedSymbol} />
+                        </HistorySection>
                     )}
 
-                    <div className="mt-8">
-                        <div className="flex items-center gap-2 mb-6">
-                            <Newspaper className="text-blue-500" />
-                            <h2 className="text-xl font-bold text-slate-200">美股財經頭條 (CNBC)</h2>
-                        </div>
-                        {!loading && !error && stockNews.length > 0 && (
-                            <>
-                                <NewsAIAnalysis newsItems={stockNews} isLocked={!userInfo.isPremium} />
-                                <NewsSummary news={stockNews} />
-                            </>
-                        )}
-                        <NewsSection news={stockNews} loading={loading} error={error} />
-                    </div>
+                    <NewsBlock title="美股財經頭條 (CNBC)" news={stockNews} loading={loading} error={error} ready={!loading && !error} isLocked={!userInfo.isPremium} />
 
-                    <div className="text-center text-slate-600 text-xs mt-8 pb-4">
-                        資料來源: CNN Business, Yahoo Finance, CNBC
-                    </div>
+                    <SourceNote>資料來源: CNN Business, Yahoo Finance, CNBC</SourceNote>
                     {showAdvanced && (
                         <TechnicalChartModal
                             symbol={selectedSymbol}
@@ -2138,6 +2128,7 @@ import economicCalendar from '../economic_calendar.json';
             ];
             const twCards = useEditableCards('tw-dashboard-cards', twDefaults);
             const [twEditMode, setTwEditMode] = useState(false);
+            useThemeVersion();
 
             const getSuggestion = (rsi) => {
                 if (rsi <= 25) return {
@@ -2348,18 +2339,18 @@ import economicCalendar from '../economic_calendar.json';
 
             const isWatchlisted = (userInfo.watchlist || []).includes(selectedSymbol);
 
-            if (loading) return <div className="flex justify-center items-center h-64"><RefreshCw className="animate-spin text-slate-500" size={32} /></div>;
+            if (loading) return <div className="flex justify-center items-center h-64"><RefreshCw className="animate-spin" size={28} style={{ color: 'var(--ink-3)' }} /></div>;
             if (error) return (
-                <div className="bg-red-900/20 border border-red-500/50 text-red-200 p-6 rounded-xl flex items-center gap-4">
-                    <AlertTriangle size={24} className="shrink-0" />
-                    <div>
-                        <h3 className="font-bold text-lg">臺股數據載入失敗</h3>
-                        <p className="text-sm opacity-90 my-2">{error}</p>
-                        <button onClick={fetchData} className="px-4 py-2 bg-red-800 hover:bg-red-700 rounded text-sm transition-colors mt-2">
-                            重試連線
-                        </button>
+                <section className="fs-section mt-6" style={{ borderTopColor: 'var(--down)' }}>
+                    <div className="flex items-start gap-3">
+                        <AlertTriangle size={22} className="shrink-0 mt-1" style={{ color: 'var(--down)' }} />
+                        <div>
+                            <h3 className="fs-title-sm">臺股數據載入失敗</h3>
+                            <p className="text-sm my-2" style={{ color: 'var(--ink-2)' }}>{error}</p>
+                            <button onClick={fetchData} className="fs-btn sm">重試連線</button>
+                        </div>
                     </div>
-                </div>
+                </section>
             );
 
             const suggestion = rsiData ? getSuggestion(rsiData.value) : null;
@@ -2372,13 +2363,10 @@ import economicCalendar from '../economic_calendar.json';
                     data: rsiData.history.map(d => d.y),
                     borderColor: CHART.line,
                     backgroundColor: makePriceGradient,
-                    borderWidth: 2,
-                    pointRadius: rsiData.history.map(d => d.rsi <= 25 ? 3 : (d.rsi <= 44 ? 2 : 0)),
-                    pointBackgroundColor: rsiData.history.map(d => d.rsi <= 25 ? CHART.fear : (d.rsi <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')), // 點填充色
-                    pointBorderColor: rsiData.history.map(d => d.rsi <= 25 ? CHART.fear : (d.rsi <= 44 ? CHART.fearLight : 'rgba(0,0,0,0)')),
-                    pointHoverRadius: 4,
+                    borderWidth: 1.6,
+                    ...fearPointProps(rsiData.history.map(d => d.rsi)),
                     fill: true,
-                    tension: 0.4
+                    tension: 0.25
                 }]
             };
 
@@ -2402,24 +2390,26 @@ import economicCalendar from '../economic_calendar.json';
                             }
                         }
                     },
-                    title: { display: true, text: `${selectedSymbol} 歷史走勢 (紅/橘點為 RSI 買入訊號)`, color: CHART.text }
+                    title: figureTitle(`${selectedSymbol} 歷史走勢 (紅/橘點為 RSI 買入訊號)`)
                 },
                 scales: {
-                    x: { ticks: { maxTicksLimit: 6, color: CHART.tick }, grid: { display: false } },
+                    x: figureX(),
                     y: { grid: { color: CHART.grid }, ticks: { color: CHART.tick } }
                 }
             };
 
             return (
-                <div className="space-y-6">
+                <div>
                     {/* 大盤指數卡片 */}
-                    <SymbolSearch
-                        symbol={selectedSymbol}
-                        onSearch={setSelectedSymbol}
-                        placeholder="輸入代號 (e.g. 2330)"
-                        isLocked={!userInfo.isPremium}
-                        userEmail={userInfo.email}
-                    />
+                    <div className="py-2.5 max-w-[520px]" style={{ borderBottom: '1px solid var(--rule)' }}>
+                        <SymbolSearch
+                            symbol={selectedSymbol}
+                            onSearch={setSelectedSymbol}
+                            placeholder="輸入代號 (e.g. 2330)"
+                            isLocked={!userInfo.isPremium}
+                            userEmail={userInfo.email}
+                        />
+                    </div>
 
                     <EditableCardGrid
                         title="台股指數 / ETF"
@@ -2454,7 +2444,7 @@ import economicCalendar from '../economic_calendar.json';
                         ))}
                     </EditableCardGrid>
 
-                    {/* 標題區 */}
+                    {/* 情緒指標 + 策略 */}
                     <SentimentToggleCard
                         storageKey="tw-sentiment-view"
                         fngTitle={`臺股情緒指標 (基於 ${selectedSymbol} RSI)`}
@@ -2463,53 +2453,22 @@ import economicCalendar from '../economic_calendar.json';
                         symbol={selectedSymbol}
                         label={selectedSymbol}
                         subtitle={
-                            <p className="text-xs text-slate-500 mt-2 max-w-md">
+                            <p className="text-[13px] mt-2 max-w-[60ch] leading-relaxed" style={{ color: 'var(--ink-2)' }}>
                                 此指標並非恐懼貪婪指數。數值由『{selectedSymbol}』的 14 日 RSI 強弱指標計算得出。RSI 低於 30 代表市場超賣 (恐懼)，高於 70 代表市場超買 (貪婪)。
-                                <span className="block mt-1 text-slate-600">數據來源: {dataSource}</span>
+                                <span className="block mt-1" style={{ color: 'var(--ink-3)' }}>數據來源: {dataSource}</span>
                             </p>
                         }
                     >
-                        <div className="w-full flex flex-col items-center">
-                            {rsiData && (
-                                <FearGreedGauge
-                                    fngValue={rsiData.value}
-                                    classification={rsiData.classification}
-                                />
-                            )}
-                            {/* Sentiment Scarcity Bar */}
-                            {rsiData && rsiData.history && (
-                                <div className="w-full max-w-2xl mt-4 px-4">
-                                    <SentimentScarcityBar
-                                        data={rsiData.history.map(d => d.rsi)}
-                                        title="過去 1 年臺股買入機會分佈 (RSI)"
-                                    />
-                                </div>
+                        <div className="grid md:grid-cols-[7fr_5fr] gap-5 md:gap-10 items-start">
+                            {rsiData && <FearGreedGauge fngValue={rsiData.value} classification={rsiData.classification} />}
+                            {suggestion && (
+                                <DcaStrategy suggestion={suggestion} label="臺股 DCA 策略" actions={MARKET_ACTIONS}>
+                                    {rsiData && rsiData.history && <SentimentScarcityBar data={rsiData.history.map(d => d.rsi)} title="過去 1 年臺股買入機會分佈 (RSI)" />}
+                                </DcaStrategy>
                             )}
                         </div>
-                    </SentimentToggleCard>
-
-                    {/* 策略建議區 */}
-                    {suggestion && (
-                        <div className={`p-6 rounded-2xl border ${suggestion.border} ${suggestion.bg} relative overflow-hidden transition-all duration-500`}>
-                            <div className="relative z-10 flex flex-col md:flex-row justify-between items-center w-full max-w-lg mx-auto mt-0">
-                                <div className="flex flex-col items-start text-left mb-4 md:mb-0">
-                                    <div className="text-sm uppercase tracking-wider opacity-70 mb-1">臺股 DCA 策略</div>
-                                    <span className={`text-2xl font-bold ${suggestion.text}`}>
-                                        {suggestion.title}
-                                    </span>
-                                    <p className="mt-2 text-slate-300 max-w-lg text-sm">
-                                        {suggestion.desc}
-                                    </p>
-                                </div>
-                                <div className="flex flex-col items-center md:items-end gap-2 min-w-[140px] text-center md:text-right">
-                                    <div className="text-sm text-slate-400">當前操作</div>
-                                    <div className={`text-xl font-bold ${suggestion.text} border-2 border-current px-4 py-1 rounded-lg whitespace-nowrap`}>
-                                        {suggestion.action}
-                                    </div>
-                                </div>
-                            </div>
-                            {/* AI Advice Integration */}
-                            {rsiData && (
+                        {rsiData && (
+                            <div className="mt-7">
                                 <AIAdviceBlock
                                     assetName={`台股 (${selectedSymbol})`}
                                     marketData={`RSI(14): ${rsiData.value} (${rsiData.classification})`}
@@ -2520,68 +2479,28 @@ import economicCalendar from '../economic_calendar.json';
                                     }}
                                     isLocked={!userInfo.isPremium}
                                 />
-                            )}
-                        </div>
-                    )}
+                            </div>
+                        )}
+                    </SentimentToggleCard>
 
                     {/* 歷史走勢圖 */}
                     {rsiData && (
-                        <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl">
-                            <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-lg font-semibold flex items-center gap-2">
-                                    <TrendingUp size={18} className="text-slate-400" />
-                                    {selectedSymbol} 歷史走勢與買入訊號
-                                    {onUpdateWatchlist && (
-                                        <button onClick={toggleWatchlist} className="ml-2 hover:scale-110 transition-transform">
-                                            {isWatchlisted
-                                                ? <span className="text-yellow-400 text-xl">★</span>
-                                                : <span className="text-slate-600 text-xl hover:text-yellow-400">☆</span>
-                                            }
-                                        </button>
-                                    )}
-                                </h2>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    <button
-                                        onClick={() => setShowAdvanced(true)}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold glass hover:bg-white/[0.08] transition-colors"
-                                        style={{ color: 'var(--brand-1)' }}
-                                        title="進階技術分析"
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                                        </svg>
-                                        進階分析
-                                    </button>
-                                    <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
-                                </div>
-                            </div>
-                            <div className="h-[350px] w-full relative">
-                                <ChartComponent data={chartData} options={chartOptions} />
-                            </div>
-                        </div>
-                    )
-                    }
+                        <HistorySection
+                            title={`${selectedSymbol} 歷史走勢與買入訊號`}
+                            watch={onUpdateWatchlist && <WatchStar on={isWatchlisted} onClick={toggleWatchlist} />}
+                            onAdvanced={() => setShowAdvanced(true)}
+                            range={timeRange}
+                            onRange={setTimeRange}
+                            height="h-[350px]"
+                        >
+                            <ChartComponent data={chartData} options={chartOptions} />
+                        </HistorySection>
+                    )}
 
                     {/* 新聞區 */}
-                    <div className="mt-8">
-                        <div className="flex items-center gap-2 mb-6">
-                            <Newspaper className="text-blue-500" />
-                            <h2 className="text-xl font-bold text-slate-200">臺股財經頭條 (Google News)</h2>
-                        </div>
+                    <NewsBlock title="臺股財經頭條 (Google News)" news={news} loading={newsLoading} error={null} ready={!loading && !error} isLocked={!userInfo.isPremium} />
 
-                        {!loading && !error && news.length > 0 && (
-                            <>
-                                <NewsAIAnalysis newsItems={news} isLocked={!userInfo.isPremium} />
-                                <NewsSummary news={news} />
-                            </>
-                        )}
-
-                        <NewsSection news={news} loading={newsLoading} error={null} />
-                    </div>
-
-                    <div className="text-center text-slate-600 text-xs mt-8 pb-4">
-                        資料來源: Yahoo Finance, Google News, Smart DCA Bot (0050 歷史數據運算)
-                    </div>
+                    <SourceNote>資料來源: Yahoo Finance, Google News, Smart DCA Bot (0050 歷史數據運算)</SourceNote>
                     {showAdvanced && (
                         <TechnicalChartModal
                             symbol={selectedSymbol.includes('.') ? selectedSymbol : selectedSymbol + '.TW'}
@@ -2589,7 +2508,7 @@ import economicCalendar from '../economic_calendar.json';
                             onClose={() => setShowAdvanced(false)}
                         />
                     )}
-                </div >
+                </div>
             );
         };
 
@@ -8750,14 +8669,14 @@ import economicCalendar from '../economic_calendar.json';
                         {/* Header */}
                         <header className="flex justify-between items-center gap-3 pt-4 pb-3 relative" style={{ borderBottom: '3px solid var(--ink)' }}>
                             {/* Logo */}
-                            <div className="flex items-center gap-2.5 min-w-0">
-                                <LogoMark size={28} />
-                                <h1 className="text-[22px] font-black tracking-tight leading-tight whitespace-nowrap" style={{ color: 'var(--ink)' }}>Smart DCA</h1>
+                            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink">
+                                <LogoMark size={24} className="sm:w-7 sm:h-7" />
+                                <h1 className="text-[18px] sm:text-[22px] font-black tracking-tight leading-tight whitespace-nowrap" style={{ color: 'var(--ink)' }}>Smart DCA</h1>
                                 <p className="label hidden sm:block whitespace-nowrap">Intelligent investing</p>
                             </div>
 
                             {/* Right controls */}
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                                 {/* PWA Install button — always visible until installed */}
                                 {!isPwaInstalled && (
                                     <button
