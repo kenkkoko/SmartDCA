@@ -3677,13 +3677,18 @@ import economicCalendar from '../economic_calendar.json';
             const W = Math.max(300, width || 0);
             const small = W < 560;
             const L = small ? 44 : 64, R = 12, T = 14;
-            const H1 = small ? 170 : 210, H2 = small ? 150 : 180;
-            const B1 = H1 - 22, B2 = H2 - 26;
+            // Price panel, DIF/DEA panel, and a separate histogram panel: the histogram is usually far smaller
+            // than DIF/DEA, so on a shared axis its bars flatten to nothing. Each panel gets its own scale.
+            const H1 = small ? 170 : 210, H2 = small ? 130 : 160, H3 = small ? 78 : 96;
+            const B1 = H1 - 22, B2 = H2 - 8, T3 = 6, B3 = H3 - 24;
             const X = (i) => L + (i / Math.max(1, n - 1)) * (W - L - R);
             const pMin = Math.min(...closes), pMax = Math.max(...closes);
             const yP = (v) => B1 - ((v - pMin) / ((pMax - pMin) || 1)) * (B1 - T);
-            const lim = Math.max(1e-9, ...[...dif, ...dea, ...hist].filter(v => v != null).map(Math.abs));
+            const lim = Math.max(1e-9, ...[...dif, ...dea].filter(v => v != null).map(Math.abs));
             const yO = (v) => T + (1 - (v + lim) / (2 * lim)) * (B2 - T);
+            const hLim = Math.max(1e-9, ...hist.filter(v => v != null).map(Math.abs));
+            const hMid = (T3 + B3) / 2, hHalf = (B3 - T3) / 2;
+            const yH = (v) => hMid - (v / hLim) * hHalf;
             const path = (arr, yf) => arr.map((v, i) => (v == null ? null : `${X(i)} ${yf(v)}`)).filter(Boolean).map((p, i) => (i ? 'L' : 'M') + p).join(' ');
             const fmtAxis = (v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : fmtNum(v, Math.abs(v) >= 10 ? 0 : 2));
 
@@ -3844,18 +3849,32 @@ import economicCalendar from '../economic_calendar.json';
                                 {divs.filter(d => d.isActive).map(d => [d.a, d.b].map(i => (
                                     <line key={`g${i}`} x1={X(i)} x2={X(i)} y1={T} y2={B2} style={{ stroke: d.color, strokeDasharray: '3 4', opacity: 0.6 }} />
                                 )))}
-                                {hist.map((v, i) => v == null ? null : (
-                                    <rect key={i} x={X(i) - bw / 2} y={Math.min(yO(v), yO(0))} width={bw} height={Math.abs(yO(v) - yO(0))}
-                                        style={{ fill: v >= 0 ? 'var(--up)' : 'var(--down)', opacity: 0.35 }} />
-                                ))}
                                 <line x1={L} x2={W - R} y1={yO(0)} y2={yO(0)} style={{ stroke: 'var(--ink)' }} />
                                 <path d={path(dea, yO)} fill="none" style={{ stroke: 'var(--ink-3)', strokeWidth: 1.4 }} />
                                 <path d={path(dif, yO)} fill="none" style={{ stroke: 'var(--ink)', strokeWidth: 1.8 }} />
                                 {divs.map((d, k) => connector(d, dif, yO, 10, `o${k}`, B2))}
                                 {guideX != null && <line x1={guideX} x2={guideX} y1={T} y2={B2} style={{ stroke: 'var(--ink-3)' }} />}
                                 {divs.map((d, k) => annotation(d, dif, yO, 10, `o${k}`, B2))}
+                            </svg>
+
+                            {/* Histogram on its own scale so small bars stay readable */}
+                            <svg width="100%" viewBox={`0 0 ${W} ${H3}`} onMouseMove={onMove} onMouseLeave={() => setHover(null)} style={{ display: 'block', overflow: 'visible', marginTop: 6 }}
+                                role="img" aria-label="週線 MACD 柱狀圖">
+                                {[hLim, -hLim].map((v, i) => (
+                                    <text key={i} x={L - 8} y={yH(v) + 4} textAnchor="end" style={{ fill: 'var(--ink-3)', fontSize: 10 }}>{fmtAxis(v)}</text>
+                                ))}
+                                <text x={L + 4} y={T3 + 9} style={{ fill: 'var(--ink-3)', fontSize: 10 }}>柱狀圖</text>
+                                {divs.filter(d => d.isActive).map(d => [d.a, d.b].map(i => (
+                                    <line key={`g${i}`} x1={X(i)} x2={X(i)} y1={T3} y2={B3} style={{ stroke: d.color, strokeDasharray: '3 4', opacity: 0.6 }} />
+                                )))}
+                                {hist.map((v, i) => v == null ? null : (
+                                    <rect key={i} x={X(i) - bw / 2} y={Math.min(yH(v), hMid)} width={bw} height={Math.max(1, Math.abs(yH(v) - hMid))}
+                                        style={{ fill: v >= 0 ? 'var(--up)' : 'var(--down)', opacity: 0.6 }} />
+                                ))}
+                                <line x1={L} x2={W - R} y1={hMid} y2={hMid} style={{ stroke: 'var(--ink)' }} />
+                                {guideX != null && <line x1={guideX} x2={guideX} y1={T3} y2={B3} style={{ stroke: 'var(--ink-3)' }} />}
                                 {[0, Math.floor((n - 1) / 2), n - 1].map((i, k) => (
-                                    <text key={i} x={X(i)} y={H2 - 6} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'} style={{ fill: 'var(--ink-3)', fontSize: 11 }}>{fmtWeek(data.bars[start + i].t)}</text>
+                                    <text key={i} x={X(i)} y={H3 - 6} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'} style={{ fill: 'var(--ink-3)', fontSize: 11 }}>{fmtWeek(data.bars[start + i].t)}</text>
                                 ))}
                             </svg>
                         </>
