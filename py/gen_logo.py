@@ -90,3 +90,8 @@ if __name__ == '__main__':
     for name, im in targets.items():
         im.save(os.path.join(OUT, name))
         print(name, im.size)
+    # favicon.ico: browsers request /favicon.ico on their own; multi-size, crisp 2x2 at 16/32
+    ico = small_icon(32)
+    ico.save(os.path.join(OUT, 'favicon.ico'), sizes=[(16, 16), (32, 32), (48, 48)],
+             append_images=[small_icon(16), icon(48, content=0.8, radius=0.18)])
+    print('favicon.ico')
