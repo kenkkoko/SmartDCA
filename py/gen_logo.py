@@ -50,28 +50,56 @@ def icon(size, content=0.69, radius=0.0):
 
 
 def small_icon(size):
-    """Tab-size variant: the grid reduced to 2x2 (three periods invested + this period),
-    laid on whole pixels so it stays crisp at 16 and 32 px."""
+    """Tab-size variant: the same 4x4 month grid laid on whole pixels so it stays crisp.
+    32px: 5px dots, 2px gaps; 16px: 2px squares, 1px gaps (dots read as squares at that size)."""
     if size == 16:
-        margin, cell, gap, rad = 3, 4, 2, 3
+        margin, cell, gap, rad = 2, 2, 1, 3
     else:
-        margin, cell, gap, rad = 6, 8, 4, 6
+        margin, cell, gap, rad = 4, 5, 2, 6
+    grid = 4 * cell + 3 * gap
+    off = (size - grid) // 2
     S = size * SS
     img = Image.new('RGBA', (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.rounded_rectangle([0, 0, S - 1, S - 1], radius=rad * SS, fill=BG)
-    for r in range(2):
-        for c in range(2):
-            x0 = (margin + c * (cell + gap)) * SS
-            y0 = (margin + r * (cell + gap)) * SS
+    for r in range(4):
+        for c in range(4):
+            i = r * 4 + c
+            x0 = (off + c * (cell + gap)) * SS
+            y0 = (off + r * (cell + gap)) * SS
             box = [x0, y0, x0 + cell * SS - 1, y0 + cell * SS - 1]
-            if (r, c) == (1, 1):
+            if i == 13:
                 d.rectangle(box, fill=ACCENT)
-            elif size == 16:
-                d.rectangle(box, fill=DOT)
+            elif i < 13:
+                (d.rectangle if size == 16 else d.ellipse)(box, fill=DOT)
             else:
-                d.ellipse(box, fill=DOT)
+                if size == 16:
+                    d.rectangle(box, fill=(92, 92, 92))  # periods to come: dimmed at 16px, where a 2px outline would read as filled
+                else:
+                    d.ellipse(box, outline=DOT, width=SS)
     return img.resize((size, size), Image.LANCZOS)
+
+
+SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="12" fill="#111111"/>
+{cells}
+</svg>
+"""
+
+
+def favicon_svg():
+    """Scalable tab icon: the full 4x4 mark on the ink tile (preferred by modern browsers)."""
+    parts = []
+    for i in range(16):
+        r, c = divmod(i, 4)
+        x, y = 12.5 + c * 13, 12.5 + r * 13
+        if i == 13:
+            parts.append(f'<rect x="{x - 5.5}" y="{y - 5.5}" width="11" height="11" fill="#8fa6ff"/>')
+        elif i < 13:
+            parts.append(f'<circle cx="{x}" cy="{y}" r="4.6" fill="#f1efea"/>')
+        else:
+            parts.append(f'<circle cx="{x}" cy="{y}" r="3.6" fill="none" stroke="#f1efea" stroke-width="1.8"/>')
+    return SVG.format(cells=chr(10).join(parts))
 
 
 if __name__ == '__main__':
@@ -95,3 +123,6 @@ if __name__ == '__main__':
     ico.save(os.path.join(OUT, 'favicon.ico'), sizes=[(16, 16), (32, 32), (48, 48)],
              append_images=[small_icon(16), icon(48, content=0.8, radius=0.18)])
     print('favicon.ico')
+    with open(os.path.join(OUT, 'favicon.svg'), 'w', encoding='utf-8') as f:
+        f.write(favicon_svg())
+    print('favicon.svg')

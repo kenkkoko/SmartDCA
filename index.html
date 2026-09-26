@@ -2,11 +2,9 @@
 <html lang="zh-TW">
 
 <head>
-       
     <meta charset="UTF-8">
-       
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-        <title>Smart DCA — 智慧定期定額投資追蹤</title>
+        <title>Smart DCA — 智慧定期定額投資追蹤</title>
     <meta name="description" content="Smart DCA：加密貨幣、美股、台股的智慧定期定額（DCA）投資工具。恐懼與貪婪指數、買入訊號、投資組合追蹤、AI 投資顧問與技術分析論壇。">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#121314" media="(prefers-color-scheme: dark)">
@@ -14,22 +12,21 @@
     <meta property="og:title" content="Smart DCA — 智慧定期定額投資追蹤">
     <meta property="og:description" content="恐懼與貪婪指數、DCA 買入訊號、投資組合追蹤、AI 投資顧問。支援加密貨幣、美股、台股。">
     <meta property="og:url" content="https://dca.hellokai07.com/">
-    <meta property="og:image" content="https://dca.hellokai07.com/icon-512.png?v=5">
+    <meta property="og:image" content="https://dca.hellokai07.com/icon-512.png?v=6">
     <meta name="twitter:card" content="summary">
-       
-    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=5" />
-    <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png?v=5" />
-    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=5" />
-    <link rel="shortcut icon" href="favicon.ico?v=5" />
-    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=5" />
-    <link rel="manifest" href="manifest.json?v=5" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg?v=6" />
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=6" />
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png?v=6" />
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png?v=6" />
+    <link rel="shortcut icon" href="favicon.ico?v=6" />
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png?v=6" />
+    <link rel="manifest" href="manifest.json?v=6" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Smart DCA">
 
 
-        <!-- 引入 Tailwind CSS -->
-       
+        <!-- 引入 Tailwind CSS -->
         <!-- Fonts: Schibsted Grotesk + Noto Sans TC (UI, tabular figures); JetBrains Mono only for forum code blocks -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -45,18 +42,14 @@
         })();
     </script>
 
-        <!-- 引入 React 和 ReactDOM -->
-       
-       
+        <!-- 引入 React 和 ReactDOM -->
 
-        <!-- 引入 Babel 用於解析 JSX -->
-       
+        <!-- 引入 Babel 用於解析 JSX -->
     <!-- Pin to Babel 7: Babel 8 defaults preset-react to the automatic JSX runtime,
          which emits `import ... from "react/jsx-runtime"`. That import is illegal in a
          classic <script type="text/babel"> and blanks the whole app. -->
 
-        <!-- 引入 Chart.js (確保使用 UMD 版本) -->
-       
+        <!-- 引入 Chart.js (確保使用 UMD 版本) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
     <!-- Date adapter (luxon) + candlestick + zoom/pan plugins -->
     <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js" defer></script>
@@ -129,7 +122,7 @@
 
     <!-- Forum module (loaded before main script so window.ForumApp is ready) -->
 
-        <style>
+        <style>
     /* ─────────────────────────────────────────────
        Smart DCA · Factsheet system (light / dark)
        One continuous typeset page: heavy ink rules open sections,

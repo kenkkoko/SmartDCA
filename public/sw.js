@@ -2,7 +2,7 @@
 // - Push notification support (JSON or plain text)
 // - Network-first fetch with offline fallback (required by Chrome to install PWA)
 
-const CACHE_NAME = "smartdca-v7"; // v7: 安裝流程修正 + favicon.ico
+const CACHE_NAME = "smartdca-v8"; // v8: manifest 移回 <head>、SVG 分頁圖示
 const SHELL_FILES = [
     "./",
     "./index.html",

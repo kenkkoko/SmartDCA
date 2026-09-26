@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="12" fill="#111111"/>
+<circle cx="12.5" cy="12.5" r="4.6" fill="#f1efea"/>
+<circle cx="25.5" cy="12.5" r="4.6" fill="#f1efea"/>
+<circle cx="38.5" cy="12.5" r="4.6" fill="#f1efea"/>
+<circle cx="51.5" cy="12.5" r="4.6" fill="#f1efea"/>
+<circle cx="12.5" cy="25.5" r="4.6" fill="#f1efea"/>
+<circle cx="25.5" cy="25.5" r="4.6" fill="#f1efea"/>
+<circle cx="38.5" cy="25.5" r="4.6" fill="#f1efea"/>
+<circle cx="51.5" cy="25.5" r="4.6" fill="#f1efea"/>
+<circle cx="12.5" cy="38.5" r="4.6" fill="#f1efea"/>
+<circle cx="25.5" cy="38.5" r="4.6" fill="#f1efea"/>
+<circle cx="38.5" cy="38.5" r="4.6" fill="#f1efea"/>
+<circle cx="51.5" cy="38.5" r="4.6" fill="#f1efea"/>
+<circle cx="12.5" cy="51.5" r="4.6" fill="#f1efea"/>
+<rect x="20.0" y="46.0" width="11" height="11" fill="#8fa6ff"/>
+<circle cx="38.5" cy="51.5" r="3.6" fill="none" stroke="#f1efea" stroke-width="1.8"/>
+<circle cx="51.5" cy="51.5" r="3.6" fill="none" stroke="#f1efea" stroke-width="1.8"/>
+</svg>
