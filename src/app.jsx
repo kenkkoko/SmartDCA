@@ -3236,7 +3236,7 @@ import economicCalendar from '../economic_calendar.json';
             }, [symbol, type]);
 
             return (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] backdrop-blur-sm p-4" onClick={onClose}>
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4" onClick={onClose}>
                     <div className="bg-slate-900 w-full max-w-3xl rounded-2xl border border-slate-700 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
                         <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50 backdrop-blur">
                             <div>
@@ -7358,8 +7358,8 @@ const isBull = price2 < price1 && dif2 > dif1;
             const labelCls = "label mb-1.5 block";
 
             return (
-                <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center p-4 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
-                    <div className="rounded-2xl ring-soft p-5 w-full max-w-4xl my-8" style={{ background: 'var(--surface)' }} onClick={ev => ev.stopPropagation()}>
+                <div className="fixed inset-0 z-[100] flex items-start md:items-center justify-center p-4 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }} onClick={onClose}>
+                    <div className="p-5 w-full max-w-4xl my-8" style={{ background: 'var(--paper)', borderTop: '3px solid var(--ink)', boxShadow: '0 24px 48px -16px rgba(0,0,0,0.45)' }} onClick={ev => ev.stopPropagation()}>
                         <div className="flex items-center justify-between mb-4 gap-2">
                             <h3 className="text-lg font-extrabold text-white">{isEdit ? '編輯開單紀錄' : '新增開單紀錄'}</h3>
                             <div className="flex items-center gap-2">
@@ -8674,18 +8674,27 @@ const isBull = price2 < price1 && dif2 > dif1;
                 return outputArray;
             };
 
+            useEffect(() => {
+                if (!user || !isPremium || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+                let cancelled = false;
+                navigator.serviceWorker.getRegistration()
+                    .then(reg => reg && reg.pushManager.getSubscription())
+                    .then(sub => { if (!cancelled) setNotificationsEnabled(!!sub && Notification.permission === 'granted'); })
+                    .catch(() => {});
+                return () => { cancelled = true; };
+            }, [user, isPremium]);
+
             const toggleNotifications = async () => {
                 // 1. Strict Check for Premium / Login
                 if (!user || !isPremium) {
                     alert("🚫 需升級 Pro 版才能啟用推播通知\n\nPlease upgrade to Premium to enable customized push notifications.");
 
-                    // Optional: Open Checkout if user is logged in but not premium
+                    // Open Checkout if user is logged in but not premium; otherwise ask them to log in
                     if (user && !isPremium) {
                         const checkoutUrl = `${LEMON_CHECKOUT_URL}?checkout[email]=${encodeURIComponent(user.email)}`;
                         window.open(checkoutUrl, '_blank');
                     } else {
-                        // Prompt login
-                        setShowLoginModal(true);
+                        alert("請先登入");
                     }
                     return;
                 }
@@ -8696,7 +8705,15 @@ const isBull = price2 < price1 && dif2 > dif1;
                 }
 
                 if (notificationsEnabled) {
-                    // Optional: Unsubscribe logic could go here, but for now just toggle state UI
+                    // Really turn it off: drop the browser subscription and the stored one, so the daily push stops
+                    try {
+                        const reg = await navigator.serviceWorker.getRegistration();
+                        const sub = reg && await reg.pushManager.getSubscription();
+                        if (sub) await sub.unsubscribe();
+                        if (supabase) await supabase.from('user_profiles').update({ push_subscription: null }).eq('id', user.id);
+                    } catch (e) {
+                        console.error("Unsubscribe Error:", e);
+                    }
                     setNotificationsEnabled(false);
                     return;
                 }
@@ -8735,13 +8752,13 @@ const isBull = price2 < price1 && dif2 > dif1;
 
                     setNotificationsEnabled(true);
 
-                    // Show detailed feedback to user
-                    const successValues = {
-                        body: "將為您監控市場！\n我們會在每天早上 8:00 發送您的自選股分析通知。",
-                        icon: "./app-icon.png",
-                        requireInteraction: true // Keep notification visible longer on mobile
-                    };
-                    new Notification("推播已啟用 ✅", successValues);
+                    // Confirmation through the service worker: `new Notification()` throws on Android Chrome
+                    try {
+                        await registration.showNotification("推播已啟用 ✅", {
+                            body: "將為您監控市場！\n我們會在每天早上 8:00 發送您的自選股分析通知。",
+                            icon: "./app-icon.png",
+                        });
+                    } catch (e) { /* the alert below still confirms */ }
                     alert("✅ 推播通知已成功啟用！\n\n系統將在每天早上 8:00 為您發送自選股的市場分析報告。");
 
                 } catch (e) {
@@ -8753,7 +8770,11 @@ const isBull = price2 < price1 && dif2 > dif1;
             // Notification Center State
             const [showNotificationDropdown, setShowNotificationDropdown] = React.useState(false);
             const [showCalendar, setShowCalendar] = React.useState(false);
-            const [notificationHistory, setNotificationHistory] = React.useState([]);
+            // Dev-only sample notifications alongside the portfolio fixture (stripped from production builds)
+            const [notificationHistory, setNotificationHistory] = React.useState(() => PORTFOLIO_FIXTURE ? [
+                { id: 'n1', title: '每日市場報告', body: 'BTC 恐懼貪婪指數 73（貪婪）' + String.fromCharCode(10) + '觀察清單 2 檔 RSI 高於 65', created_at: '2026-09-27T00:00:00Z', is_read: false },
+                { id: 'n2', title: '論壇新文章', body: '週線 MACD 底背離實戰：2026 年 BTC 的兩次訊號', created_at: '2026-09-26T09:30:00Z', is_read: true },
+            ] : []);
             const [unreadCount, setUnreadCount] = React.useState(0);
 
             // Fetch Notifications from user_profiles JSONB
@@ -8792,8 +8813,16 @@ const isBull = price2 < price1 && dif2 > dif1;
                 }
             };
 
+            useEffect(() => {
+                if (!showNotificationDropdown) return;
+                const onKey = (e) => { if (e.key === 'Escape') setShowNotificationDropdown(false); };
+                window.addEventListener('keydown', onKey);
+                return () => window.removeEventListener('keydown', onKey);
+            }, [showNotificationDropdown]);
+            useEffect(() => { setShowNotificationDropdown(false); }, [activeTab]);
+
             const handleBellClick = () => {
-                if (!user) {
+                if (!user && !PORTFOLIO_FIXTURE) {
                     alert("請先登入以查看通知");
                     return;
                 }
@@ -8846,64 +8875,83 @@ const isBull = price2 < price1 && dif2 > dif1;
                                 >
                                     <CalendarDays size={17} />
                                     {hasHighImpactSoon() && (
-                                        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--amber)', boxShadow: '0 0 0 2px #07080c' }}></span>
+                                        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--amber)', boxShadow: '0 0 0 2px var(--paper)' }}></span>
                                     )}
                                 </button>
 
-                                {/* Notification Center */}
-                                <div className="relative z-[100]">
+                                {/* Notification Center: above page content and the sticky nav, below every modal */}
+                                <div className="relative">
                                     <button
                                         onClick={handleBellClick}
-                                        disabled={!user}
+                                        disabled={!user && !PORTFOLIO_FIXTURE}
                                         className="relative fs-btn icon"
+                                        aria-label="通知中心"
+                                        aria-expanded={showNotificationDropdown}
+                                        title="通知中心"
                                     >
                                         <BellRing size={17} style={{ color: !user ? 'var(--ink-3)' : (notificationsEnabled ? 'var(--accent)' : 'var(--ink)') }} />
                                         {unreadCount > 0 && user && (
-                                            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--down)', boxShadow: '0 0 0 2px #07080c' }}></span>
+                                            <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ background: 'var(--down)', boxShadow: '0 0 0 2px var(--paper)' }}></span>
                                         )}
                                     </button>
 
                                     {showNotificationDropdown && (
-                                        <div className="fixed top-28 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm glass-strong rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 z-[100] md:absolute md:top-full md:left-auto md:right-0 md:translate-x-0 md:w-96 md:mt-2">
-                                            {/* Dropdown Header */}
-                                            <div className="p-4 border-b flex justify-between items-center" style={{ borderColor: 'var(--line)', background: 'var(--wash)' }}>
-                                                <h3 className="font-bold text-white">通知中心</h3>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-[11px] mono" style={{ color: 'var(--text-3)' }}>{notificationsEnabled ? "DAILY · ON" : "DAILY · OFF"}</span>
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); toggleNotifications(); }}
-                                                        className={`w-10 h-6 rounded-full p-1 transition-colors ${notificationsEnabled ? 'pill-grad' : 'bg-white/10'}`}
-                                                    >
-                                                        <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${notificationsEnabled ? 'translate-x-4' : 'translate-x-0'}`}></div>
-                                                    </button>
+                                        <>
+                                            <div className="fixed inset-0 z-[69] fs-scrim" onClick={() => setShowNotificationDropdown(false)} aria-hidden="true" />
+                                            <div
+                                                role="dialog"
+                                                aria-label="通知中心"
+                                                className="fixed top-20 left-1/2 -translate-x-1/2 w-[92vw] max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200 z-[70] md:absolute md:top-full md:left-auto md:right-0 md:translate-x-0 md:w-96 md:mt-2"
+                                                style={{ background: 'var(--paper)', borderTop: '3px solid var(--ink)', boxShadow: '0 18px 40px -14px rgba(0,0,0,0.45)', border: '1px solid var(--rule)' }}
+                                            >
+                                                {/* Header: title, daily-push switch, close */}
+                                                <div className="px-4 py-3 flex justify-between items-center gap-3" style={{ borderBottom: '1px solid var(--rule)' }}>
+                                                    <h3 className="fs-title-sm">通知中心</h3>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-[11px] num" style={{ color: 'var(--ink-3)' }}>{notificationsEnabled ? "DAILY · ON" : "DAILY · OFF"}</span>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); toggleNotifications(); }}
+                                                            role="switch"
+                                                            aria-checked={notificationsEnabled}
+                                                            aria-label="每日推播通知"
+                                                            className="w-10 h-6 p-[3px] transition-colors shrink-0"
+                                                            style={{ background: notificationsEnabled ? 'var(--ink)' : 'transparent', border: '1.5px solid var(--ink)' }}
+                                                        >
+                                                            <div className="w-4 h-4 transform transition-transform"
+                                                                style={{ background: notificationsEnabled ? 'var(--paper)' : 'var(--ink)', transform: notificationsEnabled ? 'translateX(14px)' : 'translateX(0)' }}></div>
+                                                        </button>
+                                                        <button onClick={() => setShowNotificationDropdown(false)} className="fs-btn icon ml-1" aria-label="關閉通知中心" title="關閉">
+                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Notification List */}
+                                                <div className="max-h-[60vh] md:max-h-80 overflow-y-auto custom-scrollbar">
+                                                    {notificationHistory.length > 0 ? (
+                                                        notificationHistory.map((item) => (
+                                                            <div key={item.id} className="px-4 py-3" style={{ borderBottom: '1px solid var(--rule)' }}>
+                                                                <div className="flex justify-between items-start gap-3 mb-1">
+                                                                    <h4 className="text-[14px] font-bold" style={{ color: 'var(--ink)' }}>{item.title || "系統通知"}</h4>
+                                                                    <span className="text-[11px] num shrink-0" style={{ color: 'var(--ink-3)' }}>{new Date(item.created_at).toLocaleDateString()}</span>
+                                                                </div>
+                                                                <p className="text-[13px] whitespace-pre-line leading-relaxed" style={{ color: 'var(--ink-2)' }}>{item.body}</p>
+                                                            </div>
+                                                        ))
+                                                    ) : (
+                                                        <div className="px-4 py-8 text-center" style={{ color: 'var(--ink-3)' }}>
+                                                            <BellOff size={26} className="mx-auto mb-2" />
+                                                            <p className="text-[14px]">尚無歷史通知</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Footer */}
+                                                <div className="px-4 py-2.5">
+                                                    <p className="text-[11px] num" style={{ color: 'var(--ink-3)' }}>DAILY REPORT · 08:00 AM</p>
                                                 </div>
                                             </div>
-
-                                            {/* Notification List */}
-                                            <div className="max-h-80 overflow-y-auto custom-scrollbar">
-                                                {notificationHistory.length > 0 ? (
-                                                    notificationHistory.map((item) => (
-                                                        <div key={item.id} className="p-4 border-b hover:bg-white/[0.03] transition-colors" style={{ borderColor: 'var(--line)' }}>
-                                                            <div className="flex justify-between items-start mb-1">
-                                                                <h4 className="text-sm font-bold text-white">{item.title || "系統通知"}</h4>
-                                                                <span className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>{new Date(item.created_at).toLocaleDateString()}</span>
-                                                            </div>
-                                                            <p className="text-xs whitespace-pre-line leading-relaxed" style={{ color: 'var(--text-2)' }}>{item.body}</p>
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    <div className="p-8 text-center" style={{ color: 'var(--text-3)' }}>
-                                                        <BellOff size={32} className="mx-auto mb-2 opacity-50" />
-                                                        <p className="text-sm">尚無歷史通知</p>
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Footer */}
-                                            <div className="p-3 text-center border-t" style={{ borderColor: 'var(--line)', background: 'var(--wash)' }}>
-                                                <p className="text-[10px] mono" style={{ color: 'var(--text-3)' }}>DAILY REPORT · 08:00 AM</p>
-                                            </div>
-                                        </div>
+                                        </>
                                     )}
                                 </div>
 
