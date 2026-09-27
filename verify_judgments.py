@@ -200,7 +200,8 @@ def evaluate(j, win, ends, entry, neutral, now, stop=None):
             break
 
     seen = win if out['settled_bar'] is None else win[win.index <= out['settled_bar']]
-    done = int((ends <= now).sum())
+    # Settled early on a hit / break: progress stops at that bar
+    done = len(seen) if out['settled_bar'] is not None else int((ends <= now).sum())
     last = float(seen['close'].iloc[-1]) if len(seen) else None
 
     if out['status'] == 'pending' and stop is None and done >= total and len(win) >= total:
