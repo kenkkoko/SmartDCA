@@ -345,6 +345,10 @@
         .fs-kv > div:nth-child(n+3) { border-top: 1px solid var(--rule); }
     }
 
+    /* Click-away layer behind popovers: dims on phones, invisible on desktop */
+    .fs-scrim { background: rgba(0, 0, 0, 0.35); }
+    @media (min-width: 768px) { .fs-scrim { background: transparent; } }
+
     /* Dial needle eases to its value */
     .fs-needle { transition: transform 900ms var(--ease-out); }
     @media (prefers-reduced-motion: reduce) { .fs-needle { transition: none; } }
