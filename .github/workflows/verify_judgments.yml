@@ -1,0 +1,38 @@
+name: Verify Forum Judgments
+
+on:
+  schedule:
+    # 每天 UTC 22:30（台灣 06:30）：美股、台股、加密貨幣前一天的日線都已收完
+    - cron: '30 22 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只計算不寫入（印出每則判讀的結果）'
+        type: boolean
+        default: false
+
+concurrency:
+  group: verify-judgments
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install supabase yfinance pandas
+
+      - name: Verify pending judgments
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DRY_RUN:      ${{ inputs.dry_run && '1' || '' }}
+        run: python verify_judgments.py

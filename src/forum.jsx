@@ -484,6 +484,7 @@ const JG_STATUS = {
   wrong:     { label: '錯', color: 'var(--down)' },
   withdrawn: { label: '已撤回', color: 'var(--ink-3)' },
 };
+const JG_REGIME = { up: '上升', down: '下降', range: '盤整' };
 const JG_CRYPTO = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE', 'ADA', 'AVAX', 'LINK', 'DOT', 'TON', 'SUI', 'TRX'];
 const JG_NOT_TICKERS = ['MACD', 'RSI', 'DCA', 'KD', 'MA', 'EMA', 'SMA', 'ATR', 'POC', 'VAH', 'VAL', 'VPVR', 'OBV', 'LPS', 'LPSY', 'SOS', 'SOW', 'UTAD', 'ETF'];
 
@@ -675,7 +676,13 @@ const JudgmentCard = ({ j, result, isAdmin, onWithdraw, onOpenChart, showResult 
             <span>進度 <b className="num" style={{ color: 'var(--ink)' }}>{result?.bars_elapsed ?? 0}/{result?.bars_total ?? tf.bars}</b> 根</span>
             <span>漲跌 <b className="num" style={{ color: result?.change_pct > 0 ? 'var(--up)' : result?.change_pct < 0 ? 'var(--down)' : 'var(--ink)' }}>{jgPct(result?.change_pct)}</b></span>
             {j.target_price != null && <span>最遠走到目標 <b className="num" style={{ color: 'var(--ink)' }}>{result?.max_progress == null ? '—' : `${Math.round(result.max_progress * 100)}%`}</b></span>}
-            {!result && j.locked_at && <span>等待每日驗證</span>}
+            {result?.settled_at && <span>結算 <b className="num" style={{ color: 'var(--ink)' }}>{jgPrice(result.exit_price)}</b> · {jgDate(result.settled_at)}</span>}
+            {result?.regime && <span>當時市場 <b style={{ color: 'var(--ink)' }}>{JG_REGIME[result.regime] || result.regime}</b></span>}
+            {result?.vpvr && <span>VPVR <b className="num" style={{ color: 'var(--ink)' }}>POC {jgPrice(result.vpvr.poc)} · VAH {jgPrice(result.vpvr.vah)} · VAL {jgPrice(result.vpvr.val)}</b></span>}
+            {result?.neutral_pct != null && <span>持平範圍 <b className="num" style={{ color: 'var(--ink)' }}>±{(result.neutral_pct * 100).toFixed(1)}%</b></span>}
+            {j.backfilled && <span className="fs-chip" style={{ color: 'var(--ink-3)' }}>補登</span>}
+            {(!result || !result.entry_price) && j.locked_at && !result?.note && <span>等待每日驗證</span>}
+            {result?.note && <span style={{ color: 'var(--amber)' }}>{result.note}</span>}
           </div>
           ) : (
             <span className="fs-lbl">已發佈，判讀已鎖定</span>
