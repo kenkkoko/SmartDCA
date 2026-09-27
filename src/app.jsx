@@ -7081,6 +7081,8 @@ const isBull = price2 < price1 && dif2 > dif1;
 - 極度恐懼時加倍
 
 > 紀律比預測重要。` },
+                { id: 'p4', title: 'MSFT 週線：POC 與 0.618 之間的決戰', tags: ['MSFT', '美股'], published: true, no_judgment: true, created_at: '2026-09-15T16:00:00Z',
+                  content: `本週 K 棒未收，不預判方向。`, },
                 { id: 'p3', title: '（草稿）Wyckoff LPS 進場清單', tags: ['Wyckoff'], published: false, created_at: '2026-09-25T02:00:00Z',
                   content: `待整理。` },
             ];

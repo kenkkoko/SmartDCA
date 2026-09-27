@@ -80,7 +80,7 @@ const PostCard = ({ post, onOpen, judgments, results, isAdmin }) => {
   return (
     <button
       onClick={() => onOpen(post.id)}
-      className={`group w-full text-left rounded-2xl p-5 transition-all ring-soft hover:scale-[1.005] ${hasJudgments ? 'md:grid md:grid-cols-[1fr_264px] md:gap-8' : ''}`}
+      className="group w-full text-left rounded-2xl p-5 transition-all ring-soft hover:scale-[1.005] md:grid md:grid-cols-[1fr_264px] md:gap-8"
       style={{ background: 'var(--surface)' }}
     >
       <div className="min-w-0">
@@ -110,11 +110,19 @@ const PostCard = ({ post, onOpen, judgments, results, isAdmin }) => {
         </div>
       </div>
       </div>
-      {hasJudgments && (
-        <div className="mt-4 pt-3 md:mt-0 md:pt-0 md:pl-6 border-t md:border-t-0 md:border-l" style={{ borderColor: 'var(--rule)' }}>
+      {/* 每篇都保留右欄，列表才對得齊；沒有判讀時寫明原因 */}
+      <div className="mt-4 pt-3 md:mt-0 md:pt-0 md:pl-6 border-t md:border-t-0 md:border-l" style={{ borderColor: 'var(--rule)' }}>
+        {hasJudgments ? (
           <JudgmentSummary items={judgments} results={results} isAdmin={isAdmin} />
-        </div>
-      )}
+        ) : (
+          <div className="space-y-2.5">
+            <div className="fs-lbl">判讀</div>
+            <p className="text-[13px]" style={{ color: 'var(--ink-3)' }}>
+              {post.no_judgment ? '本篇不含判讀' : (post.published ? '沒有判讀' : '尚未填寫判讀')}
+            </p>
+          </div>
+        )}
+      </div>
     </button>
   );
 };
@@ -137,7 +145,7 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
       setLoading(true);
       const { data, error: err } = await supabase
         .from('forum_posts')
-        .select('id, title, tags, published, content, created_at')
+        .select('id, title, tags, published, content, created_at, no_judgment')
         .order('created_at', { ascending: false });
       if (cancelled) return;
       if (err) setError(err.message);
@@ -549,10 +557,6 @@ const jgGuessSymbol = (tags) => {
   return { market: 'crypto', symbol: '' };
 };
 
-// 文章 Markdown 裡已貼上的圖片，給判讀挑一張當圖表
-const jgExtractImages = (md) =>
-  Array.from(new Set(Array.from((md || '').matchAll(/!\[[^\]]*\]\(\s*([^)\s]+)[^)]*\)/g), (m) => m[1])));
-
 const jgEmpty = (tags) => ({
   key: Math.random().toString(36).slice(2),
   ...jgGuessSymbol(tags),
@@ -563,7 +567,6 @@ const jgEmpty = (tags) => ({
   range_high: '',
   methods: [],
   levels: [],
-  chart_url: '',
   reason: '',
 });
 
@@ -641,7 +644,7 @@ const JgDirChips = ({ directions }) => (
 
 // 一則判讀的呈現：讀者看內容；管理員另外看到驗證結果與撤回
 // showResult=false：編輯器裡只給撤回，不顯示驗證數字（編輯器不讀結果表）
-const JudgmentCard = ({ j, result, isAdmin, onWithdraw, onOpenChart, showResult = true }) => {
+const JudgmentCard = ({ j, result, isAdmin, onWithdraw, showResult = true }) => {
   const tf = jgTimeframe(j.timeframe);
   const isRange = (j.directions || []).includes('range');
   const status = j.withdrawn_at ? 'withdrawn' : (result?.status || 'pending');
@@ -695,15 +698,8 @@ const JudgmentCard = ({ j, result, isAdmin, onWithdraw, onOpenChart, showResult 
         </div>
       )}
 
-      {(j.reason || j.chart_url) && (
-        <div className="mt-3 flex gap-4 items-start">
-          {j.reason && <p className="flex-1 text-[14px] leading-relaxed" style={{ color: 'var(--ink)' }}>{j.reason}</p>}
-          {j.chart_url && (
-            <button type="button" onClick={() => onOpenChart && onOpenChart(j.chart_url)} className="shrink-0" aria-label="放大判讀圖表" title="放大圖表">
-              <img src={j.chart_url} alt="判讀圖表" className="w-32 h-20 md:w-40 md:h-24 object-cover" style={{ border: '1px solid var(--rule)' }} />
-            </button>
-          )}
-        </div>
+      {j.reason && (
+        <p className="mt-3 text-[14px] leading-relaxed" style={{ color: 'var(--ink)' }}>{j.reason}</p>
       )}
 
       {isAdmin && (showResult || !j.withdrawn_at) && (
@@ -738,7 +734,7 @@ const JudgmentCard = ({ j, result, isAdmin, onWithdraw, onOpenChart, showResult 
 };
 
 // 文章頁頂端的判讀區塊
-const JudgmentsSection = ({ supabase, postId, isAdmin, onOpenChart }) => {
+const JudgmentsSection = ({ supabase, postId, isAdmin }) => {
   const [items, setItems] = React.useState([]);
   const [results, setResults] = React.useState({});
 
@@ -779,7 +775,7 @@ const JudgmentsSection = ({ supabase, postId, isAdmin, onOpenChart }) => {
       </div>
       <div className="mt-2">
         {items.map((j) => (
-          <JudgmentCard key={j.id} j={j} result={results[j.id]} isAdmin={isAdmin} onWithdraw={isAdmin ? onWithdraw : null} onOpenChart={onOpenChart} />
+          <JudgmentCard key={j.id} j={j} result={results[j.id]} isAdmin={isAdmin} onWithdraw={isAdmin ? onWithdraw : null} />
         ))}
       </div>
     </section>
@@ -800,7 +796,7 @@ const JgToggle = ({ on, onClick, children, color, disabled }) => (
   </button>
 );
 
-const JudgmentForm = ({ j, n, images, onChange, onRemove, disabled, inputStyle }) => {
+const JudgmentForm = ({ j, n, onChange, onRemove, disabled, inputStyle }) => {
   const set = (patch) => onChange({ ...j, ...patch });
   const toggleDir = (d) => {
     let dirs = j.directions.includes(d) ? j.directions.filter((x) => x !== d) : [...j.directions, d];
@@ -897,29 +893,6 @@ const JudgmentForm = ({ j, n, images, onChange, onRemove, disabled, inputStyle }
           </div>
         </div>
 
-        <span className="fs-lbl self-start pt-2">圖表</span>
-        <div>
-          {images.length ? (
-            <div className="flex flex-wrap gap-2">
-              {images.map((src) => (
-                <button
-                  key={src}
-                  type="button"
-                  onClick={() => set({ chart_url: j.chart_url === src ? '' : src })}
-                  disabled={disabled}
-                  aria-pressed={j.chart_url === src}
-                  title={j.chart_url === src ? '取消選擇' : '用這張當判讀圖表'}
-                  style={{ outline: j.chart_url === src ? '3px solid var(--accent)' : '1px solid var(--rule)', outlineOffset: j.chart_url === src ? 1 : 0 }}
-                >
-                  <img src={src} alt="" className="w-24 h-16 object-cover block" />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="fs-lbl pt-2">先在文章裡貼上圖表截圖，就能在這裡挑一張</p>
-          )}
-        </div>
-
         <span className="fs-lbl">一句話理由</span>
         <input value={j.reason} onChange={(e) => set({ reason: e.target.value })} disabled={disabled} maxLength={140} placeholder="例如：週線 Spring 後回測不破，量縮" className="rounded-xl px-3 py-2 text-sm outline-none w-full" style={inputStyle} aria-label="一句話理由" />
       </div>
@@ -927,7 +900,7 @@ const JudgmentForm = ({ j, n, images, onChange, onRemove, disabled, inputStyle }
   );
 };
 
-const JudgmentsEditor = ({ items, setItems, noJudgment, setNoJudgment, images, tags, disabled, inputStyle, onWithdraw }) => {
+const JudgmentsEditor = ({ items, setItems, noJudgment, setNoJudgment, tags, disabled, inputStyle, onWithdraw }) => {
   const drafts = items.filter((j) => !j.locked_at);
   const locked = items.filter((j) => j.locked_at);
   return (
@@ -946,7 +919,6 @@ const JudgmentsEditor = ({ items, setItems, noJudgment, setNoJudgment, images, t
           key={j.key}
           j={j}
           n={items.indexOf(j) + 1}
-          images={images}
           disabled={disabled}
           inputStyle={inputStyle}
           onChange={(next) => setItems((xs) => xs.map((x) => (x.key === j.key ? next : x)))}
@@ -1409,7 +1381,6 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
           supabase={supabase}
           postId={postId}
           isAdmin={isAdmin}
-          onOpenChart={(src) => setLightbox({ images: [src], index: 0 })}
         />
       </article>
 
@@ -1462,7 +1433,6 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
   const [error, setError] = React.useState(null);
   const [judgments, setJudgments] = React.useState([]);
   const [noJudgment, setNoJudgment] = React.useState(false);
-  const [contentImages, setContentImages] = React.useState([]);
   const [loadedJudgmentIds, setLoadedJudgmentIds] = React.useState([]);
 
   const textareaRef = React.useRef(null);
@@ -1553,18 +1523,10 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
       },
     });
 
-    const syncImages = () => {
-      if (!easymdeRef.current) return;
-      const next = jgExtractImages(easymdeRef.current.value());
-      setContentImages((prev) => (prev.join('|') === next.join('|') ? prev : next));
-    };
-    easymdeRef.current.codemirror.on('change', syncImages);
-
     if (window.__pendingEditorContent != null) {
       easymdeRef.current.value(window.__pendingEditorContent);
       delete window.__pendingEditorContent;
     }
-    syncImages();
 
     easymdeRef.current.codemirror.on('paste', (cm, e) => {
       const items = e.clipboardData && e.clipboardData.items;
@@ -1765,7 +1727,6 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
         setItems={setJudgments}
         noJudgment={noJudgment}
         setNoJudgment={setNoJudgment}
-        images={contentImages}
         tags={tagsInput.split(',').map((t) => t.trim()).filter(Boolean)}
         disabled={saving}
         inputStyle={inputStyle}
