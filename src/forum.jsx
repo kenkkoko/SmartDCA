@@ -19,6 +19,7 @@ const useHashRoute = () => {
 
 const parseForumRoute = (hash) => {
   if (hash === '#/forum/new') return { view: 'editor', mode: 'new' };
+  if (hash === '#/forum/scorecard') return { view: 'scorecard' };
   const editMatch = hash.match(/^#\/forum\/([^/]+)\/edit$/);
   if (editMatch)   return { view: 'editor', mode: 'edit', postId: editMatch[1] };
   const detailMatch = hash.match(/^#\/forum\/([^/]+)$/);
@@ -67,16 +68,22 @@ const renderMarkdownToHtml = (md) => {
   return window.DOMPurify.sanitize(rawHtml);
 };
 
-const PostCard = ({ post, onOpen }) => {
-  const preview = (post.content || '').replace(/[#*`_>\-!\[\]()]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
+const PostCard = ({ post, onOpen, judgments, results, isAdmin }) => {
+  const preview = (post.content || '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')          // images
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')         // links → text
+    .replace(/https?:\/\/\S+/g, ' ')                  // bare URLs
+    .replace(/[#*`_>\-!\[\]()|]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
+  const hasJudgments = judgments && judgments.length > 0;
   const dateStr = new Date(post.created_at).toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' });
   const timeStr = new Date(post.created_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
   return (
     <button
       onClick={() => onOpen(post.id)}
-      className="group w-full text-left rounded-2xl p-5 transition-all ring-soft hover:scale-[1.005]"
+      className={`group w-full text-left rounded-2xl p-5 transition-all ring-soft hover:scale-[1.005] ${hasJudgments ? 'md:grid md:grid-cols-[1fr_264px] md:gap-8' : ''}`}
       style={{ background: 'var(--surface)' }}
     >
+      <div className="min-w-0">
       <div className="flex items-start justify-between gap-3 mb-2">
         <h3 className="text-lg font-bold text-white flex-1 leading-snug group-hover:text-grad transition-colors">{post.title}</h3>
         {!post.published && (
@@ -102,6 +109,12 @@ const PostCard = ({ post, onOpen }) => {
           <span>{timeStr}</span>
         </div>
       </div>
+      </div>
+      {hasJudgments && (
+        <div className="mt-4 pt-3 md:mt-0 md:pt-0 md:pl-6 border-t md:border-t-0 md:border-l" style={{ borderColor: 'var(--rule)' }}>
+          <JudgmentSummary items={judgments} results={results} isAdmin={isAdmin} />
+        </div>
+      )}
     </button>
   );
 };
@@ -115,6 +128,8 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
   const [selectedTags, setSelectedTags] = React.useState([]);
   const [sortDesc, setSortDesc] = React.useState(true);
   const [draftsOnly, setDraftsOnly] = React.useState(false);
+  const [judgmentsByPost, setJudgmentsByPost] = React.useState({});
+  const [results, setResults] = React.useState({});
 
   React.useEffect(() => {
     let cancelled = false;
@@ -131,6 +146,23 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
     })();
     return () => { cancelled = true; };
   }, [supabase]);
+
+  // 判讀：讀者看內容，管理員另外讀結果（資料表不存在時靜默略過）
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const jr = await supabase.from('forum_judgments').select('*').order('sort', { ascending: true });
+      if (cancelled || jr.error || !jr.data) return;
+      const grouped = {};
+      for (const j of jr.data) (grouped[j.post_id] = grouped[j.post_id] || []).push(j);
+      setJudgmentsByPost(grouped);
+      if (!isAdmin) return;
+      const rr = await supabase.from('forum_judgment_results').select('*');
+      if (cancelled || rr.error || !rr.data) return;
+      setResults(Object.fromEntries(rr.data.map((r) => [r.judgment_id, r])));
+    })();
+    return () => { cancelled = true; };
+  }, [supabase, isAdmin]);
 
   const tagCounts = React.useMemo(() => {
     const m = new Map();
@@ -229,6 +261,10 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
         </div>
 
         {isAdmin && (
+          <div className="flex gap-2">
+          <button onClick={() => navigate('#/forum/scorecard')} className="fs-btn whitespace-nowrap">
+            判讀成績單
+          </button>
           <button
             onClick={() => navigate('#/forum/new')}
             className="fs-btn solid whitespace-nowrap"
@@ -239,6 +275,7 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
             </svg>
             新增文章
           </button>
+          </div>
         )}
       </div>
 
@@ -317,7 +354,9 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
         </div>
       )}
       <div className="space-y-3">
-        {!loading && visiblePosts.map((p) => <PostCard key={p.id} post={p} onOpen={onOpen} />)}
+        {!loading && visiblePosts.map((p) => (
+          <PostCard key={p.id} post={p} onOpen={onOpen} judgments={judgmentsByPost[p.id]} results={results} isAdmin={isAdmin} />
+        ))}
       </div>
     </div>
   );
@@ -733,7 +772,7 @@ const JudgmentsSection = ({ supabase, postId, isAdmin, onOpenChart }) => {
   };
 
   return (
-    <section className="mb-6 fs-section">
+    <section className="mt-10 fs-section">
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="fs-title-sm">判讀</h2>
         <span className="fs-lbl">{items.length} 則 · 級別越大，驗證期間越長</span>
@@ -932,6 +971,275 @@ const JudgmentsEditor = ({ items, setItems, noJudgment, setNoJudgment, images, t
   );
 };
 
+// ─── 判讀摘要（文章列表每列右側）───
+const JudgmentSummary = ({ items, results, isAdmin }) => {
+  if (!items || !items.length) return null;
+  const shown = items.slice(0, 3);
+  return (
+    <div className="space-y-2.5">
+      <div className="fs-lbl">判讀</div>
+      {shown.map((j) => {
+        const r = results && results[j.id];
+        const status = j.withdrawn_at ? 'withdrawn' : (r?.status || 'pending');
+        const chg = r?.change_pct;
+        return (
+          <div key={j.id} className="text-[13px] leading-snug" style={{ opacity: j.withdrawn_at && !isAdmin ? 0.6 : 1 }}>
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <JgDirChips directions={j.directions || []} />
+              <b className="num" style={{ color: 'var(--ink)' }}>{j.symbol}</b>
+              <span style={{ color: 'var(--ink-3)' }}>{jgTimeframe(j.timeframe).label}</span>
+              {(isAdmin || j.withdrawn_at) && (
+                <span className="fs-chip ml-auto" style={{ color: JG_STATUS[status].color }}>{JG_STATUS[status].label}</span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-x-3 mt-0.5" style={{ color: 'var(--ink-2)' }}>
+              <span>目標 <b className="num" style={{ color: 'var(--ink)' }}>{jgPrice(j.target_price)}</b></span>
+              {(j.directions || []).includes('range') && (
+                <span className="num">{jgPrice(j.range_low)}–{jgPrice(j.range_high)}</span>
+              )}
+              {isAdmin && chg != null && (
+                <span className="num font-bold ml-auto" style={{ color: chg > 0 ? 'var(--up)' : chg < 0 ? 'var(--down)' : 'var(--ink)' }}>{jgPct(chg)}</span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      {items.length > shown.length && <div className="fs-lbl">還有 {items.length - shown.length} 則</div>}
+    </div>
+  );
+};
+
+// ─── 判讀成績單（只有管理員）───
+// 方向正確 = 達標 + 方向對；撤回不列入分母。達標率只算有目標價的判讀。
+const jgStats = (rows) => {
+  const settled = rows.filter((x) => x.r?.settled_at && x.r.status !== 'withdrawn');
+  const correct = settled.filter((x) => x.r.status === 'hit' || x.r.status === 'right').length;
+  const withTarget = settled.filter((x) => x.j.target_price != null);
+  const hit = withTarget.filter((x) => x.r.status === 'hit').length;
+  const chgs = settled.map((x) => x.r.change_pct).filter((v) => v != null);
+  return {
+    n: rows.length,
+    settled: settled.length,
+    pending: rows.filter((x) => !x.r?.settled_at).length,
+    withdrawn: rows.filter((x) => x.r?.status === 'withdrawn').length,
+    correct,
+    accuracy: settled.length ? correct / settled.length : null,
+    hitRate: withTarget.length ? hit / withTarget.length : null,
+    hitBase: withTarget.length,
+    avgChg: chgs.length ? chgs.reduce((a, b) => a + b, 0) / chgs.length : null,
+    counts: ['hit', 'right', 'flat', 'wrong', 'withdrawn'].reduce((m, k) => ({ ...m, [k]: rows.filter((x) => x.r?.settled_at && x.r.status === k).length }), {}),
+  };
+};
+const jgRate = (v) => (v == null ? '—' : `${Math.round(v * 100)}%`);
+
+const ScoreBar = ({ counts }) => {
+  const order = ['hit', 'right', 'flat', 'wrong', 'withdrawn'];
+  const total = order.reduce((a, k) => a + counts[k], 0);
+  if (!total) return <div className="h-3" style={{ background: 'var(--wash)' }} />;
+  return (
+    <div>
+      <div className="flex h-3 w-full" role="img" aria-label={order.map((k) => `${JG_STATUS[k].label} ${counts[k]}`).join('，')}>
+        {order.filter((k) => counts[k]).map((k) => (
+          <div key={k} style={{ width: `${(counts[k] / total) * 100}%`, background: JG_STATUS[k].color, opacity: k === 'right' ? 0.6 : 1 }} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[13px]">
+        {order.map((k) => (
+          <span key={k} className="inline-flex items-center gap-1.5" style={{ color: 'var(--ink-2)' }}>
+            <span className="inline-block w-2.5 h-2.5" style={{ background: JG_STATUS[k].color, opacity: k === 'right' ? 0.6 : 1 }} />
+            {JG_STATUS[k].label} <b className="num" style={{ color: 'var(--ink)' }}>{counts[k]}</b>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const BreakdownTable = ({ title, groups }) => (
+  <div>
+    <h3 className="fs-title-sm mb-2">{title}</h3>
+    <div className="overflow-x-auto">
+      <table className="w-full text-[13px] num" style={{ minWidth: 420 }}>
+        <thead>
+          <tr style={{ color: 'var(--ink-3)', borderBottom: '1px solid var(--ink)' }}>
+            <th className="text-left font-normal py-1.5">分類</th>
+            <th className="text-right font-normal py-1.5">判讀</th>
+            <th className="text-right font-normal py-1.5">已結算</th>
+            <th className="text-left font-normal py-1.5 pl-4 w-[38%]">方向正確</th>
+            <th className="text-right font-normal py-1.5">達標率</th>
+            <th className="text-right font-normal py-1.5">平均漲跌</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.filter((g) => g.rows.length).map((g) => {
+            const s = jgStats(g.rows);
+            return (
+              <tr key={g.label} style={{ borderBottom: '1px solid var(--rule)' }}>
+                <td className="py-2 font-bold" style={{ color: 'var(--ink)' }}>{g.label}</td>
+                <td className="py-2 text-right">{s.n}</td>
+                <td className="py-2 text-right">{s.settled}</td>
+                <td className="py-2 pl-4">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-2" style={{ background: 'var(--wash)' }}>
+                      {s.accuracy != null && <div className="h-2" style={{ width: `${s.accuracy * 100}%`, background: 'var(--ink)' }} />}
+                    </div>
+                    <span className="w-10 text-right font-bold" style={{ color: 'var(--ink)' }}>{jgRate(s.accuracy)}</span>
+                  </div>
+                </td>
+                <td className="py-2 text-right">{jgRate(s.hitRate)}</td>
+                <td className="py-2 text-right font-bold" style={{ color: s.avgChg > 0 ? 'var(--up)' : s.avgChg < 0 ? 'var(--down)' : 'var(--ink)' }}>{jgPct(s.avgChg)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  </div>
+);
+
+const Scorecard = ({ supabase, onBack }) => {
+  const [data, setData] = React.useState(null);
+  const [error, setError] = React.useState(null);
+  const [scope, setScope] = React.useState('all');   // all | live | backfilled
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [jr, rr, pr] = await Promise.all([
+        supabase.from('forum_judgments').select('*'),
+        supabase.from('forum_judgment_results').select('*'),
+        supabase.from('forum_posts').select('id, title, created_at'),
+      ]);
+      if (cancelled) return;
+      const err = jr.error || rr.error || pr.error;
+      if (err) { setError(err.message); return; }
+      const res = Object.fromEntries((rr.data || []).map((r) => [r.judgment_id, r]));
+      const posts = Object.fromEntries((pr.data || []).map((p) => [p.id, p]));
+      const rows = (jr.data || [])
+        .filter((j) => j.locked_at)
+        .map((j) => ({ j, r: res[j.id], post: posts[j.post_id] }))
+        .sort((a, b) => new Date(b.j.locked_at) - new Date(a.j.locked_at));
+      setData(rows);
+    })();
+    return () => { cancelled = true; };
+  }, [supabase]);
+
+  const back = (
+    <button onClick={onBack} className="text-sm flex items-center gap-1.5" style={{ color: 'var(--ink-2)' }}>
+      <span>←</span> 返回列表
+    </button>
+  );
+  if (error) return <div className="space-y-4">{back}<p style={{ color: 'var(--down)' }}>讀取失敗：{error}</p></div>;
+  if (!data) return (
+    <div className="text-center py-16">
+      <div className="inline-block w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--rule)', borderTopColor: 'var(--ink)' }}></div>
+    </div>
+  );
+
+  const rows = data.filter((x) => scope === 'all' || (scope === 'backfilled' ? x.j.backfilled : !x.j.backfilled));
+  const s = jgStats(rows);
+  const by = (list, pick) => list.map(([v, label]) => ({ label, rows: rows.filter((x) => pick(x, v)) }));
+
+  return (
+    <div className="space-y-8">
+      {back}
+
+      <section className="fs-section">
+        <div className="fs-head">
+          <div>
+            <h2 className="fs-title">判讀成績單</h2>
+            <p className="fs-lbl mt-1">只有你看得到。方向正確 = 達標 + 方向對，撤回不列入；達標率只算有填目標價的判讀。</p>
+          </div>
+          <div className="fs-toggle" role="tablist" aria-label="判讀來源">
+            {[['all', '全部'], ['live', '即時'], ['backfilled', '補登']].map(([v, label]) => (
+              <button key={v} role="tab" aria-selected={scope === v} className={scope === v ? 'on' : ''} onClick={() => setScope(v)}>{label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="fs-kv" style={{ borderTop: '1px solid var(--rule)' }}>
+          <div>
+            <div className="fs-lbl">方向正確率</div>
+            <div className="text-[30px] font-extrabold num leading-tight" style={{ color: 'var(--ink)' }}>{jgRate(s.accuracy)}</div>
+            <div className="fs-lbl num">{s.correct} / {s.settled} 則已結算</div>
+          </div>
+          <div>
+            <div className="fs-lbl">達標率</div>
+            <div className="text-[30px] font-extrabold num leading-tight" style={{ color: 'var(--ink)' }}>{jgRate(s.hitRate)}</div>
+            <div className="fs-lbl num">{s.counts.hit} / {s.hitBase} 則有目標價</div>
+          </div>
+          <div>
+            <div className="fs-lbl">平均漲跌（依判讀方向）</div>
+            <div className="text-[30px] font-extrabold num leading-tight" style={{ color: s.avgChg > 0 ? 'var(--up)' : s.avgChg < 0 ? 'var(--down)' : 'var(--ink)' }}>{jgPct(s.avgChg)}</div>
+            <div className="fs-lbl">結算時相對判讀價</div>
+          </div>
+          <div>
+            <div className="fs-lbl">判讀數</div>
+            <div className="text-[30px] font-extrabold num leading-tight" style={{ color: 'var(--ink)' }}>{s.n}</div>
+            <div className="fs-lbl num">驗證中 {s.pending} · 撤回 {s.withdrawn}</div>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <ScoreBar counts={s.counts} />
+        </div>
+      </section>
+
+      <section className="fs-section grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-8">
+        <BreakdownTable title="依級別" groups={by(JG_TIMEFRAMES.map((t) => [t.v, t.label]), (x, v) => x.j.timeframe === v)} />
+        <BreakdownTable title="依分析方法" groups={by(JG_METHODS.map((m) => [m.v, m.label]), (x, v) => (x.j.methods || []).includes(v))} />
+        <BreakdownTable title="依方向" groups={by([['up', '看多'], ['down', '看空'], ['range', '盤整']], (x, v) => (x.j.directions || []).includes(v))} />
+        <BreakdownTable title="依當時市場狀態" groups={by([['up', '上升'], ['down', '下降'], ['range', '盤整']], (x, v) => x.r?.regime === v)} />
+        <BreakdownTable title="依市場" groups={by(JG_MARKETS.map((m) => [m.v, m.label]), (x, v) => x.j.market === v)} />
+      </section>
+
+      <section className="fs-section">
+        <div className="fs-head">
+          <h3 className="fs-title-sm">每一則判讀</h3>
+          <span className="fs-lbl">{rows.length} 則 · 新到舊</span>
+        </div>
+        <div>
+          {rows.map(({ j, r, post }) => {
+            const status = j.withdrawn_at ? 'withdrawn' : (r?.status || 'pending');
+            const tf = jgTimeframe(j.timeframe);
+            return (
+              <button
+                key={j.id}
+                type="button"
+                onClick={() => navigate(`#/forum/${j.post_id}`)}
+                className="w-full text-left py-3 grid grid-cols-[1fr_auto] md:grid-cols-[88px_1fr_150px_110px_90px] gap-x-4 gap-y-1 items-baseline"
+                style={{ borderBottom: '1px solid var(--rule)' }}
+              >
+                <span className="fs-lbl num order-1 md:order-none">{jgDate(j.locked_at)}{j.backfilled && <span className="md:block"> · 補登</span>}</span>
+                <span className="order-3 md:order-none col-span-2 md:col-span-1 min-w-0">
+                  <span className="inline-flex flex-wrap items-baseline gap-x-2">
+                    <JgDirChips directions={j.directions || []} />
+                    <b className="num" style={{ color: 'var(--ink)' }}>{j.symbol}</b>
+                    <span className="text-[13px]" style={{ color: 'var(--ink-3)' }}>{tf.label}</span>
+                  </span>
+                  <span className="block text-[13px] truncate mt-0.5" style={{ color: 'var(--ink-2)' }}>{post?.title || ''}</span>
+                </span>
+                <span className="order-4 md:order-none text-[13px] num" style={{ color: 'var(--ink-2)' }}>
+                  {jgPrice(r?.entry_price)} → {jgPrice(r?.settled_at ? r.exit_price : j.target_price)}
+                </span>
+                <span className="order-5 md:order-none text-[13px] num md:text-right" style={{ color: 'var(--ink-3)' }}>
+                  {r?.bars_elapsed ?? 0}/{r?.bars_total ?? tf.bars} 根
+                  {r?.max_progress != null && ` · ${Math.round(r.max_progress * 100)}%`}
+                </span>
+                <span className="order-2 md:order-none text-right">
+                  <span className="fs-chip" style={{ color: JG_STATUS[status].color }}>{JG_STATUS[status].label}</span>
+                  <span className="block text-[13px] num font-bold mt-0.5" style={{ color: r?.change_pct > 0 ? 'var(--up)' : r?.change_pct < 0 ? 'var(--down)' : 'var(--ink-3)' }}>{jgPct(r?.change_pct)}</span>
+                </span>
+              </button>
+            );
+          })}
+          {!rows.length && <p className="py-8 text-center fs-lbl">還沒有判讀</p>}
+        </div>
+      </section>
+    </div>
+  );
+};
+
 const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
   const [post, setPost] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
@@ -1091,17 +1399,17 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
           </p>
         </header>
 
+        <div
+          ref={contentRef}
+          className="forum-md"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+
         <JudgmentsSection
           supabase={supabase}
           postId={postId}
           isAdmin={isAdmin}
           onOpenChart={(src) => setLightbox({ images: [src], index: 0 })}
-        />
-
-        <div
-          ref={contentRef}
-          className="forum-md"
-          dangerouslySetInnerHTML={{ __html: html }}
         />
       </article>
 
@@ -1545,8 +1853,8 @@ const ForumApp = ({ supabase, user, isAdmin, isPremium }) => {
 
   if (!supabase) return <p style={{ color: 'var(--down)' }}>Supabase 未初始化</p>;
 
-  const isEditorRoute = route.view === 'editor';
-  if (isEditorRoute && !isAdmin) {
+  const adminOnlyRoute = route.view === 'editor' || route.view === 'scorecard';
+  if (adminOnlyRoute && !isAdmin) {
     navigate('#/forum');
     return null;
   }
@@ -1598,6 +1906,9 @@ const ForumApp = ({ supabase, user, isAdmin, isPremium }) => {
           isAdmin={isAdmin}
           onBack={() => navigate('#/forum')}
         />
+      )}
+      {canRead && route.view === 'scorecard' && (
+        <Scorecard supabase={supabase} onBack={() => navigate('#/forum')} />
       )}
       {canRead && route.view === 'editor' && (
         <PostEditor

@@ -7097,8 +7097,16 @@ const isBull = price2 < price1 && dif2 > dif1;
                 { id: 'j3', post_id: 'p3', market: 'crypto', symbol: 'ETH', timeframe: '4h', directions: ['up'], target_price: 2900,
                   range_low: null, range_high: null, methods: ['wyckoff'], sort: 0, chart_url: null, levels: [{ type: 'VAL', price: 2380 }],
                   reason: '', locked_at: null, withdrawn_at: null, created_at: '2026-09-25T02:00:00Z' },
+                { id: 'j4', post_id: 'p2', market: 'crypto', symbol: 'BTC', timeframe: '1w', directions: ['up'], target_price: 82300, range_low: null, range_high: null,
+                  methods: ['wyckoff', 'volume'], sort: 0, chart_url: null, levels: [], reason: '極度恐懼區分批，吸籌完成後看回前高。', backfilled: true,
+                  locked_at: '2026-06-08T08:56:00Z', withdrawn_at: null, created_at: '2026-06-08T08:56:00Z' },
+                { id: 'j5', post_id: 'p2', market: 'tw', symbol: '2371', timeframe: '1d', directions: ['down'], target_price: 22, range_low: null, range_high: null,
+                  methods: ['pattern'], sort: 1, chart_url: null, levels: [], reason: '', backfilled: true,
+                  locked_at: '2026-05-18T03:20:00Z', withdrawn_at: null, created_at: '2026-05-18T03:20:00Z' },
             ];
             const results = [
+                { judgment_id: 'j4', status: 'right', settled_at: '2026-09-07T22:30:00Z', entry_price: 63237, exit_price: 76838, bars_total: 13, bars_elapsed: 13, change_pct: 0.215, max_progress: 0.72, regime: 'down', neutral_pct: 0.053 },
+                { judgment_id: 'j5', status: 'wrong', settled_at: '2026-06-15T22:30:00Z', entry_price: 27.1, exit_price: 29.3, bars_total: 20, bars_elapsed: 20, change_pct: -0.081, max_progress: 0.1, regime: 'range', neutral_pct: 0.03 },
                 { judgment_id: 'j1', status: 'pending', entry_price: 61250, bars_total: 13, bars_elapsed: 5, change_pct: 0.042, max_progress: 0.38,
                   regime: 'range', vpvr: { poc: 58420, vah: 66100, val: 54300 }, neutral_pct: 0.021 },
                 { judgment_id: 'j2', status: 'withdrawn', settled_at: '2026-09-24T22:30:00Z', exit_price: 562.9, entry_price: 566.2, bars_total: 20, bars_elapsed: 3, change_pct: -0.006, max_progress: 0.12 },
