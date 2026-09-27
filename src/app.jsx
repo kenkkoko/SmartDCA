@@ -7099,8 +7099,9 @@ const isBull = price2 < price1 && dif2 > dif1;
                   reason: '', locked_at: null, withdrawn_at: null, created_at: '2026-09-25T02:00:00Z' },
             ];
             const results = [
-                { judgment_id: 'j1', status: 'pending', entry_price: 61250, bars_total: 13, bars_elapsed: 5, change_pct: 0.042, max_progress: 0.38 },
-                { judgment_id: 'j2', status: 'pending', entry_price: 566.2, bars_total: 20, bars_elapsed: 3, change_pct: -0.006, max_progress: 0.12 },
+                { judgment_id: 'j1', status: 'pending', entry_price: 61250, bars_total: 13, bars_elapsed: 5, change_pct: 0.042, max_progress: 0.38,
+                  regime: 'range', vpvr: { poc: 58420, vah: 66100, val: 54300 }, neutral_pct: 0.021 },
+                { judgment_id: 'j2', status: 'withdrawn', settled_at: '2026-09-24T22:30:00Z', exit_price: 562.9, entry_price: 566.2, bars_total: 20, bars_elapsed: 3, change_pct: -0.006, max_progress: 0.12 },
             ];
             const tables = { forum_posts: posts, forum_judgments: judgments, forum_judgment_results: results };
             const now = () => new Date().toISOString();
