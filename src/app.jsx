@@ -7051,9 +7051,10 @@ import economicCalendar from '../economic_calendar.json';
         // PortfolioDashboard — main component
         // ─────────────────────────────────────────────
         // ─── ForumGate：論壇函式庫(marked/KaTeX/EasyMDE 等)改為點開論壇才載入,首頁不再背這些成本 ───
-        // Dev-only forum sample (?forumFixture=1): an in-memory stand-in for the forum_posts table so the
-        // list / post / editor layouts can be reviewed without an account. Stripped from `vite build`.
-        const FORUM_FIXTURE = import.meta.env.DEV && new URLSearchParams(window.location.search).get('forumFixture') === '1';
+        // Dev-only forum sample (?forumFixture=1 as admin, ?forumFixture=reader as a member): an in-memory
+        // stand-in for forum_posts + 判讀 tables so the list / post / editor layouts can be reviewed without
+        // an account. Stripped from `vite build`.
+        const FORUM_FIXTURE = import.meta.env.DEV && new URLSearchParams(window.location.search).get('forumFixture');
         const makeForumFixtureDb = () => {
             const posts = [
                 { id: 'p1', title: '週線 MACD 底背離實戰：2026 年 BTC 的兩次訊號', tags: ['BTC', 'MACD', '背離'], published: true, created_at: '2026-09-20T09:30:00Z',
@@ -7068,6 +7069,8 @@ import economicCalendar from '../economic_calendar.json';
 
 價格破底、DIF 沒破底 → 底背離。
 
+![週線 MACD 底背離](./icon-512.png)
+
 \`\`\`js
 const isBull = price2 < price1 && dif2 > dif1;
 \`\`\`` },
@@ -7081,28 +7084,72 @@ const isBull = price2 < price1 && dif2 > dif1;
                 { id: 'p3', title: '（草稿）Wyckoff LPS 進場清單', tags: ['Wyckoff'], published: false, created_at: '2026-09-25T02:00:00Z',
                   content: `待整理。` },
             ];
-            const builder = () => {
-                const q = { filters: {}, single: false };
+            const judgments = [
+                { id: 'j1', post_id: 'p1', market: 'crypto', symbol: 'BTC', timeframe: '1w', directions: ['up'], target_price: 72000,
+                  range_low: null, range_high: null, methods: ['dow', 'volume'], sort: 0, chart_url: './icon-512.png',
+                  levels: [{ type: 'POC', price: 58400 }, { type: '阻力', price: 68000 }, { type: '冰線', price: 52600 }],
+                  reason: '週線價格破底但 DIF 沒破，量縮回測 POC 不破，看回到前高。',
+                  locked_at: '2026-09-20T09:30:00Z', withdrawn_at: null, created_at: '2026-09-20T09:00:00Z' },
+                { id: 'j2', post_id: 'p1', market: 'us', symbol: 'SPY', timeframe: '1d', directions: ['range', 'down'], target_price: 540,
+                  range_low: 548, range_high: 575, methods: ['wyckoff'], sort: 1, chart_url: null, levels: [],
+                  reason: '區間上緣兩次 UTAD，傾向跌回下緣。',
+                  locked_at: '2026-09-20T09:30:00Z', withdrawn_at: '2026-09-24T02:10:00Z', created_at: '2026-09-20T09:00:00Z' },
+                { id: 'j3', post_id: 'p3', market: 'crypto', symbol: 'ETH', timeframe: '4h', directions: ['up'], target_price: 2900,
+                  range_low: null, range_high: null, methods: ['wyckoff'], sort: 0, chart_url: null, levels: [{ type: 'VAL', price: 2380 }],
+                  reason: '', locked_at: null, withdrawn_at: null, created_at: '2026-09-25T02:00:00Z' },
+            ];
+            const results = [
+                { judgment_id: 'j1', status: 'pending', entry_price: 61250, bars_total: 13, bars_elapsed: 5, change_pct: 0.042, max_progress: 0.38 },
+                { judgment_id: 'j2', status: 'pending', entry_price: 566.2, bars_total: 20, bars_elapsed: 3, change_pct: -0.006, max_progress: 0.12 },
+            ];
+            const tables = { forum_posts: posts, forum_judgments: judgments, forum_judgment_results: results };
+            const now = () => new Date().toISOString();
+            const builder = (table) => {
+                const rows = tables[table] || [];
+                const q = { op: 'select', filters: [], single: false, payload: null };
                 const api = {
-                    select() { return api; }, order() { return api; }, insert() { return api; }, update() { return api; }, delete() { return api; },
-                    eq(k, v) { q.filters[k] = v; return api; },
+                    select() { return api; }, order() { return api; },
+                    insert(p) { q.op = 'insert'; q.payload = p; return api; },
+                    update(p) { q.op = 'update'; q.payload = p; return api; },
+                    delete() { q.op = 'delete'; return api; },
+                    eq(k, v) { q.filters.push(r => String(r[k]) === String(v)); return api; },
+                    in(k, vs) { q.filters.push(r => vs.map(String).includes(String(r[k]))); return api; },
                     single() { q.single = true; return api; },
                     then(resolve, reject) {
-                        const rows = q.filters.id ? posts.filter(r => r.id === q.filters.id) : posts;
-                        return Promise.resolve({ data: q.single ? (rows[0] || null) : rows, error: null }).then(resolve, reject);
+                        const match = rows.filter(r => q.filters.every(f => f(r)));
+                        let out = match;
+                        if (q.op === 'insert') {
+                            out = [].concat(q.payload).map(p => {
+                                const r = { id: `${table}-${Math.random().toString(36).slice(2, 8)}`, created_at: now(), ...p };
+                                // Mirrors the DB trigger: a call added to a published post locks at once
+                                if (table === 'forum_judgments') r.locked_at = posts.some(x => x.id === r.post_id && x.published) ? now() : null;
+                                rows.push(r);
+                                return r;
+                            });
+                        } else if (q.op === 'update') {
+                            match.forEach(r => Object.assign(r, q.payload, { updated_at: now() }));
+                            // Mirrors the DB trigger: publishing locks the post's calls
+                            if (table === 'forum_posts' && q.payload.published) {
+                                match.forEach(post => judgments.filter(x => x.post_id === post.id && !x.locked_at).forEach(x => { x.locked_at = now(); }));
+                            }
+                        } else if (q.op === 'delete') {
+                            match.forEach(r => rows.splice(rows.indexOf(r), 1));
+                        }
+                        return Promise.resolve({ data: q.single ? (out[0] || null) : out, error: null }).then(resolve, reject);
                     },
                 };
                 return api;
             };
             return {
-                from: () => builder(),
+                from: (table) => builder(table),
                 storage: { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: '' } }) }) },
             };
         };
 
         const ForumGate = (rawProps) => {
+            const fixtureDb = useMemo(() => (FORUM_FIXTURE ? makeForumFixtureDb() : null), []);
             const props = FORUM_FIXTURE
-                ? { ...rawProps, supabase: makeForumFixtureDb(), user: { id: 'fixture-user', email: 'fixture@localhost' }, isAdmin: true, isPremium: true }
+                ? { ...rawProps, supabase: fixtureDb, user: { id: 'fixture-user', email: 'fixture@localhost' }, isAdmin: FORUM_FIXTURE !== 'reader', isPremium: true }
                 : rawProps;
             const [ready, setReady] = useState(false);
             useEffect(() => {

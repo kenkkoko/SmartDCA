@@ -449,6 +449,482 @@ const ImageLightbox = ({ images, index, onClose, onPrev, onNext }) => {
   );
 };
 
+// ─── 判讀：每篇分析裡可以事後驗證的觀點 ───
+// 讀者看得到判讀內容；驗證結果（forum_judgment_results）只有管理員讀得到，由資料庫 RLS 把關。
+// 文章發布後判讀即鎖定，只能撤回（見 supabase/forum_judgments.sql）。
+const JG_TIMEFRAMES = [
+  { v: '4h', label: '4H', bars: 30, span: '約 5 天' },
+  { v: '1d', label: '日線', bars: 20, span: '約 1 個月' },
+  { v: '1w', label: '週線', bars: 13, span: '約 1 季' },
+  { v: '1M', label: '月線', bars: 6, span: '約半年' },
+];
+const JG_MARKETS = [
+  { v: 'crypto', label: '加密貨幣', ph: 'BTC' },
+  { v: 'us', label: '美股', ph: 'SPY' },
+  { v: 'tw', label: '台股', ph: '0050' },
+];
+const JG_DIRS = {
+  up:    { label: '看多', color: 'var(--up)' },
+  down:  { label: '看空', color: 'var(--down)' },
+  range: { label: '盤整', color: 'var(--ink-2)' },
+};
+const JG_METHODS = [
+  { v: 'dow', label: '道氏' },
+  { v: 'wyckoff', label: '威科夫' },
+  { v: 'pattern', label: '型態' },
+  { v: 'volume', label: '量價' },
+  { v: 'other', label: '其他' },
+];
+const JG_LEVELS = ['阻力', '支撐', '冰線', '溪流', 'POC', 'VAH', 'VAL'];
+const JG_STATUS = {
+  pending:   { label: '驗證中', color: 'var(--ink-2)' },
+  hit:       { label: '達標', color: 'var(--up)' },
+  right:     { label: '方向對', color: 'var(--up)' },
+  flat:      { label: '持平', color: 'var(--amber)' },
+  wrong:     { label: '錯', color: 'var(--down)' },
+  withdrawn: { label: '已撤回', color: 'var(--ink-3)' },
+};
+const JG_CRYPTO = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE', 'ADA', 'AVAX', 'LINK', 'DOT', 'TON', 'SUI', 'TRX'];
+const JG_NOT_TICKERS = ['MACD', 'RSI', 'DCA', 'KD', 'MA', 'EMA', 'SMA', 'ATR', 'POC', 'VAH', 'VAL', 'VPVR', 'OBV', 'LPS', 'LPSY', 'SOS', 'SOW', 'UTAD', 'ETF'];
+
+const jgTimeframe = (v) => JG_TIMEFRAMES.find((t) => t.v === v) || JG_TIMEFRAMES[1];
+const jgNum = (v) => {
+  if (v == null || v === '') return null;
+  const x = parseFloat(String(v).replace(/,/g, ''));
+  return Number.isFinite(x) ? x : null;
+};
+const jgPrice = (v) => (v == null || v === '' ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: 8 }));
+const jgPct = (v) => (v == null ? '—' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%`);
+const jgDate = (v) => (v ? new Date(v).toLocaleDateString('zh-TW') : '—');
+
+// 從文章標籤猜標的：BTC → 加密貨幣、0050 → 台股、其他全大寫代號 → 美股
+const jgGuessSymbol = (tags) => {
+  const up = tags.map((t) => t.trim().toUpperCase()).filter(Boolean);
+  const crypto = up.find((t) => JG_CRYPTO.includes(t));
+  if (crypto) return { market: 'crypto', symbol: crypto };
+  const tw = up.find((t) => /^\d{4,6}[A-Z]?$/.test(t));
+  if (tw) return { market: 'tw', symbol: tw };
+  const us = tags.map((t) => t.trim()).find((t) => /^[A-Z]{1,5}$/.test(t) && !JG_NOT_TICKERS.includes(t));
+  if (us) return { market: 'us', symbol: us };
+  return { market: 'crypto', symbol: '' };
+};
+
+// 文章 Markdown 裡已貼上的圖片，給判讀挑一張當圖表
+const jgExtractImages = (md) =>
+  Array.from(new Set(Array.from((md || '').matchAll(/!\[[^\]]*\]\(\s*([^)\s]+)[^)]*\)/g), (m) => m[1])));
+
+const jgEmpty = (tags) => ({
+  key: Math.random().toString(36).slice(2),
+  ...jgGuessSymbol(tags),
+  timeframe: '1d',
+  directions: [],
+  target_price: '',
+  range_low: '',
+  range_high: '',
+  methods: [],
+  levels: [],
+  chart_url: '',
+  reason: '',
+});
+
+// 資料庫列 → 編輯器狀態（數字轉字串，方便 input 編輯）
+const jgFromRow = (r) => ({
+  key: r.id,
+  id: r.id,
+  market: r.market,
+  symbol: r.symbol || '',
+  timeframe: r.timeframe,
+  directions: r.directions || [],
+  target_price: r.target_price ?? '',
+  range_low: r.range_low ?? '',
+  range_high: r.range_high ?? '',
+  methods: r.methods || [],
+  levels: (r.levels || []).map((l) => ({ type: l.type, price: l.price ?? '' })),
+  chart_url: r.chart_url || '',
+  reason: r.reason || '',
+  locked_at: r.locked_at,
+  withdrawn_at: r.withdrawn_at,
+  created_at: r.created_at,
+});
+
+const jgToRow = (j, sort) => {
+  const isRange = j.directions.includes('range');
+  return {
+    market: j.market,
+    symbol: j.symbol.trim().toUpperCase(),
+    timeframe: j.timeframe,
+    directions: j.directions,
+    target_price: jgNum(j.target_price),
+    range_low: isRange ? jgNum(j.range_low) : null,
+    range_high: isRange ? jgNum(j.range_high) : null,
+    methods: j.methods,
+    levels: j.levels.filter((l) => jgNum(l.price) != null).map((l) => ({ type: l.type, price: jgNum(l.price) })),
+    chart_url: j.chart_url || null,
+    reason: j.reason.trim() || null,
+    sort,
+  };
+};
+
+// 發佈前檢查；回傳錯誤字串或 null
+const jgValidate = (j, n) => {
+  if (!j.symbol.trim()) return `判讀 ${n}：請填標的`;
+  if (!j.directions.length) return `判讀 ${n}：請選方向（看多／看空／盤整）`;
+  for (const [k, lbl] of [['target_price', '目標價'], ['range_low', '區間下緣'], ['range_high', '區間上緣']]) {
+    if (j[k] !== '' && jgNum(j[k]) == null) return `判讀 ${n}：${lbl}不是數字`;
+  }
+  if (j.directions.includes('range')) {
+    const lo = jgNum(j.range_low), hi = jgNum(j.range_high);
+    if (lo == null || hi == null || lo >= hi) return `判讀 ${n}：盤整需要填區間，且下緣要小於上緣`;
+  }
+  return null;
+};
+
+const withdrawJudgment = async (supabase, j) => {
+  if (!window.confirm('撤回後會以撤回當下的價格結算，並標示為「已撤回」，無法恢復。確定撤回？')) return null;
+  const { data, error } = await supabase
+    .from('forum_judgments')
+    .update({ withdrawn_at: new Date().toISOString() })
+    .eq('id', j.id)
+    .select()
+    .single();
+  if (error) { window.alert(`撤回失敗：${error.message}`); return null; }
+  return data;
+};
+
+const JgDirChips = ({ directions }) => (
+  <span className="inline-flex gap-1.5">
+    {['up', 'down', 'range'].filter((d) => directions.includes(d)).map((d) => (
+      <span key={d} className="fs-chip" style={{ color: JG_DIRS[d].color }}>{JG_DIRS[d].label}</span>
+    ))}
+  </span>
+);
+
+// 一則判讀的呈現：讀者看內容；管理員另外看到驗證結果與撤回
+// showResult=false：編輯器裡只給撤回，不顯示驗證數字（編輯器不讀結果表）
+const JudgmentCard = ({ j, result, isAdmin, onWithdraw, onOpenChart, showResult = true }) => {
+  const tf = jgTimeframe(j.timeframe);
+  const isRange = (j.directions || []).includes('range');
+  const status = j.withdrawn_at ? 'withdrawn' : (result?.status || 'pending');
+  const levels = j.levels || [];
+  const methods = (j.methods || []).map((m) => (JG_METHODS.find((x) => x.v === m) || {}).label).filter(Boolean);
+
+  return (
+    <div className="py-4" style={{ borderTop: '1px solid var(--rule)', opacity: j.withdrawn_at && !isAdmin ? 0.72 : 1 }}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <JgDirChips directions={j.directions || []} />
+          <span className="text-[16px] font-extrabold num" style={{ color: 'var(--ink)' }}>{j.symbol}</span>
+          <span className="text-[13px]" style={{ color: 'var(--ink-2)' }}>{tf.label} · 驗證 {tf.bars} 根（{tf.span}）</span>
+        </div>
+        {(isAdmin || j.withdrawn_at) && (
+          <span className="fs-chip" style={{ color: JG_STATUS[status].color }}>
+            {JG_STATUS[status].label}{j.withdrawn_at ? ` · ${jgDate(j.withdrawn_at)}` : ''}
+          </span>
+        )}
+      </div>
+
+      <div className="fs-kv mt-3" style={{ borderTop: '1px solid var(--rule)' }}>
+        <div>
+          <div className="fs-lbl">目標價</div>
+          <div className="text-[15px] font-bold num" style={{ color: 'var(--ink)' }}>{jgPrice(j.target_price)}</div>
+        </div>
+        <div>
+          <div className="fs-lbl">盤整區間</div>
+          <div className="text-[15px] font-bold num" style={{ color: 'var(--ink)' }}>
+            {isRange ? `${jgPrice(j.range_low)} – ${jgPrice(j.range_high)}` : '—'}
+          </div>
+        </div>
+        <div>
+          <div className="fs-lbl">依據</div>
+          <div className="text-[14px] font-bold" style={{ color: 'var(--ink)' }}>{methods.length ? methods.join('、') : '—'}</div>
+        </div>
+        <div>
+          <div className="fs-lbl">判讀時間</div>
+          <div className="text-[14px] font-bold num" style={{ color: 'var(--ink)' }}>{jgDate(j.locked_at || j.created_at)}</div>
+        </div>
+      </div>
+
+      {levels.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+          <span className="fs-lbl">關鍵價位</span>
+          {levels.map((l, i) => (
+            <span key={i} style={{ color: 'var(--ink-2)' }}>
+              {l.type} <b className="num" style={{ color: 'var(--ink)' }}>{jgPrice(l.price)}</b>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {(j.reason || j.chart_url) && (
+        <div className="mt-3 flex gap-4 items-start">
+          {j.reason && <p className="flex-1 text-[14px] leading-relaxed" style={{ color: 'var(--ink)' }}>{j.reason}</p>}
+          {j.chart_url && (
+            <button type="button" onClick={() => onOpenChart && onOpenChart(j.chart_url)} className="shrink-0" aria-label="放大判讀圖表" title="放大圖表">
+              <img src={j.chart_url} alt="判讀圖表" className="w-32 h-20 md:w-40 md:h-24 object-cover" style={{ border: '1px solid var(--rule)' }} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {isAdmin && (showResult || !j.withdrawn_at) && (
+        <div className="mt-3 pt-3 flex flex-wrap items-baseline justify-between gap-3" style={{ borderTop: '1px dashed var(--rule)' }}>
+          {showResult ? (
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-[13px]" style={{ color: 'var(--ink-2)' }}>
+            <span className="fs-lbl">只有你看得到</span>
+            <span>進場 <b className="num" style={{ color: 'var(--ink)' }}>{jgPrice(result?.entry_price)}</b></span>
+            <span>進度 <b className="num" style={{ color: 'var(--ink)' }}>{result?.bars_elapsed ?? 0}/{result?.bars_total ?? tf.bars}</b> 根</span>
+            <span>漲跌 <b className="num" style={{ color: result?.change_pct > 0 ? 'var(--up)' : result?.change_pct < 0 ? 'var(--down)' : 'var(--ink)' }}>{jgPct(result?.change_pct)}</b></span>
+            {j.target_price != null && <span>最遠走到目標 <b className="num" style={{ color: 'var(--ink)' }}>{result?.max_progress == null ? '—' : `${Math.round(result.max_progress * 100)}%`}</b></span>}
+            {!result && j.locked_at && <span>等待每日驗證</span>}
+          </div>
+          ) : (
+            <span className="fs-lbl">已發佈，判讀已鎖定</span>
+          )}
+          {onWithdraw && j.locked_at && !j.withdrawn_at && status === 'pending' && (
+            <button type="button" onClick={() => onWithdraw(j)} className="fs-btn sm" style={{ color: 'var(--down)', borderColor: 'var(--down)' }}>
+              撤回判讀
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 文章頁頂端的判讀區塊
+const JudgmentsSection = ({ supabase, postId, isAdmin, onOpenChart }) => {
+  const [items, setItems] = React.useState([]);
+  const [results, setResults] = React.useState({});
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('forum_judgments')
+        .select('*')
+        .eq('post_id', postId)
+        .order('sort', { ascending: true });
+      if (cancelled || error || !data) return;   // 資料表尚未建立時靜默略過
+      setItems(data);
+      if (isAdmin && data.length) {
+        const res = await supabase
+          .from('forum_judgment_results')
+          .select('*')
+          .in('judgment_id', data.map((j) => j.id));
+        if (cancelled || res.error || !res.data) return;
+        setResults(Object.fromEntries(res.data.map((r) => [r.judgment_id, r])));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [supabase, postId, isAdmin]);
+
+  if (!items.length) return null;
+
+  const onWithdraw = async (j) => {
+    const updated = await withdrawJudgment(supabase, j);
+    if (updated) setItems((xs) => xs.map((x) => (x.id === updated.id ? updated : x)));
+  };
+
+  return (
+    <section className="mb-6 fs-section">
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="fs-title-sm">判讀</h2>
+        <span className="fs-lbl">{items.length} 則 · 級別越大，驗證期間越長</span>
+      </div>
+      <div className="mt-2">
+        {items.map((j) => (
+          <JudgmentCard key={j.id} j={j} result={results[j.id]} isAdmin={isAdmin} onWithdraw={isAdmin ? onWithdraw : null} onOpenChart={onOpenChart} />
+        ))}
+      </div>
+    </section>
+  );
+};
+
+// 編輯器裡的判讀表單
+const JgToggle = ({ on, onClick, children, color, disabled }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    aria-pressed={on}
+    className={`fs-btn sm${on ? ' solid' : ''}`}
+    style={on && color ? { background: color, borderColor: color, color: 'var(--paper)' } : undefined}
+  >
+    {children}
+  </button>
+);
+
+const JudgmentForm = ({ j, n, images, onChange, onRemove, disabled, inputStyle }) => {
+  const set = (patch) => onChange({ ...j, ...patch });
+  const toggleDir = (d) => {
+    let dirs = j.directions.includes(d) ? j.directions.filter((x) => x !== d) : [...j.directions, d];
+    if (d === 'up' && dirs.includes('up')) dirs = dirs.filter((x) => x !== 'down');
+    if (d === 'down' && dirs.includes('down')) dirs = dirs.filter((x) => x !== 'up');
+    const patch = { directions: dirs };
+    // 勾盤整且區間空白時，先帶入已填的 VAL–VAH
+    if (d === 'range' && dirs.includes('range') && j.range_low === '' && j.range_high === '') {
+      const val = j.levels.find((l) => l.type === 'VAL' && jgNum(l.price) != null);
+      const vah = j.levels.find((l) => l.type === 'VAH' && jgNum(l.price) != null);
+      if (val) patch.range_low = val.price;
+      if (vah) patch.range_high = vah.price;
+    }
+    set(patch);
+  };
+  const toggleMethod = (m) => set({ methods: j.methods.includes(m) ? j.methods.filter((x) => x !== m) : [...j.methods, m] });
+  const setLevel = (i, patch) => set({ levels: j.levels.map((l, k) => (k === i ? { ...l, ...patch } : l)) });
+  const tf = jgTimeframe(j.timeframe);
+  const market = JG_MARKETS.find((m) => m.v === j.market) || JG_MARKETS[0];
+  const field = 'rounded-xl px-3 py-2 text-sm outline-none num';
+
+  return (
+    <div className="py-4 space-y-4" style={{ borderTop: '1px solid var(--rule)' }}>
+      <div className="flex items-baseline justify-between">
+        <span className="text-[14px] font-extrabold" style={{ color: 'var(--ink)' }}>判讀 {n}</span>
+        <button type="button" onClick={onRemove} disabled={disabled} className="text-[13px]" style={{ color: 'var(--down)' }}>刪除</button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-x-5 gap-y-3 items-center">
+        <span className="fs-lbl">標的</span>
+        <div className="flex flex-wrap gap-2">
+          <select value={j.market} onChange={(e) => set({ market: e.target.value })} disabled={disabled} className="rounded-xl px-3 py-2 text-sm outline-none" style={inputStyle} aria-label="市場">
+            {JG_MARKETS.map((m) => <option key={m.v} value={m.v}>{m.label}</option>)}
+          </select>
+          <input value={j.symbol} onChange={(e) => set({ symbol: e.target.value })} disabled={disabled} placeholder={market.ph} className={`${field} w-32 uppercase`} style={inputStyle} aria-label="標的代號" />
+        </div>
+
+        <span className="fs-lbl">級別</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {JG_TIMEFRAMES.map((t) => (
+            <JgToggle key={t.v} on={j.timeframe === t.v} onClick={() => set({ timeframe: t.v })} disabled={disabled}>{t.label}</JgToggle>
+          ))}
+          <span className="fs-lbl ml-1">驗證 {tf.bars} 根 K 棒（{tf.span}）</span>
+        </div>
+
+        <span className="fs-lbl">方向</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {['up', 'down', 'range'].map((d) => (
+            <JgToggle key={d} on={j.directions.includes(d)} color={d === 'range' ? null : JG_DIRS[d].color} onClick={() => toggleDir(d)} disabled={disabled}>{JG_DIRS[d].label}</JgToggle>
+          ))}
+          <span className="fs-lbl ml-1">盤整可以和看多或看空一起選</span>
+        </div>
+
+        <span className="fs-lbl">目標價</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={j.target_price} onChange={(e) => set({ target_price: e.target.value })} disabled={disabled} inputMode="decimal" placeholder="建議填寫" className={`${field} w-40`} style={inputStyle} aria-label="目標價" />
+          <span className="fs-lbl">驗證期間內碰到就算達標</span>
+        </div>
+
+        {j.directions.includes('range') && (
+          <>
+            <span className="fs-lbl">盤整區間 *</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <input value={j.range_low} onChange={(e) => set({ range_low: e.target.value })} disabled={disabled} inputMode="decimal" placeholder="下緣（VAL）" className={`${field} w-36`} style={inputStyle} aria-label="區間下緣" />
+              <span style={{ color: 'var(--ink-3)' }}>–</span>
+              <input value={j.range_high} onChange={(e) => set({ range_high: e.target.value })} disabled={disabled} inputMode="decimal" placeholder="上緣（VAH）" className={`${field} w-36`} style={inputStyle} aria-label="區間上緣" />
+            </div>
+          </>
+        )}
+
+        <span className="fs-lbl">依據</span>
+        <div className="flex flex-wrap gap-2">
+          {JG_METHODS.map((m) => (
+            <JgToggle key={m.v} on={j.methods.includes(m.v)} onClick={() => toggleMethod(m.v)} disabled={disabled}>{m.label}</JgToggle>
+          ))}
+        </div>
+
+        <span className="fs-lbl self-start pt-2">關鍵價位</span>
+        <div className="space-y-2">
+          {j.levels.map((l, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2">
+              <select value={l.type} onChange={(e) => setLevel(i, { type: e.target.value })} disabled={disabled} className="rounded-xl px-3 py-2 text-sm outline-none" style={inputStyle} aria-label="價位類型">
+                {JG_LEVELS.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <input value={l.price} onChange={(e) => setLevel(i, { price: e.target.value })} disabled={disabled} inputMode="decimal" placeholder="價格" className={`${field} w-36`} style={inputStyle} aria-label="價位" />
+              <button type="button" onClick={() => set({ levels: j.levels.filter((_, k) => k !== i) })} disabled={disabled} className="fs-btn icon" aria-label="移除價位" title="移除">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+              </button>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => set({ levels: [...j.levels, { type: '阻力', price: '' }] })} disabled={disabled} className="fs-btn sm">＋ 價位</button>
+            <span className="fs-lbl">選填，只記錄不計分</span>
+          </div>
+        </div>
+
+        <span className="fs-lbl self-start pt-2">圖表</span>
+        <div>
+          {images.length ? (
+            <div className="flex flex-wrap gap-2">
+              {images.map((src) => (
+                <button
+                  key={src}
+                  type="button"
+                  onClick={() => set({ chart_url: j.chart_url === src ? '' : src })}
+                  disabled={disabled}
+                  aria-pressed={j.chart_url === src}
+                  title={j.chart_url === src ? '取消選擇' : '用這張當判讀圖表'}
+                  style={{ outline: j.chart_url === src ? '3px solid var(--accent)' : '1px solid var(--rule)', outlineOffset: j.chart_url === src ? 1 : 0 }}
+                >
+                  <img src={src} alt="" className="w-24 h-16 object-cover block" />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="fs-lbl pt-2">先在文章裡貼上圖表截圖，就能在這裡挑一張</p>
+          )}
+        </div>
+
+        <span className="fs-lbl">一句話理由</span>
+        <input value={j.reason} onChange={(e) => set({ reason: e.target.value })} disabled={disabled} maxLength={140} placeholder="例如：週線 Spring 後回測不破，量縮" className="rounded-xl px-3 py-2 text-sm outline-none w-full" style={inputStyle} aria-label="一句話理由" />
+      </div>
+    </div>
+  );
+};
+
+const JudgmentsEditor = ({ items, setItems, noJudgment, setNoJudgment, images, tags, disabled, inputStyle, onWithdraw }) => {
+  const drafts = items.filter((j) => !j.locked_at);
+  const locked = items.filter((j) => j.locked_at);
+  return (
+    <div className="fs-section">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="fs-title-sm">判讀</h3>
+        <span className="fs-lbl">發佈前至少一則；發佈後鎖定，只能撤回</span>
+      </div>
+
+      {locked.map((j) => (
+        <JudgmentCard key={j.key} j={j} result={null} isAdmin showResult={false} onWithdraw={onWithdraw} />
+      ))}
+
+      {drafts.map((j) => (
+        <JudgmentForm
+          key={j.key}
+          j={j}
+          n={items.indexOf(j) + 1}
+          images={images}
+          disabled={disabled}
+          inputStyle={inputStyle}
+          onChange={(next) => setItems((xs) => xs.map((x) => (x.key === j.key ? next : x)))}
+          onRemove={() => setItems((xs) => xs.filter((x) => x.key !== j.key))}
+        />
+      ))}
+
+      <div className="pt-4 flex flex-wrap items-center gap-4" style={{ borderTop: '1px solid var(--rule)' }}>
+        {!noJudgment && (
+          <button type="button" onClick={() => setItems((xs) => [...xs, jgEmpty(tags)])} disabled={disabled} className="fs-btn sm">
+            ＋ 新增判讀
+          </button>
+        )}
+        {items.length === 0 && (
+          <label className="inline-flex items-center gap-2 text-[14px] cursor-pointer" style={{ color: 'var(--ink-2)' }}>
+            <input type="checkbox" checked={noJudgment} onChange={(e) => setNoJudgment(e.target.checked)} disabled={disabled} />
+            本篇不含判讀（公告、心得等）
+          </label>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
   const [post, setPost] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
@@ -608,6 +1084,13 @@ const PostDetail = ({ supabase, postId, isAdmin, onBack }) => {
           </p>
         </header>
 
+        <JudgmentsSection
+          supabase={supabase}
+          postId={postId}
+          isAdmin={isAdmin}
+          onOpenChart={(src) => setLightbox({ images: [src], index: 0 })}
+        />
+
         <div
           ref={contentRef}
           className="forum-md"
@@ -662,9 +1145,15 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
   const [saving, setSaving] = React.useState(false);
   const [uploadingImage, setUploadingImage] = React.useState(false);
   const [error, setError] = React.useState(null);
+  const [judgments, setJudgments] = React.useState([]);
+  const [noJudgment, setNoJudgment] = React.useState(false);
+  const [contentImages, setContentImages] = React.useState([]);
+  const [loadedJudgmentIds, setLoadedJudgmentIds] = React.useState([]);
 
   const textareaRef = React.useRef(null);
   const easymdeRef  = React.useRef(null);
+  // 新文章第一次存檔後記住 id，重試時改成更新，不會重複建立
+  const savedIdRef  = React.useRef(mode === 'edit' ? postId : null);
 
   React.useEffect(() => {
     if (mode !== 'edit' || !postId) return;
@@ -680,6 +1169,17 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
       setTitle(data.title || '');
       setTagsInput((data.tags || []).join(', '));
       setOrigPublished(!!data.published);
+      setNoJudgment(!!data.no_judgment);
+      const jr = await supabase
+        .from('forum_judgments')
+        .select('*')
+        .eq('post_id', postId)
+        .order('sort', { ascending: true });
+      if (cancelled) return;
+      if (!jr.error && jr.data) {
+        setJudgments(jr.data.map(jgFromRow));
+        setLoadedJudgmentIds(jr.data.filter((r) => !r.locked_at).map((r) => r.id));
+      }
       if (easymdeRef.current) easymdeRef.current.value(data.content || '');
       else window.__pendingEditorContent = data.content || '';
       setLoading(false);
@@ -738,10 +1238,18 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
       },
     });
 
+    const syncImages = () => {
+      if (!easymdeRef.current) return;
+      const next = jgExtractImages(easymdeRef.current.value());
+      setContentImages((prev) => (prev.join('|') === next.join('|') ? prev : next));
+    };
+    easymdeRef.current.codemirror.on('change', syncImages);
+
     if (window.__pendingEditorContent != null) {
       easymdeRef.current.value(window.__pendingEditorContent);
       delete window.__pendingEditorContent;
     }
+    syncImages();
 
     easymdeRef.current.codemirror.on('paste', (cm, e) => {
       const items = e.clipboardData && e.clipboardData.items;
@@ -775,28 +1283,38 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
       .map((t) => t.trim())
       .filter(Boolean);
 
+    const drafts = judgments.filter((jg) => !jg.locked_at);
+    for (const jg of drafts) {
+      const msg = jgValidate(jg, judgments.indexOf(jg) + 1);
+      if (msg) { setError(msg); return; }
+    }
+    if (publishedFlag && judgments.length === 0 && !noJudgment) {
+      setError('發佈前請至少新增一則判讀，或勾選「本篇不含判讀」');
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
+    const wasPublished = mode === 'edit' && origPublished;
     const payload = {
       title: title.trim(),
       content,
       tags: tagsArray,
-      published: publishedFlag,
+      no_judgment: judgments.length === 0 && noJudgment,
+      // 尚未發佈的文章先存成草稿，判讀寫完再發佈（發佈時資料庫會鎖定判讀）
+      published: wasPublished && publishedFlag,
     };
 
-    // 排程 notify_new_posts.py 靠 notification_sent 決定要推播哪幾篇。
-    // 草稿第一次轉為發佈時把旗標歸零,否則那篇文章永遠不會進推播佇列。
-    if (publishedFlag && !(mode === 'edit' && origPublished)) {
-      payload.notification_sent = false;
-    }
+    const fail = (msg) => { setSaving(false); setError(msg); };
 
+    // 1. 文章本體
     let result;
-    if (mode === 'edit') {
+    if (savedIdRef.current) {
       result = await supabase
         .from('forum_posts')
         .update(payload)
-        .eq('id', postId)
+        .eq('id', savedIdRef.current)
         .select()
         .single();
     } else {
@@ -806,13 +1324,51 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
         .select()
         .single();
     }
+    if (result.error) return fail(result.error.message);
+    const id = result.data.id;
+    savedIdRef.current = id;
+
+    // 2. 判讀：刪掉被移除的草稿判讀，更新／新增其餘（已鎖定的不動）
+    const keptIds = new Set(drafts.map((jg) => jg.id).filter(Boolean));
+    const removed = loadedJudgmentIds.filter((jid) => !keptIds.has(jid));
+    if (removed.length) {
+      const del = await supabase.from('forum_judgments').delete().in('id', removed);
+      if (del.error) return fail(`判讀刪除失敗：${del.error.message}`);
+      setLoadedJudgmentIds((ids) => ids.filter((jid) => !removed.includes(jid)));
+    }
+    for (const jg of drafts) {
+      const row = jgToRow(jg, judgments.indexOf(jg));
+      const res = jg.id
+        ? await supabase.from('forum_judgments').update(row).eq('id', jg.id).select().single()
+        : await supabase.from('forum_judgments').insert({ ...row, post_id: id }).select().single();
+      if (res.error) return fail(`判讀儲存失敗：${res.error.message}`);
+      if (!jg.id) {
+        setJudgments((xs) => xs.map((x) => (x.key === jg.key ? { ...x, id: res.data.id } : x)));
+        setLoadedJudgmentIds((ids) => [...ids, res.data.id]);
+        jg.id = res.data.id;
+      }
+    }
+
+    // 3. 發佈
+    // 排程 notify_new_posts.py 靠 notification_sent 決定要推播哪幾篇。
+    // 草稿第一次轉為發佈時把旗標歸零,否則那篇文章永遠不會進推播佇列。
+    if (publishedFlag && !wasPublished) {
+      const pub = await supabase
+        .from('forum_posts')
+        .update({ published: true, notification_sent: false })
+        .eq('id', id)
+        .select()
+        .single();
+      if (pub.error) return fail(`文章已存成草稿，但發佈失敗：${pub.error.message}`);
+    }
 
     setSaving(false);
-    if (result.error) {
-      setError(result.error.message);
-      return;
-    }
-    navigate(`#/forum/${result.data.id}`);
+    navigate(`#/forum/${id}`);
+  };
+
+  const onWithdrawInEditor = async (jg) => {
+    const updated = await withdrawJudgment(supabase, jg);
+    if (updated) setJudgments((xs) => xs.map((x) => (x.id === updated.id ? { ...x, withdrawn_at: updated.withdrawn_at } : x)));
   };
 
   const inputStyle = { background: 'var(--wash)', border: '1px solid var(--line)', color: 'var(--text)' };
@@ -888,6 +1444,18 @@ const PostEditor = ({ supabase, user, mode, postId, onCancel }) => {
       <div>
         <textarea ref={textareaRef} />
       </div>
+
+      <JudgmentsEditor
+        items={judgments}
+        setItems={setJudgments}
+        noJudgment={noJudgment}
+        setNoJudgment={setNoJudgment}
+        images={contentImages}
+        tags={tagsInput.split(',').map((t) => t.trim()).filter(Boolean)}
+        disabled={saving}
+        inputStyle={inputStyle}
+        onWithdraw={onWithdrawInEditor}
+      />
 
       <div className="flex flex-wrap gap-2 justify-end">
         <button
