@@ -127,6 +127,9 @@ const PostCard = ({ post, onOpen, judgments, results, isAdmin }) => {
   );
 };
 
+// 標籤篩選收合時只列出最常用的幾個（已選的標籤一律顯示）
+const TAGS_COLLAPSED = 8;
+
 const PostList = ({ supabase, isAdmin, onOpen }) => {
   const [posts, setPosts] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -136,6 +139,7 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
   const [selectedTags, setSelectedTags] = React.useState([]);
   const [sortDesc, setSortDesc] = React.useState(true);
   const [draftsOnly, setDraftsOnly] = React.useState(false);
+  const [tagsOpen, setTagsOpen] = React.useState(false);
   const [judgmentsByPost, setJudgmentsByPost] = React.useState({});
   const [results, setResults] = React.useState({});
 
@@ -290,7 +294,10 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
       {tagCounts.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="label">TAGS</span>
-          {tagCounts.map(([tag, count]) => {
+          {(tagsOpen
+            ? tagCounts
+            : tagCounts.filter(([tag], i) => i < TAGS_COLLAPSED || selectedTags.includes(tag))
+          ).map(([tag, count]) => {
             const active = selectedTags.includes(tag);
             return (
               <button
@@ -306,6 +313,19 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
               </button>
             );
           })}
+          {tagCounts.length > TAGS_COLLAPSED && (
+            <button
+              onClick={() => setTagsOpen((v) => !v)}
+              aria-expanded={tagsOpen}
+              className="px-2.5 py-1 font-bold inline-flex items-center gap-1"
+              style={{ color: 'var(--ink)' }}
+            >
+              {tagsOpen ? '收合' : `全部標籤（${tagCounts.length}）`}
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: tagsOpen ? 'rotate(180deg)' : 'none' }}>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+          )}
           {filtersActive && (
             <button
               onClick={clearFilters}
