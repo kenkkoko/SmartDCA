@@ -3485,13 +3485,16 @@ import economicCalendar from '../economic_calendar.json';
             const highs = bars.map(b => (b.high != null ? b.high : b.close));
             const n = bars.length;
 
-            const scan = (kind) => {
+            // 每個樞紐都跟「往回最近一個符合條件的樞紐」配一次,全部收集起來 —
+            // 圖上會把每一組都標點,由使用者自己判讀,而不是只留最新的一組。
+            const scanAll = (kind) => {
                 const isBull = kind === 'bullish';
                 const series = isBull ? lows : highs;
                 const pivots = findPivotIndices(series, pivotSpan, isBull ? 'low' : 'high')
                     .filter(i => dif[i] != null);
 
-                for (let b = pivots.length - 1; b >= 1; b--) {
+                const found = [];
+                for (let b = 1; b < pivots.length; b++) {
                     const i2 = pivots[b];
                     for (let a = b - 1; a >= 0; a--) {
                         const i1 = pivots[a];
@@ -3501,7 +3504,7 @@ import economicCalendar from '../economic_calendar.json';
                         const priceDiverges = isBull ? series[i2] < series[i1] : series[i2] > series[i1];
                         const macdDiverges  = isBull ? dif[i2]   > dif[i1]     : dif[i2]   < dif[i1];
                         if (priceDiverges && macdDiverges) {
-                            return {
+                            found.push({
                                 kind,
                                 i1, i2,
                                 t1: bars[i1].t, t2: bars[i2].t,
@@ -3511,15 +3514,19 @@ import economicCalendar from '../economic_calendar.json';
                                 barsSince: n - 1 - i2,
                                 // 底背離出現在零軸下方 / 頂背離在零軸上方,參考價值較高
                                 strong: isBull ? dif[i2] < 0 : dif[i2] > 0,
-                            };
+                            });
+                            break;
                         }
                     }
                 }
-                return null;
+                return found;
             };
 
-            const bullish = scan('bullish');
-            const bearish = scan('bearish');
+            const bullAll = scanAll('bullish');
+            const bearAll = scanAll('bearish');
+            const all = [...bullAll, ...bearAll].sort((a, b) => a.i2 - b.i2);
+            const bullish = bullAll.length ? bullAll[bullAll.length - 1] : null;
+            const bearish = bearAll.length ? bearAll[bearAll.length - 1] : null;
 
             let active = null;
             const candidates = [bullish, bearish].filter(d => d && d.barsSince <= activeWithin);
@@ -3539,7 +3546,7 @@ import economicCalendar from '../economic_calendar.json';
 
             return {
                 bars, dif, dea, histogram,
-                bullish, bearish, active, cross,
+                all, bullish, bearish, active, cross,
                 last: {
                     dif: dif[n - 1], dea: dea[n - 1], hist: histogram[n - 1],
                     close: closes[n - 1], t: bars[n - 1].t,
@@ -3664,10 +3671,6 @@ import economicCalendar from '../economic_calendar.json';
                     : { title: '週線 MACD 頂背離', desc: '價格創新高、MACD 沒有跟著創新高 — 上漲動能轉弱,加碼前留意風險。', color: 'var(--down)' })
                 : { title: '目前無明顯背離', desc: '最近幾週價格與 MACD 同向,沒有偵測到有效背離。', color: 'var(--ink-3)' };
 
-            const history = [data.bullish, data.bearish]
-                .filter(d => d && (!act || d !== act))
-                .sort((a, b) => b.i2 - a.i2);
-
             // ── Diagram geometry (real pixels) ──
             const total = data.bars.length;
             const start = Math.max(0, total - MACD_VIEW_BARS);
@@ -3677,74 +3680,42 @@ import economicCalendar from '../economic_calendar.json';
             const W = Math.max(300, width || 0);
             const small = W < 560;
             const L = small ? 44 : 64, R = 12, T = 14;
-            // Price panel, DIF/DEA panel, and a separate histogram panel: the histogram is usually far smaller
-            // than DIF/DEA, so on a shared axis its bars flatten to nothing. Each panel gets its own scale.
-            const H1 = small ? 170 : 210, H2 = small ? 130 : 160, H3 = small ? 78 : 96;
-            const B1 = H1 - 22, B2 = H2 - 8, T3 = 6, B3 = H3 - 24;
+            // 兩個面板:價格 + MACD。柱狀圖和 DIF/DEA 畫在同一格(共用零軸),但高度用自己的刻度換算 —
+            // 柱狀圖數值通常比 DIF/DEA 小一個數量級,共用刻度會整排貼在零軸上看不出變化。
+            const H1 = small ? 170 : 210, H2 = small ? 176 : 216;
+            const B1 = H1 - 22, B2 = H2 - 22;
             const X = (i) => L + (i / Math.max(1, n - 1)) * (W - L - R);
             const pMin = Math.min(...closes), pMax = Math.max(...closes);
             const yP = (v) => B1 - ((v - pMin) / ((pMax - pMin) || 1)) * (B1 - T);
             const lim = Math.max(1e-9, ...[...dif, ...dea].filter(v => v != null).map(Math.abs));
             const yO = (v) => T + (1 - (v + lim) / (2 * lim)) * (B2 - T);
             const hLim = Math.max(1e-9, ...hist.filter(v => v != null).map(Math.abs));
-            const hMid = (T3 + B3) / 2, hHalf = (B3 - T3) / 2;
+            const hMid = yO(0);                       // 與 DIF/DEA 同一條零軸
+            const hHalf = ((B2 - T) / 2) * 0.86;      // 高度用柱狀圖自己的刻度
             const yH = (v) => hMid - (v / hLim) * hHalf;
             const path = (arr, yf) => arr.map((v, i) => (v == null ? null : `${X(i)} ${yf(v)}`)).filter(Boolean).map((p, i) => (i ? 'L' : 'M') + p).join(' ');
             const fmtAxis = (v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : fmtNum(v, Math.abs(v) >= 10 ? 0 : 2));
 
-            // Divergences visible in the window, drawn as connectors between their pivots
-            const divs = [data.bullish, data.bearish]
-                .filter(d => d && d.i1 >= start)
+            // 視窗內的每一組背離都標點(不只最新一組)
+            const divs = (data.all || [])
+                .filter(d => d.i1 >= start)
                 .map(d => ({ ...d, a: d.i1 - start, b: d.i2 - start, isActive: act === d, color: d.kind === 'bullish' ? 'var(--up)' : 'var(--down)' }));
-            const note = (d) => d.kind === 'bullish'
-                ? { price: '價格 ↘ 新低', dif: 'DIF ↗ 沒破底' }
-                : { price: '價格 ↗ 新高', dif: 'DIF ↘ 沒創新高' };
-
-            const connector = (d, arr, yf, off, key, bottom) => {
-                const x1 = X(d.a), x2 = X(d.b), y1 = yf(arr[d.a]), y2 = yf(arr[d.b]);
-                const dy = d.kind === 'bullish' ? off : -off;
-                // Keep pivot labels inside the plot: flip to the other side when they would hit the axis or legend
-                const labelY = (y) => {
-                    const want = y + dy * 2.6 + 4;
-                    if (want > bottom - 2) return y - 12;
-                    if (want < T + 10) return y + 20;
-                    return want;
-                };
-                return (
-                    <g key={key} style={{ opacity: d.isActive ? 1 : 0.55 }}>
-                        <line x1={x1} y1={y1 + dy} x2={x2} y2={y2 + dy} style={{ stroke: d.color, strokeWidth: 2.5 }} />
-                        {[[x1, y1, 'A'], [x2, y2, 'B']].map(([x, y, t]) => (
-                            <g key={t}>
-                                <circle cx={x} cy={y} r={5} style={{ fill: 'var(--paper)', stroke: d.color, strokeWidth: 2.5 }} />
-                                {d.isActive && <text x={x} y={labelY(y)} textAnchor="middle" style={{ fill: d.color, fontSize: 12, fontWeight: 900, paintOrder: 'stroke', stroke: 'var(--paper)', strokeWidth: 4, strokeLinejoin: 'round' }}>{t}</text>}
-                            </g>
-                        ))}
-                    </g>
-                );
-            };
-
-            // Divergence annotation, drawn last. It sits on the side of the connector away from the curve
-            // (below for bullish, above for bearish); if that leaves the plot it moves beside the pivots instead.
-            const annotation = (d, arr, yf, off, key, bottom) => {
-                if (!d.isActive) return null;
-                const x1 = X(d.a), x2 = X(d.b), y1 = yf(arr[d.a]), y2 = yf(arr[d.b]);
-                const fs = small ? 11 : 12;
-                const text = key.startsWith('p') ? note(d).price : note(d).dif;
-                const textW = text.length * fs * 0.9;
-                const mid = (y1 + y2) / 2 + (d.kind === 'bullish' ? off : -off);
-                let x = (x1 + x2) / 2, y = d.kind === 'bullish' ? mid + fs + 6 : mid - 8, anchor = 'middle';
-                if (y > bottom - 2 || y < T + fs) {
-                    const cy = (d.kind === 'bullish' ? off : -off) + y2 + 4;
-                    if (W - R - x2 - 12 > textW) { x = x2 + 12; y = cy; anchor = 'start'; }
-                    else { x = x1 - 12; y = (d.kind === 'bullish' ? off : -off) + y1 + 4; anchor = 'end'; }
-                }
-                return (
-                    <text key={`n${key}`} x={x} y={y} textAnchor={anchor}
-                        style={{ fill: d.color, fontSize: fs, fontWeight: 700, paintOrder: 'stroke', stroke: 'var(--paper)', strokeWidth: 6, strokeLinejoin: 'round' }}>
-                        {text}
-                    </text>
-                );
-            };
+            const visBull = divs.filter(d => d.kind === 'bullish').length;
+            const visBear = divs.length - visBull;
+            // 同一根週 K 常同時是好幾組背離的端點 — 去重後再畫,最新那組優先決定顏色
+            const dotList = (() => {
+                const m = new Map();
+                divs.forEach(d => [d.a, d.b].forEach(i => {
+                    const prev = m.get(i);
+                    if (!prev || (d.isActive && !prev.isActive)) m.set(i, { i, color: d.color, isActive: d.isActive });
+                }));
+                return [...m.values()];
+            })();
+            // 背離只用圓點標出轉折點:不畫連線、不加文字標註
+            const pivotDots = (arr, yf, key) => dotList.map(p => (arr[p.i] == null ? null : (
+                <circle key={`${key}${p.i}`} cx={X(p.i)} cy={yf(arr[p.i])} r={p.isActive ? 5 : 4}
+                    style={{ fill: 'var(--paper)', stroke: p.color, strokeWidth: 2.5, opacity: p.isActive ? 1 : 0.55 }} />
+            )));
 
             const onMove = (e) => {
                 const r = e.currentTarget.getBoundingClientRect();
@@ -3821,13 +3792,9 @@ import economicCalendar from '../economic_calendar.json';
                                         <text x={L - 8} y={yP(v) + 4} textAnchor="end" style={{ fill: 'var(--ink-3)', fontSize: 11 }}>{fmtAxis(v)}</text>
                                     </g>
                                 ))}
-                                {divs.filter(d => d.isActive).map(d => [d.a, d.b].map(i => (
-                                    <line key={`g${i}`} x1={X(i)} x2={X(i)} y1={T} y2={B1} style={{ stroke: d.color, strokeDasharray: '3 4', opacity: 0.6 }} />
-                                )))}
                                 <path d={path(closes, yP)} fill="none" style={{ stroke: 'var(--ink)', strokeWidth: 1.6 }} />
-                                {divs.map((d, k) => connector(d, closes, yP, 10, `p${k}`, B1))}
                                 {guideX != null && <line x1={guideX} x2={guideX} y1={T} y2={B1} style={{ stroke: 'var(--ink-3)' }} />}
-                                {divs.map((d, k) => annotation(d, closes, yP, 10, `p${k}`, B1))}
+                                {pivotDots(closes, yP, 'p')}
                             </svg>
 
                             <div className="flex justify-between gap-3 flex-wrap text-[12px] mt-4 mb-1.5 num" style={{ color: 'var(--ink-3)' }}>
@@ -3835,7 +3802,7 @@ import economicCalendar from '../economic_calendar.json';
                                 <span className="flex items-center gap-3" style={{ color: 'var(--ink-2)' }}>
                                     <span className="inline-flex items-center gap-1"><i style={{ width: 14, height: 2, background: 'var(--ink)', display: 'inline-block' }} />DIF {fmtNum(dif[hv], 3)}</span>
                                     <span className="inline-flex items-center gap-1"><i style={{ width: 14, height: 2, background: 'var(--ink-3)', display: 'inline-block' }} />DEA {fmtNum(dea[hv], 3)}</span>
-                                    <span className="inline-flex items-center gap-1"><i style={{ width: 6, height: 8, background: 'var(--up)', opacity: 0.5, display: 'inline-block' }} /><i style={{ width: 6, height: 8, background: 'var(--down)', opacity: 0.5, display: 'inline-block' }} />柱狀圖 {fmtNum(hist[hv], 3)}</span>
+                                    <span className="inline-flex items-center gap-1"><i style={{ width: 6, height: 8, background: 'var(--up)', opacity: 0.5, display: 'inline-block' }} /><i style={{ width: 6, height: 8, background: 'var(--down)', opacity: 0.5, display: 'inline-block' }} />柱狀圖 {fmtNum(hist[hv], 3)}<span style={{ color: 'var(--ink-3)' }}>（獨立刻度）</span></span>
                                 </span>
                             </div>
                             <svg width="100%" viewBox={`0 0 ${W} ${H2}`} onMouseMove={onMove} onMouseLeave={() => setHover(null)} style={{ display: 'block', overflow: 'visible' }}>
@@ -3846,43 +3813,27 @@ import economicCalendar from '../economic_calendar.json';
                                     </g>
                                 ))}
                                 <text x={L - 8} y={yO(0) + 4} textAnchor="end" style={{ fill: 'var(--ink-3)', fontSize: 11 }}>0</text>
-                                {divs.filter(d => d.isActive).map(d => [d.a, d.b].map(i => (
-                                    <line key={`g${i}`} x1={X(i)} x2={X(i)} y1={T} y2={B2} style={{ stroke: d.color, strokeDasharray: '3 4', opacity: 0.6 }} />
-                                )))}
+                                {hist.map((v, i) => v == null ? null : (
+                                    <rect key={i} x={X(i) - bw / 2} y={Math.min(yH(v), hMid)} width={bw} height={Math.max(1, Math.abs(yH(v) - hMid))}
+                                        style={{ fill: v >= 0 ? 'var(--up)' : 'var(--down)', opacity: 0.45 }} />
+                                ))}
                                 <line x1={L} x2={W - R} y1={yO(0)} y2={yO(0)} style={{ stroke: 'var(--ink)' }} />
                                 <path d={path(dea, yO)} fill="none" style={{ stroke: 'var(--ink-3)', strokeWidth: 1.4 }} />
                                 <path d={path(dif, yO)} fill="none" style={{ stroke: 'var(--ink)', strokeWidth: 1.8 }} />
-                                {divs.map((d, k) => connector(d, dif, yO, 10, `o${k}`, B2))}
                                 {guideX != null && <line x1={guideX} x2={guideX} y1={T} y2={B2} style={{ stroke: 'var(--ink-3)' }} />}
-                                {divs.map((d, k) => annotation(d, dif, yO, 10, `o${k}`, B2))}
+                                {pivotDots(dif, yO, 'o')}
+                                {[0, Math.floor((n - 1) / 2), n - 1].map((i, k) => (
+                                    <text key={i} x={X(i)} y={H2 - 6} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'} style={{ fill: 'var(--ink-3)', fontSize: 11 }}>{fmtWeek(data.bars[start + i].t)}</text>
+                                ))}
                             </svg>
 
-                            {/* Histogram on its own scale so small bars stay readable */}
-                            <svg width="100%" viewBox={`0 0 ${W} ${H3}`} onMouseMove={onMove} onMouseLeave={() => setHover(null)} style={{ display: 'block', overflow: 'visible', marginTop: 6 }}
-                                role="img" aria-label="週線 MACD 柱狀圖">
-                                {[hLim, -hLim].map((v, i) => (
-                                    <text key={i} x={L - 8} y={yH(v) + 4} textAnchor="end" style={{ fill: 'var(--ink-3)', fontSize: 10 }}>{fmtAxis(v)}</text>
-                                ))}
-                                <text x={L + 4} y={T3 + 9} style={{ fill: 'var(--ink-3)', fontSize: 10 }}>柱狀圖</text>
-                                {divs.filter(d => d.isActive).map(d => [d.a, d.b].map(i => (
-                                    <line key={`g${i}`} x1={X(i)} x2={X(i)} y1={T3} y2={B3} style={{ stroke: d.color, strokeDasharray: '3 4', opacity: 0.6 }} />
-                                )))}
-                                {hist.map((v, i) => v == null ? null : (
-                                    <rect key={i} x={X(i) - bw / 2} y={Math.min(yH(v), hMid)} width={bw} height={Math.max(1, Math.abs(yH(v) - hMid))}
-                                        style={{ fill: v >= 0 ? 'var(--up)' : 'var(--down)', opacity: 0.6 }} />
-                                ))}
-                                <line x1={L} x2={W - R} y1={hMid} y2={hMid} style={{ stroke: 'var(--ink)' }} />
-                                {guideX != null && <line x1={guideX} x2={guideX} y1={T3} y2={B3} style={{ stroke: 'var(--ink-3)' }} />}
-                                {[0, Math.floor((n - 1) / 2), n - 1].map((i, k) => (
-                                    <text key={i} x={X(i)} y={H3 - 6} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'} style={{ fill: 'var(--ink-3)', fontSize: 11 }}>{fmtWeek(data.bars[start + i].t)}</text>
-                                ))}
-                            </svg>
                         </>
                     )}
 
-                    {history.length > 0 && (
+                    {divs.length > 0 && (
                         <div className="text-[12px] mt-4" style={{ color: 'var(--ink-3)' }}>
-                            較早的背離：{history.map(d => `${d.kind === 'bullish' ? '底背離' : '頂背離'} ${fmtWeek(d.t2)}（${d.barsSince} 週前）`).join('、')}
+                            圖上這 {n} 週內共 {divs.length} 組背離（底背離 {visBull}、頂背離 {visBear}）。
+                            圓點是每一組的轉折點，綠＝底背離、紅＝頂背離；最新一組畫得較深，其餘較淡。
                         </div>
                     )}
 
