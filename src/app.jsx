@@ -3456,6 +3456,13 @@ import economicCalendar from '../economic_calendar.json';
             maxGap: 52,        // 最多比對 52 週內的前一個樞紐
             activeWithin: 8,   // 右樞紐落在最近 8 週內 → 視為仍在進行
             minBars: 60,       // 至少 60 根週 K 才算得出穩定的 MACD
+            // 動能重置:兩個樞紐中間必須真的有過一段反彈/回檔,否則同一波行情會被拆成好幾組
+            //   'zero'  — DIF 要回到零軸另一側(嚴,長空/長多段裡的背離會被濾掉)
+            //   'cross' — 中間出現一次反向的 DIF×DEA 交叉即可(鬆)
+            //   false   — 不檢查
+            requireReset: 'zero',
+            uniquePivot: true,    // 同一根樞紐只能當一組背離的端點,避免鏈狀重複
+            confirmWithin: 8,     // 右樞紐之後幾週內出現 DIF×DEA 交叉 → 標記為「已確認」
         };
 
         // 找出序列中的轉折點(左右 span 根都沒有更極端的值)
@@ -3476,7 +3483,8 @@ import economicCalendar from '../economic_calendar.json';
 
         // bars: [{ t, high, low, close }] — 由舊到新的週 K
         const detectMACDDivergence = (bars) => {
-            const { pivotSpan, minGap, maxGap, activeWithin, minBars } = MACD_DIV_CFG;
+            const { pivotSpan, minGap, maxGap, activeWithin, minBars,
+                    requireReset, uniquePivot, confirmWithin } = MACD_DIV_CFG;
             if (!bars || bars.length < minBars) return null;
 
             const closes = bars.map(b => b.close);
@@ -3494,6 +3502,7 @@ import economicCalendar from '../economic_calendar.json';
                     .filter(i => dif[i] != null);
 
                 const found = [];
+                const used = new Set();
                 for (let b = 1; b < pivots.length; b++) {
                     const i2 = pivots[b];
                     for (let a = b - 1; a >= 0; a--) {
@@ -3504,7 +3513,40 @@ import economicCalendar from '../economic_calendar.json';
                         const priceDiverges = isBull ? series[i2] < series[i1] : series[i2] > series[i1];
                         const macdDiverges  = isBull ? dif[i2]   > dif[i1]     : dif[i2]   < dif[i1];
                         if (priceDiverges && macdDiverges) {
+                            // 動能重置:兩個樞紐之間 DIF 要回到零軸另一側過,中間才算真的有一段反彈/回檔。
+                            // 少了這關,同一波下跌的每個新低都會跟前一個低點配成一組,畫面全是鏈狀重複。
+                            if (requireReset === 'zero') {
+                                const mid = dif.slice(i1 + 1, i2);
+                                const wentBack = isBull
+                                    ? mid.some(v => v != null && v > 0)
+                                    : mid.some(v => v != null && v < 0);
+                                if (!wentBack) continue;
+                            } else if (requireReset === 'cross') {
+                                let crossed = false;
+                                for (let k = i1 + 2; k < i2; k++) {
+                                    if (dif[k] == null || dea[k] == null || dif[k - 1] == null || dea[k - 1] == null) continue;
+                                    const prev = dif[k - 1] - dea[k - 1], cur = dif[k] - dea[k];
+                                    if (isBull ? (prev <= 0 && cur > 0) : (prev >= 0 && cur < 0)) { crossed = true; break; }
+                                }
+                                if (!crossed) continue;
+                            }
+                            // 同一根樞紐只用一次(前面的配對先佔),避免一個點同時是三組的端點
+                            if (uniquePivot && (used.has(i1) || used.has(i2))) continue;
+
+                            // 交叉確認:背離是條件、交叉才是扳機。這裡不拿它過濾,只標記狀態 —
+                            // 右樞紐之後 confirmWithin 週內出現對應方向的 DIF×DEA 交叉就算已確認。
+                            let confirmedAt = null;
+                            for (let k = i2 + 1; k <= Math.min(n - 1, i2 + confirmWithin); k++) {
+                                if (dif[k] == null || dea[k] == null || dif[k - 1] == null || dea[k - 1] == null) continue;
+                                const prev = dif[k - 1] - dea[k - 1], cur = dif[k] - dea[k];
+                                if (isBull ? (prev <= 0 && cur > 0) : (prev >= 0 && cur < 0)) { confirmedAt = k; break; }
+                            }
+                            if (uniquePivot) { used.add(i1); used.add(i2); }
+
                             found.push({
+                                confirmed: confirmedAt != null,
+                                confirmedAt,
+                                tConfirmed: confirmedAt != null ? bars[confirmedAt].t : null,
                                 kind,
                                 i1, i2,
                                 t1: bars[i1].t, t2: bars[i2].t,
@@ -3707,14 +3749,18 @@ import economicCalendar from '../economic_calendar.json';
                 const m = new Map();
                 divs.forEach(d => [d.a, d.b].forEach(i => {
                     const prev = m.get(i);
-                    if (!prev || (d.isActive && !prev.isActive)) m.set(i, { i, color: d.color, isActive: d.isActive });
+                    if (!prev || (d.isActive && !prev.isActive)) {
+                        m.set(i, { i, color: d.color, isActive: d.isActive, confirmed: !!d.confirmed });
+                    }
                 }));
                 return [...m.values()];
             })();
+            const confirmedCount = divs.filter(d => d.confirmed).length;
             // 背離只用圓點標出轉折點:不畫連線、不加文字標註
+            // 實心＝事後出現 DIF×DEA 交叉確認,空心＝背離成形但還沒交叉
             const pivotDots = (arr, yf, key) => dotList.map(p => (arr[p.i] == null ? null : (
                 <circle key={`${key}${p.i}`} cx={X(p.i)} cy={yf(arr[p.i])} r={p.isActive ? 5 : 4}
-                    style={{ fill: 'var(--paper)', stroke: p.color, strokeWidth: 2.5, opacity: p.isActive ? 1 : 0.55 }} />
+                    style={{ fill: p.confirmed ? p.color : 'var(--paper)', stroke: p.color, strokeWidth: 2.5, opacity: p.isActive ? 1 : 0.55 }} />
             )));
 
             const onMove = (e) => {
@@ -3753,6 +3799,11 @@ import economicCalendar from '../economic_calendar.json';
                                 <div>
                                     {act.kind === 'bullish' ? '低點' : '高點'} {fmtNum(act.price1, 2)} → {fmtNum(act.price2, 2)}　|
                                     DIF {fmtNum(act.dif1, 3)} → {fmtNum(act.dif2, 3)}
+                                </div>
+                                <div>
+                                    {act.confirmed
+                                        ? `已出現 ${act.kind === 'bullish' ? '金叉' : '死叉'}確認（${fmtWeek(act.tConfirmed)}）`
+                                        : '尚未出現交叉確認 — 背離是條件，DIF × DEA 交叉才是進場扳機'}
                                 </div>
                             </div>
                         )}
@@ -3832,14 +3883,15 @@ import economicCalendar from '../economic_calendar.json';
 
                     {divs.length > 0 && (
                         <div className="text-[12px] mt-4" style={{ color: 'var(--ink-3)' }}>
-                            圖上這 {n} 週內共 {divs.length} 組背離（底背離 {visBull}、頂背離 {visBear}）。
-                            圓點是每一組的轉折點，綠＝底背離、紅＝頂背離；最新一組畫得較深，其餘較淡。
+                            圖上這 {n} 週內共 {divs.length} 組背離（底背離 {visBull}、頂背離 {visBear}），其中 {confirmedCount} 組事後出現交叉確認。
+                            圓點是每一組的轉折點，綠＝底背離、紅＝頂背離；<b>實心＝已交叉確認、空心＝尚未確認</b>；最新一組畫得較深，其餘較淡。
                         </div>
                     )}
 
                     <p className="text-[12px] leading-relaxed mt-2 max-w-[80ch]" style={{ color: 'var(--ink-3)' }}>
                         背離＝價格與動能不同步：價格破前低但 MACD 的 DIF 沒破前低為「底背離」，反之為「頂背離」。
                         這裡用週線、12/26/9 參數，轉折點需左右各 2 根週 K 確認，所以最新一週的訊號可能還會變動。
+                        另外要求兩個轉折點之間 DIF 曾回到零軸另一側（中間真的有過一段反彈/回檔），且同一根轉折點只算一組，避免同一波行情被拆成好幾組重複的背離。
                         <span style={{ color: 'var(--ink-2)' }}>買賣訊號仍以原本的恐懼貪婪 / RSI 判讀為主，此指標僅作輔助。</span>
                     </p>
                 </div>
