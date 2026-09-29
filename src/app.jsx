@@ -3450,10 +3450,14 @@ import economicCalendar from '../economic_calendar.json';
         // 主頁情緒卡片的第二個檢視:用「價格新低 / MACD 沒有新低」這類背離
         // 當作買入的輔助判讀。DCA 進出場訊號仍以原本的恐懼貪婪 / RSI 為主。
         // ─────────────────────────────────────────────
+        // 價格與 DIF 各自找樞紐,再把時間相近的樞紐配對比較。
+        // DIF 必須自己也形成轉折,才算「動能沒有跟上」,而不是只拿價格低點那一週的 DIF 硬比。
         const MACD_DIV_CFG = {
             pivotSpan: 2,      // 樞紐:左右各 2 根週 K 都沒有更低/更高
+            difTolerance: 3,   // 價格樞紐前後 3 週內要有 DIF 樞紐,才能配對
             minGap: 4,         // 兩個樞紐至少相隔 4 週,太近沒有意義
             maxGap: 52,        // 最多比對 52 週內的前一個樞紐
+            minDifChange: 0.1, // 兩個 DIF 樞紐至少相差 10%,幾乎打平不算背離
             activeWithin: 8,   // 右樞紐落在最近 8 週內 → 視為仍在進行
             minBars: 60,       // 至少 60 根週 K 才算得出穩定的 MACD
         };
@@ -3476,7 +3480,7 @@ import economicCalendar from '../economic_calendar.json';
 
         // bars: [{ t, high, low, close }] — 由舊到新的週 K
         const detectMACDDivergence = (bars) => {
-            const { pivotSpan, minGap, maxGap, activeWithin, minBars } = MACD_DIV_CFG;
+            const { pivotSpan, difTolerance, minGap, maxGap, minDifChange, activeWithin, minBars } = MACD_DIV_CFG;
             if (!bars || bars.length < minBars) return null;
 
             const closes = bars.map(b => b.close);
@@ -3488,29 +3492,52 @@ import economicCalendar from '../economic_calendar.json';
             const scan = (kind) => {
                 const isBull = kind === 'bullish';
                 const series = isBull ? lows : highs;
-                const pivots = findPivotIndices(series, pivotSpan, isBull ? 'low' : 'high')
-                    .filter(i => dif[i] != null);
+                const more = (x, y) => (isBull ? x < y : x > y); // x 比 y 更極端
+                const pricePivots = findPivotIndices(series, pivotSpan, isBull ? 'low' : 'high');
+                const difPivots = findPivotIndices(dif, pivotSpan, isBull ? 'low' : 'high')
+                    .filter(j => dif[j] != null);
 
-                for (let b = pivots.length - 1; b >= 1; b--) {
-                    const i2 = pivots[b];
+                // 價格樞紐前後 difTolerance 週內最極端的 DIF 樞紐;沒有就代表 DIF 沒有跟著轉折
+                const matchDif = (i) => {
+                    let best = null;
+                    for (const j of difPivots) {
+                        if (Math.abs(j - i) > difTolerance) continue;
+                        if (best == null || more(dif[j], dif[best])) best = j;
+                    }
+                    return best;
+                };
+
+                for (let b = pricePivots.length - 1; b >= 1; b--) {
+                    const i2 = pricePivots[b];
+                    const j2 = matchDif(i2);
+                    if (j2 == null) continue;
                     for (let a = b - 1; a >= 0; a--) {
-                        const i1 = pivots[a];
+                        const i1 = pricePivots[a];
                         const gap = i2 - i1;
                         if (gap < minGap) continue;
                         if (gap > maxGap) break;
-                        const priceDiverges = isBull ? series[i2] < series[i1] : series[i2] > series[i1];
-                        const macdDiverges  = isBull ? dif[i2]   > dif[i1]     : dif[i2]   < dif[i1];
-                        if (priceDiverges && macdDiverges) {
+                        // 兩點之間若有比右樞紐更極端的價格,價格其實沒有創新低/高;
+                        // 再往前的樞紐也會跨過這一段,所以直接停止
+                        let crossed = false;
+                        for (let k = i1 + 1; k < i2; k++) if (more(series[k], series[i2])) { crossed = true; break; }
+                        if (crossed) break;
+                        if (!more(series[i2], series[i1])) continue;
+
+                        const j1 = matchDif(i1);
+                        if (j1 == null || j1 >= j2) continue;
+                        const change = Math.abs(dif[j2] - dif[j1]) / Math.max(Math.abs(dif[j1]), 1e-9);
+                        const macdDiverges = isBull ? dif[j2] > dif[j1] : dif[j2] < dif[j1];
+                        if (macdDiverges && change >= minDifChange) {
                             return {
                                 kind,
-                                i1, i2,
+                                i1, i2, j1, j2,
                                 t1: bars[i1].t, t2: bars[i2].t,
                                 price1: series[i1], price2: series[i2],
-                                dif1: dif[i1], dif2: dif[i2],
+                                dif1: dif[j1], dif2: dif[j2],
                                 weeks: gap,
                                 barsSince: n - 1 - i2,
                                 // 底背離出現在零軸下方 / 頂背離在零軸上方,參考價值較高
-                                strong: isBull ? dif[i2] < 0 : dif[i2] > 0,
+                                strong: isBull ? dif[j2] < 0 : dif[j2] > 0,
                             };
                         }
                     }
@@ -3558,7 +3585,10 @@ import economicCalendar from '../economic_calendar.json';
                 if (!res.ok) throw new Error('Binance 週線取得失敗');
                 const kl = await res.json();
                 if (!Array.isArray(kl) || !kl.length) throw new Error('查無週線資料');
-                return kl.map(k => ({ t: k[0], high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]) }));
+                // 只留已收盤的週 K(closeTime 已過),避免當週未收盤的高低點讓背離時有時無
+                const now = Date.now();
+                return kl.filter(k => k[6] < now)
+                    .map(k => ({ t: k[0], high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]) }));
             }
 
             const ticker = market === 'tw'
@@ -3571,9 +3601,11 @@ import economicCalendar from '../economic_calendar.json';
             const result = json?.chart?.result?.[0];
             const quote = result?.indicators?.quote?.[0];
             if (!result || !quote || !result.timestamp) throw new Error('查無此代號的週線資料');
+            // Yahoo 週線的時間戳是該週起點;起點 + 7 天還沒到 → 當週尚未收盤,不列入
+            const now = Date.now();
             return result.timestamp
                 .map((t, i) => ({ t: t * 1000, high: quote.high?.[i], low: quote.low?.[i], close: quote.close?.[i] }))
-                .filter(b => b.close != null);
+                .filter(b => b.close != null && b.t + 7 * 864e5 <= now);
         };
 
         // Dev-only: synthetic weekly series with a designed divergence, for reviewing the diagram.
@@ -3694,20 +3726,23 @@ import economicCalendar from '../economic_calendar.json';
             // 視窗內的每一組背離都標點(不只最新一組)
             const divs = (data.all || [])
                 .filter(d => d.i1 >= start)
-                .map(d => ({ ...d, a: d.i1 - start, b: d.i2 - start, isActive: act === d, color: d.kind === 'bullish' ? 'var(--up)' : 'var(--down)' }));
+                .map(d => ({ ...d, a: d.i1 - start, b: d.i2 - start, ja: (d.j1 ?? d.i1) - start, jb: (d.j2 ?? d.i2) - start, isActive: act === d, color: d.kind === 'bullish' ? 'var(--up)' : 'var(--down)' }));
             const visBull = divs.filter(d => d.kind === 'bullish').length;
             const visBear = divs.length - visBull;
-            // 同一根週 K 常同時是好幾組背離的端點 — 去重後再畫,最新那組優先決定顏色
-            const dotList = (() => {
+            // 同一根週 K 常同時是好幾組背離的端點 — 去重後再畫,最新那組優先決定顏色。
+            // 價格圖標在價格樞紐,DIF 圖標在 DIF 自己的樞紐(兩者可能相差幾週)
+            const makeDots = (pick) => {
                 const m = new Map();
-                divs.forEach(d => [d.a, d.b].forEach(i => {
+                divs.forEach(d => pick(d).forEach(i => {
                     const prev = m.get(i);
                     if (!prev || (d.isActive && !prev.isActive)) m.set(i, { i, color: d.color, isActive: d.isActive });
                 }));
                 return [...m.values()];
-            })();
+            };
+            const priceDots = makeDots(d => [d.a, d.b]);
+            const difDots = makeDots(d => [d.ja, d.jb]);
             // 背離只用圓點標出轉折點:不畫連線、不加文字標註
-            const pivotDots = (arr, yf, key) => dotList.map(p => (arr[p.i] == null ? null : (
+            const pivotDots = (arr, yf, key, list) => list.map(p => (arr[p.i] == null ? null : (
                 <circle key={`${key}${p.i}`} cx={X(p.i)} cy={yf(arr[p.i])} r={p.isActive ? 5 : 4}
                     style={{ fill: 'var(--paper)', stroke: p.color, strokeWidth: 2.5, opacity: p.isActive ? 1 : 0.55 }} />
             )));
@@ -3789,7 +3824,7 @@ import economicCalendar from '../economic_calendar.json';
                                 ))}
                                 <path d={path(closes, yP)} fill="none" style={{ stroke: 'var(--ink)', strokeWidth: 1.6 }} />
                                 {guideX != null && <line x1={guideX} x2={guideX} y1={T} y2={B1} style={{ stroke: 'var(--ink-3)' }} />}
-                                {pivotDots(closes, yP, 'p')}
+                                {pivotDots(closes, yP, 'p', priceDots)}
                             </svg>
 
                             <div className="flex justify-between gap-3 flex-wrap text-[12px] mt-4 mb-1.5 num" style={{ color: 'var(--ink-3)' }}>
@@ -3816,7 +3851,7 @@ import economicCalendar from '../economic_calendar.json';
                                 <path d={path(dea, yO)} fill="none" style={{ stroke: 'var(--ink-3)', strokeWidth: 1.4 }} />
                                 <path d={path(dif, yO)} fill="none" style={{ stroke: 'var(--ink)', strokeWidth: 1.8 }} />
                                 {guideX != null && <line x1={guideX} x2={guideX} y1={T} y2={B2} style={{ stroke: 'var(--ink-3)' }} />}
-                                {pivotDots(dif, yO, 'o')}
+                                {pivotDots(dif, yO, 'o', difDots)}
                                 {[0, Math.floor((n - 1) / 2), n - 1].map((i, k) => (
                                     <text key={i} x={X(i)} y={H2 - 6} textAnchor={k === 0 ? 'start' : k === 2 ? 'end' : 'middle'} style={{ fill: 'var(--ink-3)', fontSize: 11 }}>{fmtWeek(data.bars[start + i].t)}</text>
                                 ))}
