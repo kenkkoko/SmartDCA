@@ -40,7 +40,7 @@ function useOutside(open: boolean, close: () => void): React.RefObject<HTMLDivEl
 // Every clickable thing gets the same affordance: a hover fill plus an
 // outline, a pointer cursor, a visible keyboard focus ring and a pressed
 // state; toggles that are on keep the accent fill + outline.
-const btn = (active = false) =>
+export const btn = (active = false) =>
   `flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-md ring-1 ring-inset transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--c-accent)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent ${
     active
       ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)] ring-[var(--c-accent)]"
@@ -51,7 +51,7 @@ const btn = (active = false) =>
 // Left toolbar
 // ===========================================================================
 
-export function DrawingToolbar({ layer, layersOpen, onToggleLayers }: { layer: DrawingLayer; layersOpen?: boolean; onToggleLayers?: () => void }) {
+export function DrawingToolbar({ layer }: { layer: DrawingLayer }) {
   useLayer(layer);
   // each group button shows the tool last picked from it (TradingView)
   const [lastInGroup, setLastInGroup] = useState<Record<string, string>>({});
@@ -68,7 +68,7 @@ export function DrawingToolbar({ layer, layersOpen, onToggleLayers }: { layer: D
   };
 
   return (
-    <div className="flex h-full w-11 shrink-0 flex-col items-center gap-0.5 overflow-y-auto border-r border-[var(--c-line)] bg-[var(--c-raised)] py-1.5" data-testid="drawing-toolbar">
+    <div className="flex h-full w-11 shrink-0 flex-col items-center gap-0.5 overflow-y-auto border-r border-[var(--c-line)] bg-[var(--c-panel)] py-1.5" data-testid="drawing-toolbar">
       <button className={btn(!layer.activeTool)} title="游標" onClick={() => layer.setActiveTool(null)}>
         <Icon name="cursor" />
       </button>
@@ -148,14 +148,6 @@ export function DrawingToolbar({ layer, layersOpen, onToggleLayers }: { layer: D
       >
         <Icon name="trash" />
       </button>
-      {onToggleLayers ? (
-        <>
-          <div className="my-1 h-px w-6 bg-[var(--c-line)]" />
-          <button className={btn(!!layersOpen)} title={layersOpen ? "關閉圖層面板" : "圖層：列出所有繪圖，可隱藏、鎖定、改名、調整順序"} data-testid="toggle-layers" onClick={onToggleLayers}>
-            <Icon name="layers" />
-          </button>
-        </>
-      ) : null}
     </div>
   );
 }

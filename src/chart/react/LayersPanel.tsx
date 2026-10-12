@@ -1,23 +1,17 @@
 // 圖層 panel (TradingView's object tree): every drawing, top-most first, with
 // folders. Click selects, double-click renames, drag reorders or moves a
 // drawing into / out of a folder; rows and folders can be shown / hidden,
-// locked and deleted. The panel's width is dragged from its left edge.
+// locked and deleted. Lives in the right sidebar (SideBar.tsx).
 
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useState, type DragEvent, type ReactNode } from "react";
 import type { DrawingLayer } from "../drawings/layer";
 import { getTool } from "../drawings/tools";
 import type { Drawing, DrawingGroup } from "../drawings/types";
 import { useLayer } from "./drawing-ui";
 import { Icon } from "./icons";
+import { PanelHeader, panelIconBtn } from "./SideBar";
 
-const WIDTH_PREF = "smartdca.chart.layersWidth";
-const MIN_W = 200;
-const MAX_W = 520;
-
-const iconBtn = (on = false) =>
-  `flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md ring-1 ring-inset transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--c-accent)] disabled:cursor-not-allowed disabled:opacity-30 [&_svg]:h-4 [&_svg]:w-4 ${
-    on ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)] ring-[var(--c-accent)]" : "text-[var(--c-muted)] ring-transparent hover:bg-[var(--c-hover)] hover:text-[var(--c-text)] hover:ring-[var(--c-line)]"
-  }`;
+const iconBtn = panelIconBtn;
 
 export function layerName(layer: DrawingLayer, item: Drawing): string {
   if (item.name) return item.name;
@@ -51,53 +45,14 @@ function entries(layer: DrawingLayer): Entry[] {
 
 type Drop = { kind: "item"; id: string; above: boolean } | { kind: "group"; id: string };
 
-function readWidth(): number {
-  try {
-    const v = Number(localStorage.getItem(WIDTH_PREF));
-    return v >= MIN_W && v <= MAX_W ? v : 260;
-  } catch {
-    return 260;
-  }
-}
-
 export function LayersPanel({ layer, onClose }: { layer: DrawingLayer; onClose: () => void }) {
   useLayer(layer);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [dragId, setDragId] = useState<string | null>(null);
   const [drop, setDrop] = useState<Drop | null>(null);
-  const [width, setWidth] = useState(readWidth);
-  const resizing = useRef<{ x: number; w: number } | null>(null);
   const list = entries(layer);
   const allHidden = layer.items.length > 0 && layer.items.every((d) => d.hidden);
-
-  // drag the left edge to resize
-  useEffect(() => {
-    const move = (e: PointerEvent) => {
-      const r = resizing.current;
-      if (!r) return;
-      setWidth(Math.max(MIN_W, Math.min(MAX_W, r.w + (r.x - e.clientX))));
-    };
-    const up = () => {
-      if (!resizing.current) return;
-      resizing.current = null;
-      document.body.style.cursor = "";
-      setWidth((w) => {
-        try {
-          localStorage.setItem(WIDTH_PREF, String(Math.round(w)));
-        } catch {
-          // not remembered in private mode
-        }
-        return w;
-      });
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-  }, []);
 
   const startEdit = (id: string, name: string) => {
     setEditing(id);
@@ -310,29 +265,10 @@ export function LayersPanel({ layer, onClose }: { layer: DrawingLayer; onClose: 
   };
 
   return (
-    <aside
-      className="relative flex h-full shrink-0 flex-col border-l border-[var(--c-line)] bg-[var(--c-panel)] text-[var(--c-text)]"
-      style={{ width }}
-      data-testid="layers-panel"
-      onKeyDown={(e) => e.stopPropagation()}
-    >
-      {/* resize handle */}
-      <div
-        className="absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize hover:bg-[var(--c-accent-soft)]"
-        title="拖曳調整寬度"
-        data-testid="layers-resize"
-        onPointerDown={(e) => {
-          e.preventDefault();
-          resizing.current = { x: e.clientX, w: width };
-          document.body.style.cursor = "col-resize";
-        }}
-      />
-      <div className="flex items-center gap-1 border-b border-[var(--c-line)] px-3 py-2">
-        <Icon name="layers" />
-        <span className="ml-1 text-sm font-semibold">圖層</span>
-        <span className="text-xs text-[var(--c-muted)]">{layer.items.length}</span>
+    <div className="flex h-full min-h-0 flex-col" data-testid="layers-panel" onKeyDown={(e) => e.stopPropagation()}>
+      <PanelHeader title="圖層" count={layer.items.length} onClose={onClose}>
         <button
-          className={`${iconBtn()} ml-auto`}
+          className={iconBtn()}
           title={layer.selectedId ? "新增群組（把選取的繪圖放進去）" : "新增群組"}
           data-testid="add-group"
           onClick={() => layer.addGroup(undefined, layer.selectedId ? [layer.selectedId] : [])}
@@ -342,10 +278,7 @@ export function LayersPanel({ layer, onClose }: { layer: DrawingLayer; onClose: 
         <button className={iconBtn()} title={allHidden ? "全部顯示" : "全部隱藏"} disabled={!layer.items.length} onClick={() => layer.setAllHidden(!allHidden)}>
           <Icon name={allHidden ? "eyeOff" : "eye"} />
         </button>
-        <button className={iconBtn()} title="關閉圖層面板" onClick={onClose}>
-          <span className="text-base leading-none">×</span>
-        </button>
-      </div>
+      </PanelHeader>
 
       {list.length === 0 ? (
         <p className="px-4 py-6 text-center text-xs leading-relaxed text-[var(--c-muted)]">
@@ -358,6 +291,6 @@ export function LayersPanel({ layer, onClose }: { layer: DrawingLayer; onClose: 
           {list.map((e) => (e.kind === "item" ? itemRow(e.item, false) : groupBlock(e.group, e.members)))}
         </ul>
       )}
-    </aside>
+    </div>
   );
 }

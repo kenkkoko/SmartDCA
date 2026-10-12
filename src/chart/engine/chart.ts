@@ -613,7 +613,7 @@ export class Chart {
     s.clip({ x: 0, y: y0, width: this.time.width, height: this.options.timeAxisHeight });
     for (const m of marks) {
       s.vLine(m.x, y0, y0 + 4, t.border);
-      s.text(m.label, m.x, y0 + this.options.timeAxisHeight / 2 + 1, m.weight >= 3 ? t.axisLabelText : t.text, this.font(m.weight >= 4 ? "600" : undefined), "center");
+      s.text(m.label, m.x, y0 + this.options.timeAxisHeight / 2 + 1, m.weight >= 3 ? t.ui.text : t.text, this.font(m.weight >= 4 ? "600" : undefined), "center");
     }
     s.restore();
   }

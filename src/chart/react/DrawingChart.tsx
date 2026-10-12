@@ -8,7 +8,9 @@ import type { Drawing } from "../drawings/types";
 import type { Chart, ChartOptions } from "../engine/chart";
 import { DARK_THEME, type Theme } from "../engine/types";
 import { DrawingToolbar, FibSettingsDialog, PropertiesBar, TextDialog, VolumeSettingsDialog } from "./drawing-ui";
+import { Icon } from "./icons";
 import { LayersPanel } from "./LayersPanel";
+import { SideBar, useSidePanel, type SidePanel } from "./SideBar";
 import { TradingChart } from "./TradingChart";
 
 /** CSS variables the toolbar / panels / dialogs are styled with. */
@@ -30,7 +32,6 @@ export function themeVars(t: Theme): CSSProperties {
   } as CSSProperties;
 }
 
-const LAYERS_PREF = "smartdca.chart.layersOpen";
 
 export type DrawingChartProps = {
   onReady: (chart: Chart, layer: DrawingLayer) => void | (() => void);
@@ -45,30 +46,27 @@ export type DrawingChartProps = {
   theme?: Theme;
   /** Overlays (legends, info panels) positioned over the chart area only. */
   children?: ReactNode;
+  /** Extra right-sidebar panels (e.g. a watchlist); 圖層 is always added. */
+  sidePanels?: SidePanel[];
+  /** Panel open the first time (before the user picks one). */
+  defaultSidePanel?: string | null;
 };
 
 type DialogState = { kind: "fib" | "volume" | "text"; id: string } | null;
 
-export function DrawingChart({ onReady, storageKey, options, className, style, toolbar = true, theme = DARK_THEME, children }: DrawingChartProps) {
+export function DrawingChart({ onReady, storageKey, options, className, style, toolbar = true, theme = DARK_THEME, children, sidePanels = [], defaultSidePanel = null }: DrawingChartProps) {
   const [layer, setLayer] = useState<DrawingLayer | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
-  const [layersOpen, setLayersOpen] = useState(() => {
-    try {
-      return localStorage.getItem(LAYERS_PREF) === "1";
-    } catch {
-      return false;
-    }
-  });
-  const toggleLayers = useCallback(() => {
-    setLayersOpen((open) => {
-      try {
-        localStorage.setItem(LAYERS_PREF, open ? "0" : "1");
-      } catch {
-        // private mode: just not remembered
-      }
-      return !open;
-    });
-  }, []);
+  const panels: SidePanel[] = [
+    ...sidePanels,
+    {
+      id: "layers",
+      title: "圖層",
+      icon: <Icon name="layers" />,
+      render: (close) => (layer ? <LayersPanel layer={layer} onClose={close} /> : null),
+    },
+  ];
+  const [sidePanel, setSidePanel] = useSidePanel(panels, defaultSidePanel);
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const ready = useRef(onReady);
@@ -110,13 +108,13 @@ export function DrawingChart({ onReady, storageKey, options, className, style, t
 
   return (
     <div className={`flex min-h-0 ${className ?? ""}`} style={{ ...themeVars(theme), background: theme.background, ...style }}>
-      {toolbar && layer ? <DrawingToolbar layer={layer} layersOpen={layersOpen} onToggleLayers={toggleLayers} /> : null}
+      {toolbar && layer ? <DrawingToolbar layer={layer} /> : null}
       <div className="relative min-h-0 min-w-0 flex-1" data-testid="chart-area">
         <TradingChart className="h-full w-full" options={options} onReady={handleReady} />
         {children}
         {layer ? <PropertiesBar layer={layer} onOpenDialog={(kind, d) => setDialog({ kind, id: d.id })} /> : null}
       </div>
-      {layer && layersOpen ? <LayersPanel layer={layer} onClose={toggleLayers} /> : null}
+      <SideBar panels={panels} active={sidePanel} onSelect={setSidePanel} />
       {layer && item && dialog?.kind === "fib" && getTool(item.type)?.caps?.dialog === "fib" ? <FibSettingsDialog layer={layer} item={item} onClose={close} /> : null}
       {layer && item && dialog?.kind === "volume" ? <VolumeSettingsDialog layer={layer} item={item} onClose={close} /> : null}
       {layer && item && dialog?.kind === "text" ? <TextDialog layer={layer} item={item} onClose={close} /> : null}

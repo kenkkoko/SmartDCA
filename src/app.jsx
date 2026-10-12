@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import economicCalendar from '../economic_calendar.json';
 import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
 import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
+import { PanelHeader, panelIconBtn } from './chart/react/SideBar';
 
         const { useState, useEffect, useMemo, useRef } = React;
 
@@ -2098,6 +2099,8 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                             type="US"
                             onClose={() => setShowAdvanced(false)}
                             isPremium={userInfo.isPremium}
+                            followList={userInfo.watchlist}
+                            holdings={userInfo.holdings}
                         />
                     )}
                 </div>
@@ -2585,6 +2588,8 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                             type="TW"
                             onClose={() => setShowAdvanced(false)}
                             isPremium={userInfo.isPremium}
+                            followList={userInfo.watchlist}
+                            holdings={userInfo.holdings}
                         />
                     )}
                 </div>
@@ -2989,6 +2994,8 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                             type="CRYPTO"
                             onClose={() => setShowAdvanced(false)}
                             isPremium={userInfo.isPremium}
+                            followList={userInfo.watchlist}
+                            holdings={userInfo.holdings}
                         />
                     )}
                 </div>
@@ -4252,13 +4259,40 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
             : Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 2 })
             : Math.abs(v) >= 1 ? v.toFixed(2) : v.toPrecision(4);
 
-        const ChartWatchlist = ({ current, onPick, isPremium, upColor, downColor, onClose }) => {
+        // 使用者帳號裡的關注清單是一串代號(加密頁存小寫 slug、美股大寫、台股數字),依格式判斷市場
+        const classifyFollowSymbol = (raw) => {
+            const s = String(raw || '').trim();
+            if (!s) return null;
+            if (/\.(tw|two)$/i.test(s)) return { symbol: s.toUpperCase(), type: 'TW' };
+            if (/^\d{4,6}[a-z]?$/i.test(s)) return { symbol: s.toUpperCase() + '.TW', type: 'TW' };
+            const lower = s.toLowerCase();
+            if (COIN_TO_BINANCE[lower]) return { symbol: lower, type: 'CRYPTO' };
+            const COMMON = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'TRX', 'LINK', 'MATIC', 'LTC'];
+            if (COMMON.includes(s.toUpperCase())) return { symbol: BINANCE_TO_SLUG[s.toUpperCase()] || lower, type: 'CRYPTO' };
+            if (s === lower && /^[a-z0-9-]+$/.test(s)) return { symbol: lower, type: 'CRYPTO' }; // 加密頁存的是小寫
+            return { symbol: s.toUpperCase(), type: 'US' };
+        };
+        // 我的投資:持有中的部位(不含現金)
+        const holdingToItem = (h) => {
+            if (!h || h.asset_type === 'cash') return null;
+            if (h.asset_type === 'crypto') {
+                const lower = String(h.symbol).toLowerCase();
+                return { symbol: COIN_TO_BINANCE[lower] ? lower : (BINANCE_TO_SLUG[String(h.symbol).toUpperCase()] || lower), type: 'CRYPTO' };
+            }
+            if (h.asset_type === 'tw_stock') return { symbol: /\./.test(h.symbol) ? String(h.symbol).toUpperCase() : `${h.symbol}.TW`, type: 'TW' };
+            return { symbol: String(h.symbol).toUpperCase(), type: 'US' };
+        };
+        const dedupeItems = (items) => items.filter((it, i) => it && items.findIndex(x => x && sameSymbol(x, it)) === i);
+
+        const ChartWatchlist = ({ current, onPick, isPremium, upColor, downColor, onClose, followList, holdings }) => {
             const [data, setData] = useLocalState(WATCHLIST_KEY, null);
             const list = data && Array.isArray(data.groups) ? data : DEFAULT_WATCHLIST();
-            const save = (next) => setData({ groups: next });
+            const save = (next) => setData({ ...list, groups: next });
             const groups = list.groups;
+            const folded = list.folded || {}; // 自動清單的收合狀態
+            const setFolded = (id, v) => setData({ ...list, folded: { ...folded, [id]: v } });
             const [quotes, setQuotes] = useState({});
-            const [adding, setAdding] = useState(null); // group id that shows the search box
+            const [adding, setAdding] = useState(null);
             const [editing, setEditing] = useState(null);
             const [draft, setDraft] = useState('');
             const [drag, setDrag] = useState(null); // { gi, ii }
@@ -4267,7 +4301,13 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
 
             useEffect(() => { if (!data) setData(list); }, []); // 第一次使用:存入預設清單
 
-            const allItems = groups.flatMap(g => g.items);
+            // 帳號同步的兩個清單(唯讀,放最上面)
+            const autoGroups = [
+                { id: 'auto-follow', name: '我的關注', items: dedupeItems((followList || []).map(classifyFollowSymbol)), hint: '來自各市場頁的 ☆ 關注' },
+                { id: 'auto-holdings', name: '我的投資', items: dedupeItems((holdings || []).map(holdingToItem)), hint: '「我的投資」持有中的部位' },
+            ].filter(g => g.items.length);
+
+            const allItems = dedupeItems([...autoGroups.flatMap(g => g.items), ...groups.flatMap(g => g.items)]);
             const itemsKey = allItems.map(wlKey).join(',');
             useEffect(() => {
                 let cancelled = false;
@@ -4286,7 +4326,7 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                 setEditing(g.id); setDraft(g.name);
             };
             const addSymbol = (gi, item) => {
-                if (groups[gi].items.some(it => sameSymbol(it, item))) return;
+                if (!groups[gi] || groups[gi].items.some(it => sameSymbol(it, item))) return;
                 updateGroup(gi, g => ({ ...g, items: [...g.items, item] }));
             };
             const removeSymbol = (gi, ii) => updateGroup(gi, g => ({ ...g, items: g.items.filter((_, k) => k !== ii) }));
@@ -4304,21 +4344,24 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                 e.preventDefault();
                 if (!drag || !dropAt) { setDrag(null); setDropAt(null); return; }
                 const next = groups.map(g => ({ ...g, items: [...g.items] }));
-                const [item] = next[drag.gi].items.splice(drag.ii, 1);
+                // 從自動清單拖出來 = 複製一份到自訂清單
+                const item = drag.auto ? drag.item : next[drag.gi].items.splice(drag.ii, 1)[0];
                 if (dropAt.header) next[dropAt.gi].items.push(item);
                 else {
                     let ii = dropAt.ii + (dropAt.above ? 0 : 1);
-                    if (drag.gi === dropAt.gi && drag.ii < ii) ii -= 1;
+                    if (!drag.auto && drag.gi === dropAt.gi && drag.ii < ii) ii -= 1;
                     next[dropAt.gi].items.splice(ii, 0, item);
                 }
-                // 同一個清單裡不留重複
                 next[dropAt.gi].items = next[dropAt.gi].items.filter((it, k, arr) => arr.findIndex(x => sameSymbol(x, it)) === k);
                 save(next);
                 setDrag(null); setDropAt(null);
             };
 
-            // ↑↓:沿著清單切換標的(跳過收合的群組)
-            const visible = groups.filter(g => !g.collapsed).flatMap(g => g.items);
+            // ↑↓:沿著畫面上的清單切換標的(跳過收合的)
+            const visible = dedupeItems([
+                ...autoGroups.filter(g => !folded[g.id]).flatMap(g => g.items),
+                ...groups.filter(g => !g.collapsed).flatMap(g => g.items),
+            ]);
             const step = (dir) => {
                 if (!isPremium || !visible.length) return;
                 const i = visible.findIndex(it => sameSymbol(it, current));
@@ -4326,34 +4369,100 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                 if (next) onPick(next);
             };
 
-            const iconBtn = 'w-7 h-7 shrink-0 rounded-md flex items-center justify-center cursor-pointer hover:bg-[var(--wash-2)] ring-1 ring-inset ring-transparent hover:ring-[var(--rule)]';
+            const quoteCells = (it) => {
+                const q = quotes[wlKey(it)];
+                const ch = q && q.change != null ? q.change : null;
+                const color = ch == null ? 'var(--c-muted)' : ch >= 0 ? upColor : downColor;
+                const abs = q && q.price != null && ch != null ? q.price - q.price / (1 + ch / 100) : null;
+                return (
+                    <>
+                        <span className="text-right text-[12px] tabular-nums">{fmtQuote(q && q.price)}</span>
+                        <span className="text-right text-[12px] tabular-nums" style={{ color }}>{abs == null ? '—' : `${abs >= 0 ? '+' : ''}${fmtQuote(abs)}`}</span>
+                        <span className="text-right text-[12px] tabular-nums" style={{ color }}>{ch == null ? '—' : `${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%`}</span>
+                    </>
+                );
+            };
+            const COLS = 'grid grid-cols-[minmax(0,1fr)_66px_56px_56px] items-center gap-x-1';
+
+            const row = (it, opts) => {
+                const active = sameSymbol(it, current);
+                const marker = opts.gi != null && dropAt && !dropAt.header && dropAt.gi === opts.gi && dropAt.ii === opts.ii && drag;
+                return (
+                    <div
+                        key={(opts.auto ? 'a:' : '') + wlKey(it)}
+                        draggable
+                        onDragStart={(e) => { setDrag(opts.auto ? { auto: true, item: it } : { gi: opts.gi, ii: opts.ii }); e.dataTransfer.effectAllowed = opts.auto ? 'copy' : 'move'; e.dataTransfer.setData('text/plain', wlKey(it)); }}
+                        onDragEnd={() => { setDrag(null); setDropAt(null); }}
+                        onDragOver={opts.auto ? undefined : (e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setDropAt({ gi: opts.gi, ii: opts.ii, above: e.clientY < r.top + r.height / 2 }); }}
+                        onClick={() => { if (isPremium || active) { onPick(it); listRef.current && listRef.current.focus(); } }}
+                        data-wl-row={wlKey(it)}
+                        className={`group/r relative ${COLS} h-8 pl-6 pr-3 border-l-2 ${active ? 'border-[var(--c-accent)] bg-[var(--c-accent-soft)]' : 'border-transparent'} ${isPremium ? 'cursor-pointer hover:bg-[var(--c-hover)]' : 'cursor-not-allowed'} ${drag && !drag.auto && drag.gi === opts.gi && drag.ii === opts.ii ? 'opacity-40' : ''}`}
+                        title={isPremium ? '點擊切換圖表' : '升級 Pro 才能切換'}
+                    >
+                        {marker && <span className={`pointer-events-none absolute inset-x-1 h-0.5 rounded bg-[var(--c-accent)] ${dropAt.above ? '-top-px' : '-bottom-px'}`} />}
+                        <span className="min-w-0 flex items-center gap-1.5">
+                            <span className="truncate text-[13px] font-semibold">{chartSymbolLabel(it.symbol, it.type)}</span>
+                            <span className="shrink-0 rounded px-1 text-[9px] leading-[14px] text-[var(--c-muted)] ring-1 ring-inset ring-[var(--c-line)]">{MARKET_LABEL[it.type] || ''}</span>
+                        </span>
+                        {quoteCells(it)}
+                        {!opts.auto && (
+                            <button
+                                className="absolute right-1 top-1/2 hidden h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md bg-[var(--c-panel)] text-[var(--c-muted)] ring-1 ring-inset ring-[var(--c-line)] hover:text-[var(--c-danger)] group-hover/r:flex"
+                                title="從清單移除"
+                                onClick={(e) => { e.stopPropagation(); removeSymbol(opts.gi, opts.ii); }}
+                            >✕</button>
+                        )}
+                    </div>
+                );
+            };
+
+            const groupHeader = (g, { auto, gi, collapsed, onToggle, actions }) => (
+                <div
+                    className={`group/h flex h-8 items-center gap-1 pl-1.5 pr-1.5 cursor-pointer hover:bg-[var(--c-hover)] ${dropAt && dropAt.header && dropAt.gi === gi ? 'bg-[var(--c-accent-soft)] ring-1 ring-inset ring-[var(--c-accent)]' : ''}`}
+                    onClick={onToggle}
+                    onDoubleClick={auto ? undefined : (e) => { e.stopPropagation(); setEditing(g.id); setDraft(g.name); }}
+                    onDragOver={auto ? undefined : (e) => { e.preventDefault(); e.stopPropagation(); setDropAt({ gi, header: true }); }}
+                    title={(collapsed ? '展開' : '收合') + (auto ? `(${g.hint},自動同步)` : ',雙擊改名')}
+                >
+                    <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-[var(--c-muted)] transition-transform" style={{ transform: collapsed ? 'none' : 'rotate(90deg)' }}><path d="M7 5l5 5-5 5" /></svg>
+                    {editing === g.id ? (
+                        <input
+                            autoFocus value={draft}
+                            onFocus={(e) => e.target.select()}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setDraft(e.target.value)}
+                            onBlur={() => commitName(gi)}
+                            onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') commitName(gi); if (e.key === 'Escape') setEditing(null); }}
+                            className="h-6 min-w-0 flex-1 rounded border border-[var(--c-accent)] bg-[var(--c-raised)] px-1.5 text-xs text-[var(--c-text)] outline-none"
+                        />
+                    ) : (
+                        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wider text-[var(--c-muted)]">{g.name}</span>
+                    )}
+                    {auto && <span className="rounded px-1 text-[9px] leading-[14px] text-[var(--c-accent)] ring-1 ring-inset ring-[var(--c-accent)]">同步</span>}
+                    <span className="px-1 text-[10px] tabular-nums text-[var(--c-muted)]">{g.items.length}</span>
+                    {actions}
+                </div>
+            );
 
             return (
-                <aside
-                    className="shrink-0 flex flex-col w-[280px] max-w-[85vw] min-h-0"
-                    style={{ borderLeft: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }}
-                    data-testid="chart-watchlist"
-                >
-                    <div className="flex items-center gap-1 px-3 py-2" style={{ borderBottom: '1px solid var(--rule)' }}>
-                        <span className="text-sm font-bold">觀察清單</span>
-                        <span className="text-[11px] ml-1" style={{ color: 'var(--ink-3)' }}>{allItems.length}</span>
-                        <button className={iconBtn + ' ml-auto'} title="新增清單(群組)" onClick={addGroup} data-testid="wl-add-group">
+                <div className="flex h-full min-h-0 flex-col" data-testid="chart-watchlist">
+                    <PanelHeader title="觀察清單" count={allItems.length} onClose={onClose}>
+                        <button className={panelIconBtn()} title="新增清單(群組)" onClick={addGroup} data-testid="wl-add-group">
                             <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 5.5A1.5 1.5 0 0 1 3.5 4H8l1.6 2h6.9A1.5 1.5 0 0 1 18 7.5v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 14.5z" /><path d="M10 8.5v5M7.5 11h5" /></svg>
                         </button>
-                        <button className={iconBtn} title="關閉觀察清單" onClick={onClose}>✕</button>
-                    </div>
-                    <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 px-3 py-1 text-[10px]" style={{ color: 'var(--ink-3)', borderBottom: '1px solid var(--rule)' }}>
-                        <span>代號</span><span className="text-right w-[76px]">最新價</span><span className="text-right w-[56px]">漲跌%</span>
+                    </PanelHeader>
+                    <div className={`${COLS} h-7 shrink-0 border-b border-[var(--c-line)] pl-6 pr-3 text-[11px] text-[var(--c-muted)]`}>
+                        <span>商品</span><span className="text-right">最新價</span><span className="text-right">漲跌</span><span className="text-right">漲跌%</span>
                     </div>
                     {!isPremium && (
-                        <div className="px-3 py-2 text-[11px] flex items-center gap-1.5" style={{ color: 'var(--ink-2)', background: 'var(--wash)' }}>
+                        <div className="flex items-center gap-1.5 bg-[var(--c-raised)] px-3 py-2 text-[11px] text-[var(--c-muted)]">
                             <Lock size={12} /> 升級 Pro 才能用清單切換標的
                         </div>
                     )}
                     <div
                         ref={listRef}
                         tabIndex={0}
-                        className="flex-1 min-h-0 overflow-y-auto outline-none py-1"
+                        className="min-h-0 flex-1 overflow-y-auto py-0.5 text-[var(--c-text)] outline-none"
                         onKeyDown={(e) => {
                             if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); step(1); }
                             else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); step(-1); }
@@ -4361,97 +4470,55 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                         onDragOver={(e) => e.preventDefault()}
                         onDrop={onDrop}
                     >
+                        {autoGroups.map(g => (
+                            <section key={g.id} data-wl-group={g.name}>
+                                {groupHeader(g, { auto: true, collapsed: !!folded[g.id], onToggle: () => setFolded(g.id, !folded[g.id]) })}
+                                {!folded[g.id] && g.items.map(it => row(it, { auto: true }))}
+                            </section>
+                        ))}
                         {groups.map((g, gi) => (
                             <section key={g.id} data-wl-group={g.name}>
-                                <div
-                                    className="group/h flex items-center gap-1 pl-1.5 pr-2 py-1 mx-1 rounded-md cursor-pointer hover:bg-[var(--wash-2)]"
-                                    style={dropAt && dropAt.header && dropAt.gi === gi ? { background: 'var(--wash-2)', boxShadow: 'inset 0 0 0 1px var(--accent)' } : undefined}
-                                    onClick={() => updateGroup(gi, x => ({ ...x, collapsed: !x.collapsed }))}
-                                    onDoubleClick={(e) => { e.stopPropagation(); setEditing(g.id); setDraft(g.name); }}
-                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropAt({ gi, header: true }); }}
-                                    title={g.collapsed ? '展開' : '收合'}
-                                >
-                                    <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--ink-3)', transform: g.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 120ms' }}><path d="M7 5l5 5-5 5" /></svg>
-                                    {editing === g.id ? (
-                                        <input
-                                            autoFocus value={draft}
-                                            onFocus={(e) => e.target.select()}
-                                            onClick={(e) => e.stopPropagation()}
-                                            onChange={(e) => setDraft(e.target.value)}
-                                            onBlur={() => commitName(gi)}
-                                            onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') commitName(gi); if (e.key === 'Escape') setEditing(null); }}
-                                            className="flex-1 min-w-0 h-6 px-1.5 text-xs rounded outline-none"
-                                            style={{ border: '1px solid var(--accent)', background: 'var(--surface)', color: 'var(--ink)' }}
-                                        />
-                                    ) : (
-                                        <span className="flex-1 min-w-0 truncate text-[11px] font-bold tracking-wide uppercase" style={{ color: 'var(--ink-2)' }} title="雙擊改名">{g.name}</span>
-                                    )}
-                                    <span className="text-[10px]" style={{ color: 'var(--ink-3)' }}>{g.items.length}</span>
-                                    <button className={iconBtn + ' w-6 h-6'} title="加入標的" disabled={!isPremium} onClick={(e) => { e.stopPropagation(); setAdding(adding === g.id ? null : g.id); if (g.collapsed) updateGroup(gi, x => ({ ...x, collapsed: false })); }} data-testid="wl-add-symbol">＋</button>
-                                    <button className={iconBtn + ' w-6 h-6 hover:!text-[var(--down)]'} title="刪除這個清單" onClick={(e) => { e.stopPropagation(); removeGroup(gi); }}>
-                                        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 5h14M8 5V3h4v2M5 5l1 12h8l1-12" /></svg>
-                                    </button>
-                                </div>
+                                {groupHeader(g, {
+                                    gi,
+                                    collapsed: !!g.collapsed,
+                                    onToggle: () => updateGroup(gi, x => ({ ...x, collapsed: !x.collapsed })),
+                                    actions: (
+                                        <>
+                                            <button className={panelIconBtn() + ' !h-6 !w-6'} title="加入標的" disabled={!isPremium} data-testid="wl-add-symbol"
+                                                onClick={(e) => { e.stopPropagation(); setAdding(adding === g.id ? null : g.id); if (g.collapsed) updateGroup(gi, x => ({ ...x, collapsed: false })); }}>
+                                                <svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M7 2v10M2 7h10" /></svg>
+                                            </button>
+                                            <button className={panelIconBtn() + ' !h-6 !w-6 hover:!text-[var(--c-danger)]'} title="刪除這個清單" onClick={(e) => { e.stopPropagation(); removeGroup(gi); }}>
+                                                <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 5h14M8 5V3h4v2M5 5l1 12h8l1-12" /></svg>
+                                            </button>
+                                        </>
+                                    ),
+                                })}
                                 {adding === g.id && (
                                     <div className="px-2 pb-1.5" onKeyDown={(e) => e.stopPropagation()}>
-                                        <ChartSymbolSearch onPick={(item) => { addSymbol(gi, item); }} isLocked={!isPremium} placeholder="加入:BTC、AAPL、2330…" />
+                                        <ChartSymbolSearch onPick={(item) => addSymbol(gi, item)} isLocked={!isPremium} placeholder="加入:BTC、AAPL、2330…" />
                                     </div>
                                 )}
-                                {!g.collapsed && g.items.map((it, ii) => {
-                                    const q = quotes[wlKey(it)];
-                                    const active = sameSymbol(it, current);
-                                    const ch = q && q.change != null ? q.change : null;
-                                    const marker = dropAt && !dropAt.header && dropAt.gi === gi && dropAt.ii === ii && drag && !(drag.gi === gi && drag.ii === ii);
-                                    return (
-                                        <div
-                                            key={wlKey(it)}
-                                            draggable
-                                            onDragStart={(e) => { setDrag({ gi, ii }); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', wlKey(it)); }}
-                                            onDragEnd={() => { setDrag(null); setDropAt(null); }}
-                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setDropAt({ gi, ii, above: e.clientY < r.top + r.height / 2 }); }}
-                                            onClick={() => { if (isPremium || active) { onPick(it); listRef.current && listRef.current.focus(); } }}
-                                            data-wl-row={wlKey(it)}
-                                            className={`group/r relative grid grid-cols-[1fr_auto_auto] items-center gap-x-3 mx-1 pl-5 pr-2 py-1.5 rounded-md ${isPremium ? 'cursor-pointer hover:bg-[var(--wash-2)]' : 'cursor-not-allowed'}`}
-                                            style={active ? { background: 'var(--wash-2)', boxShadow: 'inset 2px 0 0 var(--accent)' } : (drag && drag.gi === gi && drag.ii === ii ? { opacity: 0.4 } : undefined)}
-                                            title={isPremium ? '點擊切換到這個標的(拖曳可排序)' : '升級 Pro 才能切換'}
-                                        >
-                                            {marker && <span className="pointer-events-none absolute inset-x-1 h-0.5 rounded" style={{ background: 'var(--accent)', [dropAt.above ? 'top' : 'bottom']: -1 }} />}
-                                            <span className="min-w-0 flex items-center gap-1.5">
-                                                <span className="text-[13px] font-bold truncate">{chartSymbolLabel(it.symbol, it.type)}</span>
-                                                <span className="text-[9px] px-1 rounded shrink-0" style={{ color: 'var(--ink-3)', border: '1px solid var(--rule)' }}>{MARKET_LABEL[it.type] || ''}</span>
-                                            </span>
-                                            <span className="text-right w-[76px] text-[12px] tabular-nums">{fmtQuote(q && q.price)}</span>
-                                            <span className="text-right w-[56px] text-[12px] tabular-nums font-semibold" style={{ color: ch == null ? 'var(--ink-3)' : ch >= 0 ? upColor : downColor }}>
-                                                {ch == null ? '—' : `${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%`}
-                                            </span>
-                                            <button
-                                                className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md hidden group-hover/r:flex items-center justify-center cursor-pointer"
-                                                style={{ background: 'var(--paper)', color: 'var(--ink-2)', boxShadow: 'inset 0 0 0 1px var(--rule)' }}
-                                                title="從清單移除"
-                                                onClick={(e) => { e.stopPropagation(); removeSymbol(gi, ii); }}
-                                            >✕</button>
-                                        </div>
-                                    );
-                                })}
+                                {!g.collapsed && g.items.map((it, ii) => row(it, { gi, ii }))}
                                 {!g.collapsed && g.items.length === 0 && (
-                                    <p className="pl-7 pr-3 py-1.5 text-[11px]" style={{ color: 'var(--ink-3)' }}>空的清單，按 ＋ 加入標的，或把標的拖到這裡</p>
+                                    <p className="py-1.5 pl-7 pr-3 text-[11px] text-[var(--c-muted)]">空的清單，按 ＋ 加入標的，或把標的拖到這裡</p>
                                 )}
                             </section>
                         ))}
                     </div>
-                    <div className="px-3 py-2 flex gap-2" style={{ borderTop: '1px solid var(--rule)' }}>
+                    <div className="shrink-0 border-t border-[var(--c-line)] p-2">
                         <button
-                            className="fs-btn sm flex-1"
+                            className="flex h-8 w-full cursor-pointer items-center justify-center gap-1 rounded-md text-[12px] font-medium text-[var(--c-text)] ring-1 ring-inset ring-[var(--c-line)] hover:bg-[var(--c-hover)] disabled:cursor-not-allowed disabled:opacity-40"
                             disabled={!isPremium || groups.length === 0 || groups.some(g => g.items.some(it => sameSymbol(it, current)))}
                             onClick={() => addSymbol(0, { symbol: current.symbol, type: /crypto/i.test(current.type) ? 'CRYPTO' : current.type })}
-                            title="把目前的標的加到第一個清單"
+                            title="把目前的標的加到第一個自訂清單"
                         >＋ 加入目前標的</button>
                     </div>
-                </aside>
+                </div>
             );
         };
 
-        const TechnicalChartModal = ({ symbol: initialSymbol, type: initialType, onClose, isPremium = true, onSymbolChange }) => {
+        const TechnicalChartModal = ({ symbol: initialSymbol, type: initialType, onClose, isPremium = true, onSymbolChange, followList = [], holdings = [] }) => {
             // 目前標的(可用上方搜尋欄切換;外部換標的時跟著換)
             const [current, setCurrent] = useState({ symbol: initialSymbol, type: initialType });
             useEffect(() => { setCurrent({ symbol: initialSymbol, type: initialType }); }, [initialSymbol, initialType]);
@@ -4479,7 +4546,6 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
             const [showVolume, setShowVolume] = useLocalState('tech2-show-volume', true);
             const [showFearSignal, setShowFearSignal] = useLocalState('tech2-show-fear', false);
             const [showSignalPanel, setShowSignalPanel] = useLocalState('tech2-show-panel', false);
-            const [showWatchlist, setShowWatchlist] = useLocalState('tech2-show-watchlist', typeof window !== 'undefined' && window.innerWidth >= 1024);
             const [timeframe, setTimeframe] = useLocalState('tech-timeframe', '1d'); // '1d' | '1wk'
 
             const signalSource = (type === 'CRYPTO' || type === 'crypto' || type === 'US') ? 'fng' : 'rsi';
@@ -4906,6 +4972,24 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                                 onHover={setHoverInfo}
                                 fitSignal={fitSignal}
                                 theme={chartTheme}
+                                defaultSidePanel={typeof window !== 'undefined' && window.innerWidth >= 1024 ? 'watchlist' : null}
+                                sidePanels={[{
+                                    id: 'watchlist',
+                                    title: '觀察清單',
+                                    icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M3 5h2M3 10h2M3 15h2M8 5h9M8 10h9M8 15h9" /></svg>,
+                                    render: (close) => (
+                                        <ChartWatchlist
+                                            current={{ symbol, type }}
+                                            onPick={(it) => pickSymbol({ symbol: it.symbol, type: it.type })}
+                                            isPremium={isPremium}
+                                            upColor={UP_C}
+                                            downColor={DOWN_C}
+                                            onClose={close}
+                                            followList={followList}
+                                            holdings={holdings}
+                                        />
+                                    ),
+                                }]}
                             >
 
                             {/* OHLC hover overlay — top-left, compact. Driven by crosshair. */}
@@ -4975,31 +5059,6 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                             )}
                             </TechnicalChartView>
                         </div>
-                        {showWatchlist && (
-                            <ChartWatchlist
-                                current={{ symbol, type }}
-                                onPick={(it) => pickSymbol({ symbol: it.symbol, type: it.type })}
-                                isPremium={isPremium}
-                                upColor={UP_C}
-                                downColor={DOWN_C}
-                                onClose={() => setShowWatchlist(false)}
-                            />
-                        )}
-                        {/* 右側工具列(TradingView):觀察清單開關 */}
-                        <div className="shrink-0 w-11 flex flex-col items-center gap-1 py-2" style={{ borderLeft: '1px solid var(--rule)', background: 'var(--paper)' }}>
-                            <button
-                                onClick={() => setShowWatchlist(!showWatchlist)}
-                                aria-pressed={showWatchlist}
-                                title={showWatchlist ? '關閉觀察清單' : '觀察清單'}
-                                data-testid="toggle-watchlist"
-                                className="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer ring-1 ring-inset transition-colors"
-                                style={showWatchlist
-                                    ? { background: 'var(--wash-2)', color: 'var(--accent)', boxShadow: 'inset 0 0 0 1px var(--accent)' }
-                                    : { color: 'var(--ink-2)' }}
-                            >
-                                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M3 5h2M3 10h2M3 15h2M8 5h9M8 10h9M8 15h9" /></svg>
-                            </button>
-                        </div>
                     </div>
 
                     {/* Help overlay */}
@@ -5014,8 +5073,8 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                                     <p><strong className="text-white">圖表</strong>：Smart DCA 自製圖表引擎，預設對數座標（上方可切線性）；拖曳平移、滾輪縮放、雙指捏合；拖曳價格軸 / 時間軸可單向縮放，雙擊軸重置。</p>
                                     <p><strong className="text-white">畫線工具</strong>：左側工具列 9 組、43 種工具（點按鈕右下角的小三角展開）。預設線條顏色「自動」：深色背景白線、淺色背景黑線，切換主題會跟著變。可點擊或按住拖曳放置；選了工具時也能畫在其他標註上，按住 Alt 則改為選取下方標註；Shift 鎖水平 / 45°。斐波那契可自訂水平並「儲存為預設」。標註會自動儲存。</p>
                                     <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊標註選取，上方浮動列可改顏色、線寬、填色、延伸、鎖定、複製、刪除；拖曳錨點微調；Delete 刪除、Ctrl+Z / Ctrl+Y 復原 / 重做、Esc 取消。</p>
-                                    <p><strong className="text-white">圖層</strong>：左側工具列最下方的圖層鈕打開面板，列出所有標註；可點選、隱藏 / 顯示、鎖定、刪除，雙擊改名，拖曳調整上下順序（上面的畫在上層）；資料夾鈕可建立群組，把標註拖進群組後可整組隱藏 / 鎖定 / 收合；拖曳面板左緣可調整寬度。</p>
-                                    <p><strong className="text-white">觀察清單</strong>：右側列表鈕開關。可新增 / 改名 / 刪除清單（群組），按 ＋ 加入標的，拖曳排序或拖到別的清單；點標的切換圖表，↑↓ 鍵換上一個 / 下一個。</p>
+                                    <p><strong className="text-white">圖層</strong>：右側工具列的圖層鈕打開面板（和觀察清單共用右側，一次開一個），列出所有標註；可點選、隱藏 / 顯示、鎖定、刪除，雙擊改名，拖曳調整上下順序（上面的畫在上層）；資料夾鈕可建立群組，把標註拖進群組後可整組隱藏 / 鎖定 / 收合；拖曳面板左緣可調整寬度。</p>
+                                    <p><strong className="text-white">觀察清單</strong>：右側工具列的清單鈕開關。最上面自動同步「我的關注」（各市場頁的 ☆）與「我的投資」持有部位；可新增 / 改名 / 刪除清單（群組），按 ＋ 加入標的，拖曳排序或拖到別的清單；點標的切換圖表，↑↓ 鍵換上一個 / 下一個。</p>
                                     <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20 / 27 / 34 / 41 / 48 / 55（fast=20、slow=55）。線段顏色逐段切換 — fast 站上 slow 該段顯綠、跌破則紅；K 棒下方綠 △ = 金叉（多），K 棒上方紅 ▽ = 死叉（空）。</p>
                                     <p><strong className="text-white">RSI / MACD</strong>：RSI 紫線恆色，加 70 / 50 / 30 參考線，上穿 30 標 △、下穿 70 標 ▽；MACD DIF×DEA 金叉 △、死叉 ▽。</p>
                                     <p><strong className="text-white">Realized Price / MVRV</strong>（加密貨幣）：橘線為鏈上平均持倉成本（Realized Price），價格跌破 = 歷史級抄底區；MVRV = 市值 ÷ 實現市值，&lt;1 低估、&gt;2.4 過熱。資料源 CoinMetrics（BTC / ETH / LINK / DOGE）。美股 / 台股則顯示 MA200。</p>
@@ -8237,11 +8296,13 @@ const isBull = price2 < price1 && dif2 > dif1;
         );
 
         // 「圖表」分頁:跟「圖表」按鈕一樣開全螢幕技術圖表,記住上次看的標的;關閉回到原分頁
-        const ChartPage = ({ isPremium, onClose }) => {
+        const ChartPage = ({ isPremium, onClose, followList, holdings }) => {
             const [last, setLast] = useLocalState('chart-tab-symbol', { symbol: 'bitcoin', type: 'CRYPTO' });
             return (
                 <TechnicalChartModal
                     onClose={onClose}
+                    followList={followList}
+                    holdings={holdings}
                     symbol={last.symbol}
                     type={last.type}
                     isPremium={isPremium}
@@ -8417,6 +8478,19 @@ const isBull = price2 < price1 && dif2 > dif1;
                     }
                 };
                 fetchProfile();
+            }, [user]);
+
+            // 圖表觀察清單的「我的投資」:登入後讀一次交易紀錄算出持有中的部位
+            const [chartHoldings, setChartHoldings] = useState([]);
+            useEffect(() => {
+                let cancelled = false;
+                (async () => {
+                    if (PORTFOLIO_FIXTURE) { setChartHoldings(computeHoldings(FIXTURE_TRANSACTIONS)); return; }
+                    if (!user || !supabase) { setChartHoldings([]); return; }
+                    const { data, error: err } = await supabase.from('transactions').select('*');
+                    if (!cancelled && !err) setChartHoldings(computeHoldings(data || []));
+                })();
+                return () => { cancelled = true; };
             }, [user]);
 
             // 3. Update Watchlist (Sync to DB)
@@ -8769,7 +8843,7 @@ const isBull = price2 < price1 && dif2 > dif1;
                                         <CryptoDashboard
                                             notificationsEnabled={notificationsEnabled}
                                             toggleNotifications={toggleNotifications}
-                                            userInfo={{ isPremium, watchlist, email: user?.email }}
+                                            userInfo={{ isPremium, watchlist, email: user?.email, holdings: chartHoldings }}
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                         />
                                     )}
@@ -8777,18 +8851,18 @@ const isBull = price2 < price1 && dif2 > dif1;
                                         <StockDashboard
                                             notificationsEnabled={notificationsEnabled}
                                             toggleNotifications={toggleNotifications}
-                                            userInfo={{ isPremium, watchlist, email: user?.email }}
+                                            userInfo={{ isPremium, watchlist, email: user?.email, holdings: chartHoldings }}
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                         />
                                     )}
                                     {activeTab === 'taiwan' && (
                                         <TaiwanDashboard
-                                            userInfo={{ isPremium, watchlist, email: user?.email }}
+                                            userInfo={{ isPremium, watchlist, email: user?.email, holdings: chartHoldings }}
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                         />
                                     )}
                                     {activeTab === 'chart' && (
-                                        <ChartPage isPremium={isPremium} onClose={() => setActiveTab(prevTabRef.current)} />
+                                        <ChartPage isPremium={isPremium} followList={watchlist} holdings={chartHoldings} onClose={() => setActiveTab(prevTabRef.current)} />
                                     )}
                                     {activeTab === 'portfolio' && (
                                         <PortfolioDashboard

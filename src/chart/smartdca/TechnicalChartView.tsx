@@ -6,11 +6,54 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Chart, ChartPrimitive, Pane } from "../engine/chart";
 import type { CandleSeries, HistogramSeries, LineSeries, Marker } from "../engine/series";
-import { DARK_THEME, LIGHT_THEME, type Bar, type ValuePoint } from "../engine/types";
+import { DARK_THEME, LIGHT_THEME, type Bar, type Theme, type ValuePoint } from "../engine/types";
+
+// Smart DCA's palette (the site's light / dark tokens) so the chart, its
+// toolbars and side panels read as one surface with the page around them.
+const SDCA_DARK: Theme = {
+  ...DARK_THEME,
+  background: "#121314",
+  text: "#9a968f",
+  grid: "rgba(241,239,234,0.06)",
+  border: "rgba(241,239,234,0.14)",
+  axisLabelBackground: "#2f3032",
+  axisLabelText: "#f1efea",
+  drawing: "#f1efea",
+  ui: {
+    panel: "#121314",
+    raised: "#1a1b1d",
+    text: "#f1efea",
+    muted: "#9a968f",
+    line: "#2f3032",
+    hover: "rgba(241,239,234,0.08)",
+    accent: "#6f8bff",
+    accentSoft: "rgba(111,139,255,0.18)",
+    accentText: "#0b0d1a",
+    shadow: "0 12px 32px rgba(0,0,0,0.55)",
+  },
+};
+const SDCA_LIGHT: Theme = {
+  ...LIGHT_THEME,
+  text: "#4a4a4a",
+  drawing: "#111111",
+  ui: {
+    panel: "#ffffff",
+    raised: "#f7f7f5",
+    text: "#111111",
+    muted: "#6b6b6b",
+    line: "#d9d9d9",
+    hover: "rgba(17,17,17,0.06)",
+    accent: "#1b39c4",
+    accentSoft: "rgba(27,57,196,0.10)",
+    accentText: "#ffffff",
+    shadow: "0 12px 32px rgba(0,0,0,0.16)",
+  },
+};
 import { withAlpha } from "../drawings/geometry";
 import { crosses, ema, macd, rsi, sma, type Num } from "../indicators";
 import type { DrawingLayer } from "../drawings/layer";
 import { DrawingChart } from "../react/DrawingChart";
+import type { SidePanel } from "../react/SideBar";
 
 export const EMA_FAST = 20;
 export const EMA_SLOW = 55;
@@ -42,6 +85,9 @@ export type TechnicalChartViewProps = {
   className?: string;
   /** Overlays drawn over the chart area (OHLC box, signal panel). */
   children?: ReactNode;
+  /** Right-sidebar panels next to 圖層 (watchlist). */
+  sidePanels?: SidePanel[];
+  defaultSidePanel?: string | null;
   /** Follows the app's light / dark switch. */
   theme?: "light" | "dark";
 };
@@ -91,7 +137,7 @@ class PaneLegend implements ChartPrimitive {
 }
 
 export function TechnicalChartView(props: TechnicalChartViewProps) {
-  const theme = props.theme === "light" ? LIGHT_THEME : DARK_THEME;
+  const theme = props.theme === "light" ? SDCA_LIGHT : SDCA_DARK;
   const UP = theme.up;
   const DOWN = theme.down;
   const [chart, setChart] = useState<Chart | null>(null);
@@ -281,7 +327,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   }, [chart, props.candles, props.showRSI, props.showMACD, UP, DOWN, theme.text]);
 
   return (
-    <DrawingChart className={props.className} storageKey={props.storageKey} onReady={onReady} theme={theme}>
+    <DrawingChart className={props.className} storageKey={props.storageKey} onReady={onReady} theme={theme} sidePanels={props.sidePanels} defaultSidePanel={props.defaultSidePanel}>
       {props.children}
     </DrawingChart>
   );
