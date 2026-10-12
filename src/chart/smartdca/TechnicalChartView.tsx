@@ -98,6 +98,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     legend: PaneLegend;
   }>({ candles: null, volume: null, volumeMa: null, main: [], panes: [], legend: new PaneLegend() });
   const hover = useRef(props.onHover);
+  const lastHoverIndex = useRef<number | null>(null);
   hover.current = props.onHover;
   const candlesRef = useRef(props.candles);
   candlesRef.current = props.candles;
@@ -105,7 +106,6 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   const onReady = (c: Chart, _layer: DrawingLayer) => {
     refs.current.candles = c.addCandles(c.mainPane, { upColor: UP, downColor: DOWN, wickUpColor: UP, wickDownColor: DOWN });
     const offLegend = c.addPrimitive(refs.current.legend);
-    let lastIndex: number | null = null;
     const off = c.onCrosshairMove((info) => {
       const legend = refs.current.legend;
       const bars = candlesRef.current;
@@ -114,8 +114,8 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
         legend.index = index >= 0 ? index : null;
         c.invalidate(false);
       }
-      if (index === lastIndex) return;
-      lastIndex = index;
+      if (index === lastHoverIndex.current) return;
+      lastHoverIndex.current = index;
       if (!info?.bar || index < 0) return hover.current?.(null);
       const b = info.bar;
       hover.current?.({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, prevClose: index > 0 ? bars[index - 1]!.close : null });
@@ -133,11 +133,17 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     const series = refs.current.candles;
     if (!chart || !series || !props.candles.length) return;
     series.setData(props.candles);
-    chart.fitContent();
+    // another symbol can live in a completely different price range: re-fit
+    // both axes, otherwise a manually scaled price axis keeps the old range
+    chart.resetView();
+    // the OHLC box must not keep showing the previous symbol's bar
+    refs.current.legend.index = null;
+    lastHoverIndex.current = null;
+    hover.current?.(null);
   }, [chart, props.candles]);
 
   useEffect(() => {
-    if (chart && props.fitSignal) chart.fitContent();
+    if (chart && props.fitSignal) chart.resetView();
   }, [chart, props.fitSignal]);
 
   // volume: own hidden scale in the bottom fifth of the price pane (TradingView)

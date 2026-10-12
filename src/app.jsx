@@ -1568,60 +1568,6 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             );
         };
 
-        // --- 股票代號搜尋元件 ---
-        // --- 股票代號搜尋元件 ---
-        const SymbolSearch = ({ symbol, onSearch, placeholder = "輸入代號 (e.g. AAPL)", transformInput = (s) => s.toUpperCase(), isLocked = false }) => {
-            const [input, setInput] = useState(symbol);
-
-            // 當外部 symbol 改變時，更新內部 input
-            useEffect(() => {
-                setInput(symbol);
-            }, [symbol]);
-
-            return (
-                <div className="flex gap-2 items-center relative">
-                    <div className="relative flex-1">
-                        <input
-                            type="text"
-                            value={input}
-                            onChange={(e) => setInput(transformInput(e.target.value))}
-                            onKeyDown={(e) => !isLocked && e.key === 'Enter' && onSearch(input)}
-                            disabled={isLocked}
-                            className={`w-full bg-transparent px-0.5 py-1.5 text-[15px] outline-none border-b-[1.5px] ${isLocked ? 'cursor-not-allowed' : ''}`}
-                            style={{ color: isLocked ? 'var(--ink-3)' : 'var(--ink)', borderColor: 'var(--ink)' }}
-                            placeholder={placeholder}
-                        />
-                        {isLocked && (
-                            <div className="absolute inset-0 flex items-center justify-end pr-1 pointer-events-none">
-                                <Lock size={15} style={{ color: 'var(--ink-3)' }} />
-                            </div>
-                        )}
-                    </div>
-                    <button
-                        onClick={() => !isLocked && onSearch(input)}
-                        disabled={isLocked}
-                        className="fs-btn sm"
-                    >
-                        {isLocked ? '鎖定' : <><RefreshCw size={16} /> 搜尋</>}
-                    </button>
-
-                    {isLocked && (
-                        <button
-                            onClick={() => {
-                                const emailParam = symbol ? `&checkout[custom][symbol]=${symbol}` : '';
-                                // Note: We need email here. SymbolSearch consumes 'symbol' and 'onSearch'. 
-                                // It receives 'isLocked'. It doesn't receive user email.
-                                // We need to update SymbolSearch props.
-                            }}
-                            className="fs-btn sm"
-                        >
-                            <Sparkles size={16} /> 升級 Pro
-                        </button>
-                    )}
-                </div>
-            );
-        };
-
         // --- 時間範圍選擇器 ---
         const TimeRangeSelector = ({ range, onRangeChange }) => {
             const ranges = ['1M', '6M', '1Y', 'ALL'];
@@ -2044,11 +1990,12 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             return (
                 <div>
                     <div className="py-2.5 max-w-[520px]" style={{ borderBottom: '1px solid var(--rule)' }}>
-                        <SymbolSearch
-                            symbol={selectedSymbol}
-                            onSearch={setSelectedSymbol}
+                        <ChartSymbolSearch
+                            variant="page"
+                            market="US"
+                            initial={selectedSymbol}
+                            onPick={({ symbol }) => setSelectedSymbol(symbol)}
                             isLocked={!userInfo.isPremium}
-                            userEmail={userInfo.email}
                         />
                     </div>
 
@@ -2343,7 +2290,9 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                     else if (timeRange === '1Y') range = '1y';
                     else if (timeRange === 'ALL') range = 'max';
 
-                    const historyUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&range=${range}`;
+                    // range=max 會被 Yahoo 降成週 / 月 K → ALL 用 period1/period2 拿完整日 K
+                    const span = range === 'max' ? `period1=0&period2=${Math.floor(Date.now() / 1000)}` : `range=${range}`;
+                    const historyUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooSymbol}?interval=1d&${span}`;
                     const historyRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(historyUrl));
                     const historyJson = await historyRes.json();
 
@@ -2530,12 +2479,12 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                 <div>
                     {/* 大盤指數卡片 */}
                     <div className="py-2.5 max-w-[520px]" style={{ borderBottom: '1px solid var(--rule)' }}>
-                        <SymbolSearch
-                            symbol={selectedSymbol}
-                            onSearch={setSelectedSymbol}
-                            placeholder="輸入代號 (e.g. 2330)"
+                        <ChartSymbolSearch
+                            variant="page"
+                            market="TW"
+                            initial={chartSymbolLabel(selectedSymbol, 'TW')}
+                            onPick={({ symbol }) => setSelectedSymbol(symbol.replace(/\.TW$/, ''))}
                             isLocked={!userInfo.isPremium}
-                            userEmail={userInfo.email}
                         />
                     </div>
 
@@ -2890,13 +2839,12 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                 <div>
                     <div className="flex items-center justify-between gap-4 flex-wrap py-2.5" style={{ borderBottom: '1px solid var(--rule)' }}>
                         <div className="flex-1 min-w-[260px] max-w-[520px]">
-                            <SymbolSearch
-                                symbol={selectedCoin}
-                                onSearch={setSelectedCoin}
-                                placeholder="輸入幣種 (e.g. solana)"
-                                transformInput={(s) => s.toLowerCase()}
+                            <ChartSymbolSearch
+                                variant="page"
+                                market="CRYPTO"
+                                initial={chartSymbolLabel(selectedCoin, 'CRYPTO')}
+                                onPick={({ symbol }) => setSelectedCoin(symbol)}
                                 isLocked={!userInfo.isPremium}
-                                userEmail={userInfo.email}
                             />
                         </div>
                         {/* 子分頁:行情 / 鏈上估值 / 合約數據(單層,不再巢狀) */}
@@ -4049,61 +3997,100 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             return { tone: 'bear', label: '極度貪婪' };
         };
 
-        // ─── 圖表的標的搜尋:加密(本地清單)+ 美股 / 台股(Yahoo 搜尋,經 cors 代理)───
+        // ─── 標的搜尋(圖表 + 加密 / 美股 / 台股頁共用)───
+        // 加密:Binance 全部 USDT 現貨(第一次聚焦時載入,失敗時退回內建清單)
+        // 美股 / 台股:Yahoo 搜尋(經 cors 代理,只允許正式站 origin)
         // 選到的結果回傳 { symbol, type },type 為 'CRYPTO' | 'US' | 'TW'
+        const BINANCE_TO_SLUG = Object.fromEntries(Object.entries(COIN_TO_BINANCE).map(([slug, bin]) => [bin.replace(/USDT$/, ''), slug]));
         const CRYPTO_SEARCH_LIST = Object.entries(COIN_TO_BINANCE).map(([slug, bin]) => ({
             symbol: slug, type: 'CRYPTO', ticker: bin.replace(/USDT$/, ''), name: slug,
         }));
-        const resolveChartQuery = (q) => {
+        let binanceListPromise = null;
+        const loadBinanceList = () => {
+            if (!binanceListPromise) {
+                binanceListPromise = fetch('https://api.binance.com/api/v3/ticker/price')
+                    .then(r => (r.ok ? r.json() : []))
+                    .then(rows => {
+                        const seen = new Set(CRYPTO_SEARCH_LIST.map(c => c.ticker));
+                        const extra = [];
+                        for (const row of Array.isArray(rows) ? rows : []) {
+                            const m = /^([A-Z0-9]{2,12})USDT$/.exec(row.symbol || '');
+                            if (!m || seen.has(m[1]) || /(UP|DOWN|BULL|BEAR)$/.test(m[1]) || !(+row.price > 0)) continue;
+                            seen.add(m[1]);
+                            extra.push({ symbol: m[1].toLowerCase(), type: 'CRYPTO', ticker: m[1], name: '' });
+                        }
+                        return CRYPTO_SEARCH_LIST.concat(extra);
+                    })
+                    .catch(() => { binanceListPromise = null; return CRYPTO_SEARCH_LIST; });
+            }
+            return binanceListPromise;
+        };
+        const resolveChartQuery = (q, market) => {
             const raw = String(q || '').trim();
             if (!raw) return null;
             const lower = raw.toLowerCase();
-            if (/^\d{4,6}[a-z]?$/i.test(raw)) return { symbol: raw.toUpperCase() + '.TW', type: 'TW' };
-            if (/\.(tw|two)$/i.test(raw)) return { symbol: raw.toUpperCase(), type: 'TW' };
             const coin = CRYPTO_SEARCH_LIST.find(c => c.symbol === lower || c.ticker.toLowerCase() === lower);
-            if (coin) return { symbol: coin.symbol, type: 'CRYPTO' };
-            if (/-usd$/i.test(raw)) return { symbol: lower.replace(/-usd$/, ''), type: 'CRYPTO' };
+            const asCrypto = () => ({ symbol: coin ? coin.symbol : (BINANCE_TO_SLUG[raw.toUpperCase()] || lower.replace(/-usdt?$/, '')), type: 'CRYPTO' });
+            const asTW = () => ({ symbol: /\.(tw|two)$/i.test(raw) ? raw.toUpperCase() : raw.toUpperCase() + '.TW', type: 'TW' });
+            if (market === 'CRYPTO') return asCrypto();
+            if (market === 'TW') return asTW();
+            if (market === 'US') return { symbol: raw.toUpperCase(), type: 'US' };
+            if (/^\d{4,6}[a-z]?$/i.test(raw) || /\.(tw|two)$/i.test(raw)) return asTW();
+            if (coin || /-usdt?$/i.test(raw)) return asCrypto();
             return { symbol: raw.toUpperCase(), type: 'US' };
         };
         const chartSymbolLabel = (symbol, type) => {
             if (type === 'CRYPTO' || type === 'crypto') return (getBinanceSymbol(symbol) || String(symbol)).replace(/USDT$/, '').toUpperCase();
-            return String(symbol || '').toUpperCase();
+            return String(symbol || '').toUpperCase().replace(/\.TW$/, '');
         };
         const MARKET_LABEL = { CRYPTO: '加密', crypto: '加密', US: '美股', TW: '台股' };
 
-        const ChartSymbolSearch = ({ onPick, isLocked }) => {
-            const [q, setQ] = useState('');
+        // variant: 'chart'(圖表上方的搜尋框)| 'page'(各市場頁:底線輸入框 + 搜尋鈕)
+        const ChartSymbolSearch = ({ onPick, isLocked, market = null, variant = 'chart', initial = '', placeholder }) => {
+            const [q, setQ] = useState(initial);
             const [open, setOpen] = useState(false);
             const [remote, setRemote] = useState([]);
+            const [cryptoList, setCryptoList] = useState(CRYPTO_SEARCH_LIST);
             const [active, setActive] = useState(0);
             const boxRef = useRef(null);
+            const page = variant === 'page';
+            useEffect(() => { setQ(initial); }, [initial]);
+
+            const wantCrypto = !market || market === 'CRYPTO';
+            const wantStocks = !market || market !== 'CRYPTO';
+
+            const ensureCryptoList = () => {
+                if (!wantCrypto || isLocked) return;
+                loadBinanceList().then(list => setCryptoList(list));
+            };
 
             // 美股 / 台股:Yahoo 搜尋(停止輸入 250ms 後才查)
             useEffect(() => {
                 const term = q.trim();
-                if (term.length < 1 || isLocked) { setRemote([]); return; }
+                if (!open || !wantStocks || term.length < 1 || isLocked) { setRemote([]); return; }
                 let cancelled = false;
                 const t = setTimeout(async () => {
                     try {
-                        const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(term)}&quotesCount=8&newsCount=0`;
+                        const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(term)}&quotesCount=10&newsCount=0`;
                         const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(url));
                         if (!res.ok) return;
                         const json = await res.json();
                         if (cancelled) return;
                         const out = [];
                         for (const it of json.quotes || []) {
-                            if (!it.symbol) continue;
-                            if (it.quoteType === 'CRYPTOCURRENCY') continue; // 加密用本地清單(Binance 資料)
+                            if (!it.symbol || it.quoteType === 'CRYPTOCURRENCY') continue; // 加密用 Binance 清單
                             if (!['EQUITY', 'ETF', 'INDEX', 'MUTUALFUND'].includes(it.quoteType)) continue;
                             const tw = /\.(TW|TWO)$/.test(it.symbol);
-                            if (!tw && it.symbol.includes('.')) continue; // 其他海外市場暫不支援
-                            out.push({ symbol: it.symbol, type: tw ? 'TW' : 'US', ticker: it.symbol, name: it.shortname || it.longname || '' });
+                            if (!tw && it.symbol.includes('.')) continue; // 其他海外市場不支援
+                            const type = tw ? 'TW' : 'US';
+                            if (market && market !== type) continue;
+                            out.push({ symbol: it.symbol, type, ticker: it.symbol, name: it.shortname || it.longname || '' });
                         }
                         setRemote(out);
-                    } catch { /* 代理失敗時只剩本地結果與 Enter 直接查 */ }
+                    } catch { /* 代理失敗:只剩加密清單與 Enter 直接查 */ }
                 }, 250);
                 return () => { cancelled = true; clearTimeout(t); };
-            }, [q, isLocked]);
+            }, [q, open, isLocked, market, wantStocks]);
 
             useEffect(() => {
                 if (!open) return;
@@ -4113,43 +4100,81 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             }, [open]);
 
             const term = q.trim().toLowerCase();
-            const local = term ? CRYPTO_SEARCH_LIST.filter(c => c.ticker.toLowerCase().startsWith(term) || c.name.startsWith(term)).slice(0, 5) : [];
+            const local = useMemo(() => {
+                if (!term || !wantCrypto) return [];
+                const score = (c) => {
+                    const t = c.ticker.toLowerCase();
+                    if (t === term || c.name === term) return 0;
+                    if (t.startsWith(term)) return 1 + t.length / 100;
+                    if (c.name.startsWith(term)) return 2;
+                    return 9;
+                };
+                return cryptoList.map(c => [score(c), c]).filter(([sc]) => sc < 9).sort((a, b) => a[0] - b[0]).slice(0, market === 'CRYPTO' ? 10 : 5).map(([, c]) => c);
+            }, [term, cryptoList, wantCrypto, market]);
             const results = [...local, ...remote].slice(0, 10);
 
             const pick = (item) => {
                 if (!item) return;
                 onPick({ symbol: item.symbol, type: item.type });
-                setQ('');
+                setQ(page ? chartSymbolLabel(item.symbol, item.type) : '');
                 setOpen(false);
             };
+            const submit = () => pick(results[active] && open ? results[active] : resolveChartQuery(q, market));
             const onKeyDown = (e) => {
                 e.stopPropagation(); // 不讓圖表 / modal 的快捷鍵吃掉輸入
-                if (e.key === 'ArrowDown') { e.preventDefault(); setActive(i => Math.min(i + 1, results.length - 1)); }
+                if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive(i => Math.min(i + 1, results.length - 1)); }
                 else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); }
-                else if (e.key === 'Enter') pick(results[active] || resolveChartQuery(q));
+                else if (e.key === 'Enter') submit();
                 else if (e.key === 'Escape') { setOpen(false); e.currentTarget.blur(); }
             };
+            const hint = placeholder || (isLocked ? '升級 Pro 才能搜尋其他標的'
+                : market === 'CRYPTO' ? '搜尋幣種:BTC、SOL、PEPE…'
+                : market === 'US' ? '搜尋美股:AAPL、SPY、Tesla…'
+                : market === 'TW' ? '搜尋台股:2330、0050、台積電…'
+                : '搜尋標的:BTC、AAPL、2330…');
+
+            const C = page
+                ? { ink: 'var(--ink)', ink2: 'var(--ink-2)', ink3: 'var(--ink-3)', line: 'var(--rule)', bg: 'var(--paper)', hover: 'rgba(127,127,127,0.12)' }
+                : { ink: 'var(--text)', ink2: 'var(--text-2)', ink3: 'var(--text-3)', line: 'var(--line)', bg: 'var(--surface)', hover: 'rgba(127,127,127,0.12)' };
+
+            const input = (
+                <input
+                    value={q}
+                    disabled={isLocked}
+                    onChange={(e) => { setQ(e.target.value); setOpen(true); setActive(0); }}
+                    onFocus={(e) => { ensureCryptoList(); if (page) e.target.select(); if (q && !page) setOpen(true); }}
+                    onKeyDown={onKeyDown}
+                    placeholder={hint}
+                    className={page
+                        ? `w-full bg-transparent px-0.5 py-1.5 text-[15px] outline-none border-b-[1.5px] ${isLocked ? 'cursor-not-allowed' : ''}`
+                        : 'flex-1 min-w-0 bg-transparent outline-none text-[13px]'}
+                    style={page ? { color: isLocked ? C.ink3 : C.ink, borderColor: C.ink } : { color: C.ink }}
+                />
+            );
 
             return (
-                <div ref={boxRef} className="relative w-full max-w-[320px]" data-testid="chart-symbol-search">
-                    <div className="flex items-center gap-2 h-8 px-2.5 rounded-lg" style={{ border: '1px solid var(--line)', background: 'var(--wash)' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ color: 'var(--text-3)' }} aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></svg>
-                        <input
-                            value={q}
-                            disabled={isLocked}
-                            onChange={(e) => { setQ(e.target.value); setOpen(true); setActive(0); }}
-                            onFocus={() => setOpen(true)}
-                            onKeyDown={onKeyDown}
-                            placeholder={isLocked ? '升級 Pro 才能搜尋其他標的' : '搜尋標的:BTC、AAPL、2330…'}
-                            className="flex-1 min-w-0 bg-transparent outline-none text-[13px]"
-                            style={{ color: 'var(--text)' }}
-                        />
-                        {isLocked && <Lock size={13} style={{ color: 'var(--text-3)' }} />}
-                    </div>
+                <div ref={boxRef} className={page ? 'relative flex gap-2 items-center' : 'relative w-full max-w-[320px]'} data-testid="chart-symbol-search">
+                    {page ? (
+                        <>
+                            <div className="relative flex-1">
+                                {input}
+                                {isLocked && <div className="absolute inset-0 flex items-center justify-end pr-1 pointer-events-none"><Lock size={15} style={{ color: C.ink3 }} /></div>}
+                            </div>
+                            <button onClick={() => !isLocked && submit()} disabled={isLocked} className="fs-btn sm">
+                                {isLocked ? '鎖定' : <><RefreshCw size={16} /> 搜尋</>}
+                            </button>
+                        </>
+                    ) : (
+                        <div className="flex items-center gap-2 h-8 px-2.5 rounded-lg" style={{ border: '1px solid ' + C.line, background: 'var(--wash)' }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ color: C.ink3 }} aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></svg>
+                            {input}
+                            {isLocked && <Lock size={13} style={{ color: C.ink3 }} />}
+                        </div>
+                    )}
                     {open && !isLocked && term && (
-                        <div className="absolute left-0 right-0 top-9 z-[130] rounded-lg shadow-2xl py-1 max-h-[50vh] overflow-y-auto" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
+                        <div className={`absolute left-0 ${page ? 'right-16 top-10' : 'right-0 top-9'} z-[130] rounded-lg shadow-2xl py-1 max-h-[50vh] overflow-y-auto`} style={{ background: C.bg, border: '1px solid ' + C.line }}>
                             {results.length === 0 && (
-                                <button onClick={() => pick(resolveChartQuery(q))} className="block w-full text-left px-3 py-2 text-[12px] hover:bg-white/[0.06]" style={{ color: 'var(--text-2)' }}>
+                                <button onClick={() => pick(resolveChartQuery(q, market))} className="block w-full text-left px-3 py-2 text-[12px]" style={{ color: C.ink2 }}>
                                     直接查詢「{q.trim()}」
                                 </button>
                             )}
@@ -4159,11 +4184,11 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                                     onClick={() => pick(it)}
                                     onMouseEnter={() => setActive(i)}
                                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
-                                    style={{ background: i === active ? 'rgba(127,127,127,0.12)' : 'transparent' }}
+                                    style={{ background: i === active ? C.hover : 'transparent' }}
                                 >
-                                    <span className="text-[13px] font-bold" style={{ color: 'var(--text)' }}>{it.ticker.replace(/\.(TW|TWO)$/, '')}</span>
-                                    <span className="flex-1 truncate text-[11px]" style={{ color: 'var(--text-3)' }}>{it.name}</span>
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }}>{MARKET_LABEL[it.type]}</span>
+                                    <span className="text-[13px] font-bold" style={{ color: C.ink }}>{it.ticker.replace(/\.(TW|TWO)$/, '')}</span>
+                                    <span className="flex-1 truncate text-[11px]" style={{ color: C.ink3 }}>{it.name}</span>
+                                    {!market && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: C.ink2, border: '1px solid ' + C.line }}>{MARKET_LABEL[it.type]}</span>}
                                 </button>
                             ))}
                         </div>
@@ -4231,20 +4256,35 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                         if (apiType === 'crypto') {
                             const binSym = getBinanceSymbol(symbol);
                             if (!binSym) { setError(`不支援的幣種：${symbol}（不在 Binance 上市）`); setHistory([]); return; }
-                            const days = rangeToDays(effectiveHistoryRange);
-                            const limit = Math.min(1000, days + 5);
-                            const binRes = await fetch(`https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=${limit}`);
-                            if (cancelled) return;
-                            if (!binRes.ok) { setError(`Binance returned ${binRes.status}`); setHistory([]); return; }
-                            const klines = await binRes.json();
+                            // Binance 一次最多 1000 根:ALL 往前翻頁抓完整歷史(上限約 15 年)
+                            const want = effectiveHistoryRange === 'max' ? 5500 : rangeToDays(effectiveHistoryRange) + 5;
+                            let klines = [];
+                            let endTime = null;
+                            while (klines.length < want) {
+                                const limit = Math.min(1000, want - klines.length);
+                                const url = `https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=${limit}` + (endTime ? `&endTime=${endTime}` : '');
+                                const binRes = await fetch(url);
+                                if (cancelled) return;
+                                if (!binRes.ok) {
+                                    if (klines.length) break;
+                                    setError(`Binance returned ${binRes.status}`); setHistory([]); return;
+                                }
+                                const page = await binRes.json();
+                                if (!Array.isArray(page) || page.length === 0) break;
+                                klines = page.concat(klines);
+                                if (page.length < limit) break; // 已到上市第一天
+                                endTime = page[0][0] - 1;
+                            }
                             setHistory(klines.map(k => ({
                                 date: new Date(k[0]).toISOString().slice(0, 10),
                                 price: +k[4], open: +k[1], high: +k[2], low: +k[3], volume: +k[5],
                             })));
                             return;
                         }
-                        const range = ['1mo','3mo','6mo','1y','2y','5y','max'].includes(effectiveHistoryRange) ? effectiveHistoryRange : 'max';
-                        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}`;
+                        // Yahoo 的 range=max 會自動降成週 / 月 K,所以 ALL 改用 period1/period2 指定起訖,才拿得到完整日 K
+                        const range = ['1mo','3mo','6mo','1y','2y','5y'].includes(effectiveHistoryRange) ? effectiveHistoryRange : null;
+                        const span = range ? `range=${range}` : `period1=0&period2=${Math.floor(Date.now() / 1000)}`;
+                        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&${span}`;
                         const stockRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yahooUrl));
                         if (cancelled) return;
                         if (!stockRes.ok) { setError(`Yahoo returned ${stockRes.status}`); setHistory([]); return; }

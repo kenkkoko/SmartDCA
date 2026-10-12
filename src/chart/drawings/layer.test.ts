@@ -319,3 +319,14 @@ describe("persistence", () => {
     other.dispose();
   });
 });
+
+describe("chart view reset (symbol switch)", () => {
+  it("gives a manually scaled price axis back to auto-scale and fits all bars", () => {
+    const pane = chart.mainPane;
+    pane.price.scaleFromDrag({ min: pane.price.min, max: pane.price.max }, 100, 300);
+    expect(pane.price.autoScale).toBe(false);
+    chart.resetView();
+    expect(pane.price.autoScale).toBe(true);
+    expect(pane.overlay.autoScale).toBe(true);
+  });
+});

@@ -254,6 +254,17 @@ export class Chart {
     this.invalidate();
   }
 
+  /** New symbol / data set: fit all bars and give every price axis back to auto-scale. */
+  resetView(): void {
+    for (const pane of this.panes) {
+      pane.price.autoScale = true;
+      pane.overlay.autoScale = true;
+    }
+    this.time.fitContent();
+    this.invalidate();
+    this.emitView();
+  }
+
   resetTimeScale(): void {
     this.time.reset();
     this.invalidate();
