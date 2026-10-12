@@ -10,7 +10,9 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
     "ai-bridge": "node ai-bridge/server.mjs",
-    "ai-bridge:install": "npm install --prefix ai-bridge --no-audit --no-fund"
+    "ai-bridge:install": "npm install --prefix ai-bridge --no-audit --no-fund",
+    "prebuild": "node scripts/build-ai-bridge-zip.mjs",
+    "build:ai-bridge": "node scripts/build-ai-bridge-zip.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

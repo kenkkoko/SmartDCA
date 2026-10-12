@@ -281,24 +281,146 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
       </span>
     );
 
+  // Start the bridge through the smartdca-ai:// link the installer registers, then wait for it
+  const [launching, setLaunching] = useState(false);
+  const launch = () => {
+    setLaunching(true);
+    window.location.href = "smartdca-ai://start";
+    let tries = 0;
+    const poll = async () => {
+      tries++;
+      try {
+        await fetchProviders(settings.port);
+        setLaunching(false);
+        void detect();
+        return;
+      } catch {
+        if (tries < 20) setTimeout(poll, 1500);
+        else setLaunching(false);
+      }
+    };
+    setTimeout(poll, 1500);
+  };
+
+  const step = "flex gap-2";
+  const num = (n: number) => <span className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--c-accent)] text-[10px] font-bold text-[var(--c-accent-text)]">{n}</span>;
   const offlineHelp = (
-    <div className="space-y-2 rounded-md bg-[var(--c-raised)] p-3 text-[12px] leading-relaxed text-[var(--c-text)] ring-1 ring-inset ring-[var(--c-line)]">
-      <p className="font-semibold">還沒連到你電腦上的 AI</p>
-      <p className="text-[var(--c-muted)]">AI 分析使用你電腦裡的 Claude Code、Codex 或 Ollama，網頁需要一個小橋接程式才能呼叫它們：</p>
-      <ol className="list-decimal space-y-1 pl-5">
-        <li>
-          在 Smart DCA 專案資料夾雙擊 <code className="rounded bg-[var(--c-panel)] px-1">Start-AI-Bridge.bat</code>
-          （或執行 <code className="rounded bg-[var(--c-panel)] px-1">npm run ai-bridge</code>）
-        </li>
-        <li>視窗顯示「本機 AI 橋接」後保持開著</li>
-        <li>回到這裡按「重新偵測」</li>
-      </ol>
-      {detectError ? <p className="text-[11px] text-[var(--c-muted)]">（{detectError}）</p> : null}
-      <button className={`${panelIconBtn()} !w-auto px-3 text-[12px] text-[var(--c-text)] ring-[var(--c-line)]`} onClick={() => void detect(true)}>
-        重新偵測
+    <div className="space-y-3 rounded-md bg-[var(--c-raised)] p-3 text-[12px] leading-relaxed text-[var(--c-text)] ring-1 ring-inset ring-[var(--c-line)]" data-testid="ai-offline">
+      <div>
+        <p className="font-semibold">連接你電腦上的 AI</p>
+        <p className="text-[11.5px] text-[var(--c-muted)]">
+          AI 分析用的是你自己電腦裡的 Claude Code、Codex 或 Ollama。網頁和 App 都不能直接開啟電腦裡的程式，所以需要裝一個小小的「本機 AI 橋接」（只要裝一次）。
+        </p>
+      </div>
+      <button
+        className="flex h-9 w-full cursor-pointer items-center justify-center gap-1.5 rounded-md bg-[var(--c-accent)] text-[12.5px] font-semibold text-[var(--c-accent-text)] hover:brightness-110 disabled:opacity-60"
+        onClick={launch}
+        disabled={launching}
+        data-testid="ai-launch"
+      >
+        {launching ? "啟動中，等待連線…" : "已安裝：啟動本機 AI"}
       </button>
+      <div className="space-y-1.5 border-t border-[var(--c-line)] pt-3">
+        <p className="text-[11px] font-semibold text-[var(--c-muted)]">還沒安裝？（Windows）</p>
+        <p className={step}>
+          {num(1)}
+          <span>
+            先裝{" "}
+            <a className="text-[var(--c-accent)] underline" href="https://nodejs.org/" target="_blank" rel="noreferrer">
+              Node.js（LTS）
+            </a>
+            ，以及{" "}
+            <a className="text-[var(--c-accent)] underline" href="https://claude.com/claude-code" target="_blank" rel="noreferrer">
+              Claude Code
+            </a>
+            （並登入）。
+          </span>
+        </p>
+        <p className={step}>
+          {num(2)}
+          <span>
+            <a className="font-semibold text-[var(--c-accent)] underline" href="/downloads/smartdca-ai-bridge.zip" download data-testid="ai-download">
+              下載本機 AI 橋接（zip）
+            </a>
+            ，解壓縮後雙擊 <code className="rounded bg-[var(--c-panel)] px-1">Install-AI-Bridge.bat</code>。
+          </span>
+        </p>
+        <p className={step}>
+          {num(3)}
+          <span>之後按上面的「啟動本機 AI」就會自動開啟（瀏覽器第一次會問要不要開啟，選允許）。</span>
+        </p>
+        <p className="pt-1 text-[11px] text-[var(--c-muted)]">macOS / Linux：解壓縮後在資料夾執行 npm install 與 node server.mjs。</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <button className="cursor-pointer text-[11.5px] text-[var(--c-accent)] hover:underline" onClick={() => void detect(true)}>
+          重新偵測
+        </button>
+        {detectError ? <span className="truncate text-[10.5px] text-[var(--c-muted)]">（{detectError}）</span> : null}
+      </div>
     </div>
   );
+
+  const available = providers.filter((p) => p.available);
+  /** AI / model / effort pickers (shown right above the analyse button and in settings). */
+  const modelControls = provider?.available ? (
+    <div className="space-y-2" data-testid="ai-model-controls">
+      {available.length > 1 ? (
+        <div>
+          <label className={label} htmlFor="ai-provider">
+            AI
+          </label>
+          <select id="ai-provider" className={select} value={settings.provider} onChange={(e) => update({ provider: e.target.value, model: available.find((p) => p.id === e.target.value)?.models[0]?.id ?? "" })}>
+            {available.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+      <div>
+        <label className={label} htmlFor="ai-model">
+          模型{available.length <= 1 ? `（${provider.name}）` : ""}
+        </label>
+        <select id="ai-model" className={select} value={settings.model} onChange={(e) => update({ model: e.target.value })} data-testid="ai-model">
+          {provider.models.map((m) => (
+            <option key={m.id || "default"} value={m.id}>
+              {m.name}
+              {m.description ? ` — ${m.description}` : ""}
+            </option>
+          ))}
+        </select>
+        {provider.customModel ? (
+          <input
+            className={`${select} mt-1.5 cursor-text`}
+            placeholder="或輸入模型名稱"
+            value={provider.models.some((m) => m.id === settings.model) ? "" : settings.model}
+            onChange={(e) => update({ model: e.target.value })}
+          />
+        ) : null}
+      </div>
+      <div>
+        <span className={label}>努力程度（越高越仔細，也越慢、越耗用量）</span>
+        {efforts.length ? (
+          <div className="flex flex-wrap gap-1" data-testid="ai-effort">
+            {efforts.map((e) => (
+              <button
+                key={e}
+                onClick={() => update({ effort: e })}
+                className={`h-7 cursor-pointer rounded-md px-2.5 text-[12px] ring-1 ring-inset ${
+                  settings.effort === e ? "bg-[var(--c-accent-soft)] font-semibold text-[var(--c-accent)] ring-[var(--c-accent)]" : "text-[var(--c-text)] ring-[var(--c-line)] hover:bg-[var(--c-hover)]"
+                }`}
+              >
+                {EFFORT_LABEL[e] ?? e}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-[var(--c-muted)]">這個模型沒有努力程度設定。</p>
+        )}
+      </div>
+    </div>
+  ) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="ai-panel" onKeyDown={(e) => e.stopPropagation()}>
@@ -344,51 +466,7 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
                 </button>
               ) : null}
             </div>
-            {provider?.available ? (
-              <>
-                <div>
-                  <label className={label} htmlFor="ai-model">
-                    模型
-                  </label>
-                  <select id="ai-model" className={select} value={settings.model} onChange={(e) => update({ model: e.target.value })} data-testid="ai-model">
-                    {provider.models.map((m) => (
-                      <option key={m.id || "default"} value={m.id}>
-                        {m.name}
-                        {m.description ? ` — ${m.description}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  {provider.customModel ? (
-                    <input
-                      className={`${select} mt-1.5 cursor-text`}
-                      placeholder="或輸入模型名稱"
-                      value={provider.models.some((m) => m.id === settings.model) ? "" : settings.model}
-                      onChange={(e) => update({ model: e.target.value })}
-                    />
-                  ) : null}
-                </div>
-                <div>
-                  <span className={label}>努力程度（越高越仔細，也越慢、越耗用量）</span>
-                  {efforts.length ? (
-                    <div className="flex flex-wrap gap-1" data-testid="ai-effort">
-                      {efforts.map((e) => (
-                        <button
-                          key={e}
-                          onClick={() => update({ effort: e })}
-                          className={`h-7 cursor-pointer rounded-md px-2.5 text-[12px] ring-1 ring-inset ${
-                            settings.effort === e ? "bg-[var(--c-accent-soft)] font-semibold text-[var(--c-accent)] ring-[var(--c-accent)]" : "text-[var(--c-text)] ring-[var(--c-line)] hover:bg-[var(--c-hover)]"
-                          }`}
-                        >
-                          {EFFORT_LABEL[e] ?? e}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-[var(--c-muted)]">這個模型沒有努力程度設定。</p>
-                  )}
-                </div>
-              </>
-            ) : null}
+            {modelControls}
             <div>
               <label className={label} htmlFor="ai-port">
                 橋接連接埠
@@ -402,20 +480,6 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
         ) : (
           <div className="space-y-3">
             {status === "offline" ? offlineHelp : null}
-            {status === "online" && provider ? (
-              <button
-                className="flex w-full cursor-pointer items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[11.5px] text-[var(--c-muted)] ring-1 ring-inset ring-[var(--c-line)] hover:bg-[var(--c-hover)]"
-                onClick={() => setView("settings")}
-                title="更換 AI / 模型 / 努力程度"
-              >
-                <span className="truncate">
-                  {provider.name} · {model?.name ?? (settings.model || "預設模型")}
-                  {efforts.includes(settings.effort) ? ` · 努力 ${EFFORT_LABEL[settings.effort] ?? settings.effort}` : ""}
-                </span>
-                <span className="ml-2 shrink-0 text-[var(--c-accent)]">更換</span>
-              </button>
-            ) : null}
-
             <div>
               <span className={label}>分析範圍</span>
               <div className="grid grid-cols-2 gap-1">
@@ -458,6 +522,8 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
                 一併參考我在範圍內畫的線
               </label>
             </div>
+
+            {status === "online" ? <div className="border-t border-[var(--c-line)] pt-3">{modelControls}</div> : null}
 
             {run?.state === "running" ? (
               <button
