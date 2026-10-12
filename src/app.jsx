@@ -4170,7 +4170,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             );
         };
 
-        const TechnicalChartModal = ({ symbol: initialSymbol, type: initialType, onClose, embedded = false, isPremium = true, onSymbolChange }) => {
+        const TechnicalChartModal = ({ symbol: initialSymbol, type: initialType, onClose, isPremium = true, onSymbolChange }) => {
             // 目前標的(可用上方搜尋欄切換;外部換標的時跟著換)
             const [current, setCurrent] = useState({ symbol: initialSymbol, type: initialType });
             useEffect(() => { setCurrent({ symbol: initialSymbol, type: initialType }); }, [initialSymbol, initialType]);
@@ -4363,11 +4363,11 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             // Esc 關閉 modal(圖表正在用 Esc 取消繪圖 / 選取時會 preventDefault,不關閉)
             useEffect(() => {
                 const onKey = (e) => {
-                    if (!embedded && e.key === 'Escape' && !e.defaultPrevented) onClose && onClose();
+                    if (e.key === 'Escape' && !e.defaultPrevented) onClose && onClose();
                 };
                 window.addEventListener('keydown', onKey);
                 return () => window.removeEventListener('keydown', onKey);
-            }, [onClose, embedded]);
+            }, [onClose]);
 
             // FNG dot markers (crypto / US only) — combined later with EMA cross markers
             const fngMarkers = useMemo(() => {
@@ -4514,18 +4514,13 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
 
             // ─── Layout ───
             return (
-                <div
-                    className={embedded ? 'relative flex flex-col' : 'fixed inset-0 z-[110] flex flex-col'}
-                    style={embedded
-                        ? { background: 'var(--bg)', height: 'calc(100dvh - 180px)', minHeight: 560 }
-                        : { background: 'var(--bg)', height: '100dvh', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
-                >
+                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
                     {/* Top bar */}
                     <div className="shrink-0 flex flex-col gap-2 px-3 md:px-4 pt-3 pb-2" style={{ borderBottom: '1px solid var(--line)' }}>
                         {/* Row 1: title + status + help/reset/close */}
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0 flex-1">
-                                {!embedded && <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>}
+                                <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>
                                 <div className="min-w-0 shrink-0">
                                     <p className="label leading-none">{MARKET_LABEL[type] || 'CHART'}</p>
                                     <h2 className="text-base md:text-lg font-extrabold text-white tracking-tight truncate">{chartSymbolLabel(symbol, type)}</h2>
@@ -7915,12 +7910,12 @@ const isBull = price2 < price1 && dif2 > dif1;
             </button>
         );
 
-        // 「圖表」分頁:同一套技術圖表,嵌在頁面裡,記住上次看的標的
-        const ChartPage = ({ isPremium }) => {
+        // 「圖表」分頁:跟「圖表」按鈕一樣開全螢幕技術圖表,記住上次看的標的;關閉回到原分頁
+        const ChartPage = ({ isPremium, onClose }) => {
             const [last, setLast] = useLocalState('chart-tab-symbol', { symbol: 'bitcoin', type: 'CRYPTO' });
             return (
                 <TechnicalChartModal
-                    embedded
+                    onClose={onClose}
                     symbol={last.symbol}
                     type={last.type}
                     isPremium={isPremium}
@@ -7934,6 +7929,9 @@ const isBull = price2 < price1 && dif2 > dif1;
             const [activeTab, setActiveTab] = useState(() =>
                 window.location.hash.startsWith('#/forum') ? 'forum' : (PORTFOLIO_FIXTURE ? 'portfolio' : 'crypto')
             );
+            // 「圖表」是全螢幕,關閉時回到開啟前的分頁
+            const prevTabRef = useRef('crypto');
+            useEffect(() => { if (activeTab !== 'chart') prevTabRef.current = activeTab; }, [activeTab]);
             const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
             // PWA install prompt
@@ -8464,7 +8462,7 @@ const isBull = price2 < price1 && dif2 > dif1;
                                         />
                                     )}
                                     {activeTab === 'chart' && (
-                                        <ChartPage isPremium={isPremium} />
+                                        <ChartPage isPremium={isPremium} onClose={() => setActiveTab(prevTabRef.current)} />
                                     )}
                                     {activeTab === 'portfolio' && (
                                         <PortfolioDashboard
