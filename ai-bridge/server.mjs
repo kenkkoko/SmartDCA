@@ -359,6 +359,15 @@ const server = createServer(async (req, res) => {
   }
 });
 
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE") {
+    console.log(`連接埠 ${PORT} 已被佔用：橋接可能已經在執行（看看工作列有沒有另一個橋接視窗），不用再開一次。`);
+    process.exit(0);
+  }
+  console.error("橋接無法啟動：", e.message);
+  process.exit(1);
+});
+
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`Smart DCA 本機 AI 橋接 v${VERSION}：http://127.0.0.1:${PORT}`);
   console.log("保持這個視窗開著，回到 Smart DCA 圖表的「AI 分析」就能使用。按 Ctrl+C 關閉。");
