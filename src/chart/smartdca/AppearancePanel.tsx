@@ -10,6 +10,7 @@ const PRESETS: { name: string; a: Appearance }[] = [
   { name: "預設", a: {} },
   { name: "TradingView", a: { up: "#089981", down: "#f23645" } },
   { name: "純黑", a: { background: "#000000", gridHidden: true } },
+  { name: "中灰", a: { background: "#636363", grid: "rgba(255,255,255,0.08)", axisText: "#e6e6e6" } },
   { name: "深藍", a: { background: "#0f1729", grid: "rgba(148,163,184,0.08)" } },
   { name: "灰影線", a: { up: "#26a69a", down: "#ef5350", wickUp: "#999999", wickDown: "#999999" } },
 ];

@@ -17,7 +17,8 @@ export type TimeScaleOptions = {
 
 export const DEFAULT_TIME_SCALE: TimeScaleOptions = {
   barSpacing: 8,
-  minBarSpacing: 0.5,
+  // small enough to fit a full daily history (BTC since 2017) in one screen
+  minBarSpacing: 0.02,
   maxBarSpacing: 60,
   rightOffset: 4,
 };
@@ -162,10 +163,11 @@ export class TimeScale {
     this.clampOffset();
   }
 
-  /** Show every bar (used for short histories). */
-  fitContent(): void {
+  /** Show every bar, or only the last `maxBars` when there are more. */
+  fitContent(maxBars?: number): void {
     if (this.count === 0 || this.width <= 0) return;
-    this.setBarSpacing(this.width / (this.count + this.options.rightOffset));
+    const bars = maxBars ? Math.min(this.count, maxBars) : this.count;
+    this.setBarSpacing(this.width / (bars + this.options.rightOffset));
     this.rightOffset = this.options.rightOffset;
     this.clampOffset();
   }

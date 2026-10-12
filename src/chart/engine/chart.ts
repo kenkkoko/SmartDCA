@@ -274,12 +274,13 @@ export class Chart {
   }
 
   /** New symbol / data set: fit all bars and give every price axis back to auto-scale. */
-  resetView(): void {
+  /** Auto-scale every price axis and fit the bars (only the last `maxBars` if given). */
+  resetView(maxBars?: number): void {
     for (const pane of this.panes) {
       pane.price.autoScale = true;
       pane.overlay.autoScale = true;
     }
-    this.time.fitContent();
+    this.time.fitContent(maxBars);
     this.invalidate();
     this.emitView();
   }
@@ -680,6 +681,9 @@ export class Chart {
     s.hLine(0, s.width, y0, t.border);
     s.clip({ x: 0, y: y0, width: this.time.width, height: this.options.timeAxisHeight });
     for (const m of marks) {
+      // a label cut off at the left / right edge reads as a wrong value ("026")
+      const half = s.measure(m.label, this.font(m.weight >= 4 ? "600" : undefined)) / 2;
+      if (m.x - half < 2 || m.x + half > this.time.width - 2) continue;
       s.vLine(m.x, y0, y0 + 4, t.border);
       s.text(m.label, m.x, y0 + this.options.timeAxisHeight / 2 + 1, m.weight >= 3 ? t.ui.text : t.text, this.font(m.weight >= 4 ? "600" : undefined), "center");
     }

@@ -5031,6 +5031,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                                 className="absolute inset-0"
                                 candles={candleData}
                                 dataKey={`${symbol}|${type}|${timeframe}|${loadVersion}`}
+                                fitBars={tf.daily ? undefined : 200}
                                 barCloseTime={barCloseTimeFor(candleData[candleData.length - 1], type, timeframe)}
                                 showEMA={showEMA}
                                 showMA200={showMA200 && !isCryptoType}

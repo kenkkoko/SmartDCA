@@ -93,6 +93,8 @@ export type TechnicalChartViewProps = {
   onHover?: (info: HoverInfo | null) => void;
   /** Bump to fit all bars (the "reset" button). */
   fitSignal?: number;
+  /** Fit only the last N bars (intraday: thousands of bars would blur together). */
+  fitBars?: number;
   className?: string;
   /** Overlays drawn over the chart area (OHLC box, signal panel). */
   children?: ReactNode;
@@ -270,7 +272,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     fittedKey.current = dataKey;
     // another symbol can live in a completely different price range: re-fit
     // both axes, otherwise a manually scaled price axis keeps the old range
-    chart.resetView();
+    chart.resetView(props.fitBars);
     // the OHLC box must not keep showing the previous symbol's bar
     refs.current.legend.index = null;
     lastHoverIndex.current = null;
@@ -278,7 +280,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   }, [chart, props.candles, dataKey]);
 
   useEffect(() => {
-    if (chart && props.fitSignal) chart.resetView();
+    if (chart && props.fitSignal) chart.resetView(props.fitBars);
   }, [chart, props.fitSignal]);
 
   // volume: own hidden scale in the bottom fifth of the price pane (TradingView)
