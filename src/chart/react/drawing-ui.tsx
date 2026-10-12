@@ -158,7 +158,8 @@ export function DrawingToolbar({ layer, footer }: { layer: DrawingLayer; footer?
 // ===========================================================================
 
 const PALETTE = [
-  ["#ffffff", "#d1d4dc", "#b2b5be", "#9598a1", "#787b86", "#5d606b", "#434651", "#2a2e39", "#131722", "#000000"],
+  // neutral greys (TradingView's greys lean blue)
+  ["#ffffff", "#d4d4d4", "#b3b3b3", "#999999", "#7a7a7a", "#5e5e5e", "#444444", "#2b2b2b", "#141414", "#000000"],
   ["#f23645", "#ff9800", "#ffeb3b", "#4caf50", "#089981", "#00bcd4", "#2962ff", "#673ab7", "#9c27b0", "#e91e63"],
   ["#fccbcd", "#ffe0b2", "#fff9c4", "#c8e6c9", "#ace5dc", "#b2ebf2", "#bbd9fb", "#d1c4e9", "#e1bee7", "#f8bbd0"],
   ["#faa1a4", "#ffcc80", "#fff59d", "#a5d6a7", "#70ccbd", "#80deea", "#90bff9", "#b39ddb", "#ce93d8", "#f48fb1"],

@@ -130,7 +130,7 @@ export type AiPanelProps = {
   bars: Bar[];
   symbol: string;
   market: string;
-  timeframe: "1d" | "1wk";
+  timeframe: string;
   extras?: string[];
   onClose: () => void;
 };

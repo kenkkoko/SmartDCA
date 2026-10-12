@@ -11,7 +11,7 @@ const PRESETS: { name: string; a: Appearance }[] = [
   { name: "TradingView", a: { up: "#089981", down: "#f23645" } },
   { name: "純黑", a: { background: "#000000", gridHidden: true } },
   { name: "深藍", a: { background: "#0f1729", grid: "rgba(148,163,184,0.08)" } },
-  { name: "灰影線", a: { up: "#26a69a", down: "#ef5350", wickUp: "#9598a1", wickDown: "#9598a1" } },
+  { name: "灰影線", a: { up: "#26a69a", down: "#ef5350", wickUp: "#999999", wickDown: "#999999" } },
 ];
 
 export function AppearancePanel({
@@ -80,6 +80,8 @@ export function AppearancePanel({
           "grid",
         )}
 
+        {row("座標軸文字", <ColorButton color={value.axisText ?? base.text} onChange={(c) => c && set({ axisText: c })} title="價格軸 / 時間軸的文字顏色" />, "axisText")}
+
         {section("K 線")}
         {row("上漲實體", <ColorButton color={value.up ?? base.up} onChange={(c) => c && set({ up: c })} title="上漲 K 線" />, "up")}
         {row("下跌實體", <ColorButton color={value.down ?? base.down} onChange={(c) => c && set({ down: c })} title="下跌 K 線" />, "down")}
@@ -92,6 +94,9 @@ export function AppearancePanel({
             顯示
           </label>,
         )}
+        {section("價格標籤")}
+        {row("標籤底色", <ColorButton color={value.labelBg ?? base.up} onChange={(c) => c && set({ labelBg: c })} title="現價標籤底色（預設跟最後一根 K 線同色）" />, "labelBg")}
+        {row("標籤文字", <ColorButton color={value.labelText ?? "#ffffff"} onChange={(c) => c && set({ labelText: c })} title="現價標籤與倒數的文字顏色" />, "labelText")}
         <p className="mt-1 text-[11px] leading-relaxed text-[var(--c-muted)]">成交量柱也會跟著漲跌顏色。深色和淺色主題各自記住一組設定。</p>
 
         <button

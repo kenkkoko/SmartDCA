@@ -14,6 +14,11 @@ export type Appearance = {
   wickDown?: string;
   /** Hide the thin current-price line. */
   priceLineHidden?: boolean;
+  /** Last-price label background (undefined = candle colour) and text. */
+  labelBg?: string;
+  labelText?: string;
+  /** Axis tick labels. */
+  axisText?: string;
 };
 
 type Stored = { dark?: Appearance; light?: Appearance };
@@ -67,12 +72,13 @@ export function applyAppearance(base: Theme, a: Appearance): Theme {
         t.text = light ? "#4a4a4a" : "#9a968f";
         t.drawing = light ? "#111111" : "#f1efea";
         t.grid = light ? "rgba(17,17,17,0.07)" : "rgba(241,239,234,0.06)";
-        t.crosshair = light ? "#787b86" : "#9598a1";
+        t.crosshair = light ? "#7a7a7a" : "#999999";
       }
     }
   }
   if (a.grid) t.grid = a.grid;
   if (a.gridHidden) t.grid = "rgba(0,0,0,0)";
+  if (a.axisText) t.text = a.axisText;
   if (a.up) t.up = a.up;
   if (a.down) t.down = a.down;
   return t;

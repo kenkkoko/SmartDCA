@@ -352,6 +352,13 @@ export class Chart {
   barCloseTime: number | null = null;
   /** Thin dotted line at the last price (TradingView). */
   showPriceLine = true;
+  /** Last-price label colours; undefined = candle colour / white. */
+  priceLabel: { bg?: string; text?: string } = {};
+
+  setPriceLabelColors(colors: { bg?: string; text?: string }): void {
+    this.priceLabel = colors;
+    this.invalidate();
+  }
 
   setShowPriceLine(on: boolean): void {
     this.showPriceLine = on;
@@ -565,7 +572,7 @@ export class Chart {
       // thin dotted current-price line across the pane (TradingView)
       if (this.showPriceLine && this.mainSeries && this.mainSeries.options.visible && pane.series.includes(this.mainSeries)) {
         const last = this.mainSeries.lastValue();
-        if (last) s.hLine(0, plotRight, r.y + pane.price.priceToY(last.value), last.color, 1, "dotted");
+        if (last) s.hLine(0, plotRight, r.y + pane.price.priceToY(last.value), this.priceLabel.bg ?? last.color, 1, "dotted");
       }
       s.restore();
       // separator below the pane
@@ -620,13 +627,21 @@ export class Chart {
       const r = pane.rect;
       s.clip({ x: x0, y: r.y, width: s.width - x0, height: r.height });
       // coloured labels (last value, price lines) win over tick labels
-      const labels: { y: number; text: string; color: string; sub?: string }[] = [];
+      const labels: { y: number; text: string; color: string; sub?: string; fg?: string }[] = [];
       for (const series of pane.series) {
         if (!series.options.visible) continue;
         const last = series.options.lastValueLabel ? series.lastValue() : undefined;
         // bar-close countdown under the main series' last price
         const sub = last && series === this.mainSeries ? (this.countdownText() ?? undefined) : undefined;
-        if (last) labels.push({ y: r.y + pane.price.priceToY(last.value), text: pane.price.format(last.value), color: last.color, sub });
+        const main = series === this.mainSeries;
+        if (last)
+          labels.push({
+            y: r.y + pane.price.priceToY(last.value),
+            text: pane.price.format(last.value),
+            color: (main && this.priceLabel.bg) || last.color,
+            fg: main ? this.priceLabel.text : undefined,
+            sub,
+          });
         for (const line of series.priceLines)
           if (line.axisLabel) labels.push({ y: r.y + pane.price.priceToY(line.price), text: line.title ?? pane.price.format(line.price), color: line.color });
       }
@@ -637,7 +652,7 @@ export class Chart {
         if (labels.some((l) => Math.abs(l.y - y) < half * 2)) continue;
         s.text(tick.label, x0 + 8, y, t.text, this.font());
       }
-      for (const l of labels) this.axisLabel(s, l.y, l.text, l.color, "#ffffff", l.sub);
+      for (const l of labels) this.axisLabel(s, l.y, l.text, l.color, l.fg ?? "#ffffff", l.sub);
       s.restore();
     });
   }
@@ -699,7 +714,8 @@ export class Chart {
     s.text(label, lx + w / 2, plotBottom + this.options.timeAxisHeight / 2 + 1, t.axisLabelText, this.font(), "center");
   }
 
-  private isIntraday(): boolean {
+  /** Bars closer than a day apart: time labels show the clock. */
+  isIntraday(): boolean {
     const a = this.time.timeAt(0);
     const b = this.time.timeAt(1);
     return a !== undefined && b !== undefined && b - a < 86400;

@@ -202,6 +202,9 @@ export class TimeScale {
         label = MONTHS[date.getMonth()]!;
       } else if (date.getDate() !== prev.getDate()) {
         weight = 2;
+      } else {
+        // intraday bars inside the same day: clock time
+        label = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
       }
       candidates.push({ index: i, x: this.indexToX(i), label, weight });
       prev = date;

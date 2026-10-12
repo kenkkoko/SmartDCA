@@ -530,7 +530,7 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     for (const time of tags.times) {
       const x = ctx.toX(time);
       if (x < 0 || x > axisX) continue;
-      const text = formatTimeLabel(time);
+      const text = formatTimeLabel(time, this.chart.isIntraday());
       const w = s.measure(text, font) + 14;
       roundRect(s, x - w / 2, timeTop + 2, w, h, 2, tagColor);
       s.text(text, x, timeTop + 2 + h / 2, textOn(tagColor), font, "center");

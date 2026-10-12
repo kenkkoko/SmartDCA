@@ -146,7 +146,8 @@ function compress(bars: Bar[], max: number): Bar[] {
 export type AnalysisInput = {
   symbol: string;
   market: string;
-  timeframe: "1d" | "1wk";
+  /** 15m | 1h | 4h | 1d | 1wk | 1mo */
+  timeframe: string;
   /** All loaded bars (indicators need the history before the range). */
   bars: Bar[];
   /** Inclusive bar indices of the selected range. */
@@ -172,7 +173,10 @@ export function buildPrompt(input: AnalysisInput): string {
   const r14 = rsi(closes, 14);
   const md = macd(closes);
   const v20 = sma(vols, 20);
-  const unit = input.timeframe === "1wk" ? "週" : "日";
+  const unit = ({ "15m": "15 分", "1h": "1 小時", "4h": "4 小時", "1d": "日", "1wk": "週", "1mo": "月" } as Record<string, string>)[input.timeframe] ?? "日";
+  // intraday bars need the clock time (UTC)
+  const intraday = ["15m", "1h", "4h"].includes(input.timeframe);
+  const date = (t: number) => (intraday ? `${new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ")}` : new Date(t * 1000).toISOString().slice(0, 10));
 
   const hi = Math.max(...range.map((b) => b.high));
   const lo = Math.min(...range.map((b) => b.low));
@@ -276,7 +280,7 @@ export const MARKS_PROMPT = [
   '  {"type":"note","date":"2024-12-17","price":108000,"text":"RSI 頂背離"}',
   "]",
   "```",
-  "type 只能是 support / resistance / trend / zone / buy / sell / note。日期用 YYYY-MM-DD 且必須是資料裡有的日期，價格用資料中的實際數字。",
+  "type 只能是 support / resistance / trend / zone / buy / sell / note。日期照資料裡的寫法（YYYY-MM-DD，盤中週期是 YYYY-MM-DD HH:MM，UTC）且必須是資料裡有的時間，價格用資料中的實際數字。",
   "label 要短（10 字以內）。這段區塊之後不要再寫任何文字；前面的分析內文裡不要提到這段區塊。",
 ].join("\n");
 
@@ -329,7 +333,15 @@ export function marksToDrawings(marks: RawMark[], bars: Bar[]): Drawing[] {
   };
   const time = (v: unknown): number | null => {
     if (typeof v !== "string" && typeof v !== "number") return null;
-    const t = typeof v === "number" ? (v > 1e11 ? v / 1000 : v) : Date.parse(`${String(v).slice(0, 10)}T00:00:00Z`) / 1000;
+    const str = String(v).trim();
+    const t =
+      typeof v === "number"
+        ? v > 1e11
+          ? v / 1000
+          : v
+        : /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(str)
+          ? Date.parse(`${str.slice(0, 16).replace(" ", "T")}:00Z`) / 1000
+          : Date.parse(`${str.slice(0, 10)}T00:00:00Z`) / 1000;
     if (!Number.isFinite(t)) return null;
     // nearest bar (bars are sorted)
     let a = 0;

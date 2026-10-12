@@ -18,6 +18,7 @@ const SDCA_DARK: Theme = {
   border: "rgba(241,239,234,0.14)",
   axisLabelBackground: "#2f3032",
   axisLabelText: "#f1efea",
+  crosshair: "rgba(210,210,210,0.55)",
   drawing: "#f1efea",
   ui: {
     panel: "#121314",
@@ -35,6 +36,8 @@ const SDCA_DARK: Theme = {
 const SDCA_LIGHT: Theme = {
   ...LIGHT_THEME,
   text: "#4a4a4a",
+  crosshair: "rgba(40,40,40,0.5)",
+  axisLabelBackground: "#141414",
   drawing: "#111111",
   ui: {
     panel: "#ffffff",
@@ -234,7 +237,8 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
 
   useEffect(() => {
     chart?.setShowPriceLine(!appearance.priceLineHidden);
-  }, [chart, appearance.priceLineHidden]);
+    chart?.setPriceLabelColors({ bg: appearance.labelBg, text: appearance.labelText });
+  }, [chart, appearance.priceLineHidden, appearance.labelBg, appearance.labelText]);
 
   useEffect(() => {
     chart?.setBarCloseTime(props.barCloseTime ?? null);

@@ -3880,21 +3880,78 @@ import { AiPanel } from './chart/smartdca/AiPanel';
             const asZone = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour % 24, +parts.minute);
             return Math.floor((guess - (asZone - guess)) / 1000);
         };
+        // 圖表的時間級別。加密走 Binance 原生週期;股票走 Yahoo(4 小時由 1 小時 K 每 4 根合成,Yahoo 沒有 4h)
+        const CHART_TF = {
+            '15m': { label: '15分', sec: 900, bin: '15m', yahoo: '15m', yRange: '60d', poll: '1d', want: 5000 },
+            '1h': { label: '1時', sec: 3600, bin: '1h', yahoo: '60m', yRange: '730d', poll: '5d', want: 5000 },
+            '4h': { label: '4時', sec: 14400, bin: '4h', yahoo: '60m', yRange: '730d', poll: '5d', want: 5000, group: 4 },
+            '1d': { label: '日', sec: 86400, bin: '1d', yahoo: '1d', poll: '5d', want: 6000, daily: true },
+            '1wk': { label: '週', sec: 604800, bin: '1w', yahoo: '1wk', poll: '1mo', want: 1500, daily: true },
+            '1mo': { label: '月', sec: 2592000, bin: '1M', yahoo: '1mo', poll: '3mo', want: 400, daily: true },
+        };
+        const chartTf = (tf) => CHART_TF[tf] || CHART_TF['1d'];
+        // Yahoo 的 K 線 → 圖表用的一筆(日線以上對齊到該日 UTC 00:00,盤中保留原始時間)
+        const yahooEntries = (result, tf) => {
+            const ts = result?.timestamp || [];
+            const q = result?.indicators?.quote?.[0] || {};
+            const out = [];
+            for (let i = 0; i < ts.length; i++) {
+                const c = q.close?.[i];
+                if (c == null || isNaN(c)) continue;
+                const date = new Date(ts[i] * 1000).toISOString().slice(0, 10);
+                const e = { t: tf.daily ? Date.parse(date + 'T00:00:00Z') / 1000 : ts[i], date, price: c };
+                if (q.open?.[i] != null && !isNaN(q.open[i])) e.open = q.open[i];
+                if (q.high?.[i] != null && !isNaN(q.high[i])) e.high = q.high[i];
+                if (q.low?.[i] != null && !isNaN(q.low[i])) e.low = q.low[i];
+                if (q.volume?.[i] != null && !isNaN(q.volume[i])) e.volume = q.volume[i];
+                out.push(e);
+            }
+            return tf.group ? groupBars(out, tf.group) : out;
+        };
+        // 同一天內每 n 根合成一根(股票 4 小時 K)
+        const groupBars = (arr, n) => {
+            const out = [];
+            let cur = null, count = 0;
+            for (const p of arr) {
+                if (!cur || count === n || p.date !== cur.date) {
+                    if (cur) out.push(cur);
+                    cur = { ...p };
+                    count = 1;
+                } else {
+                    cur.high = Math.max(cur.high ?? cur.price, p.high ?? p.price);
+                    cur.low = Math.min(cur.low ?? cur.price, p.low ?? p.price);
+                    cur.price = p.price;
+                    if (p.volume != null) cur.volume = (cur.volume || 0) + p.volume;
+                    count++;
+                }
+            }
+            if (cur) out.push(cur);
+            return out;
+        };
         // 最後一根 K 線什麼時候收線(價格標籤下的倒數)。加密:Binance 以 UTC 00:00 換日;
-        // 美股 16:00 紐約、台股 13:30 台北;週線收在該週最後一個交易日。已收線則回傳 null。
+        // 美股 16:00 紐約、台股 13:30 台北;週線收在週五、月線收在月底最後一個平日。已收線則回傳 null。
         const barCloseTimeFor = (lastBar, type, timeframe) => {
             if (!lastBar) return null;
+            const tf = chartTf(timeframe);
             const isCrypto = type === 'CRYPTO' || type === 'crypto';
-            const startDate = new Date(lastBar.time * 1000).toISOString().slice(0, 10);
+            const start = new Date(lastBar.time * 1000);
             let close;
-            if (isCrypto) {
-                close = lastBar.time + (timeframe === '1wk' ? 7 : 1) * 86400;
+            if (!tf.daily) {
+                close = lastBar.time + tf.sec;
+            } else if (isCrypto) {
+                close = timeframe === '1mo'
+                    ? Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1) / 1000
+                    : lastBar.time + (timeframe === '1wk' ? 7 : 1) * 86400;
             } else {
                 const zone = type === 'TW' ? ['Asia/Taipei', 13, 30] : type === 'US' ? ['America/New_York', 16, 0] : null;
                 if (!zone) return null;
-                // 週線:週一開始,週五收;日線:當天收
-                const day = timeframe === '1wk' ? new Date((lastBar.time + 4 * 86400) * 1000).toISOString().slice(0, 10) : startDate;
-                close = zonedEpoch(day, zone[1], zone[2], zone[0]);
+                let day;
+                if (timeframe === '1wk') day = new Date((lastBar.time + 4 * 86400) * 1000);
+                else if (timeframe === '1mo') {
+                    day = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0));
+                    while (day.getUTCDay() === 0 || day.getUTCDay() === 6) day = new Date(day.getTime() - 86400000);
+                } else day = start;
+                close = zonedEpoch(day.toISOString().slice(0, 10), zone[1], zone[2], zone[0]);
             }
             return close > Date.now() / 1000 ? close : null;
         };
@@ -4575,7 +4632,9 @@ import { AiPanel } from './chart/smartdca/AiPanel';
             const [showMACD, setShowMACD] = useLocalState('tech2-show-macd', false);
             const [showVolume, setShowVolume] = useLocalState('tech2-show-volume', true);
             const [showFearSignal, setShowFearSignal] = useLocalState('tech2-show-fear', false);
-            const [timeframe, setTimeframe] = useLocalState('tech-timeframe', '1d'); // '1d' | '1wk'
+            const [timeframeRaw, setTimeframe] = useLocalState('tech-timeframe', '1d'); // 15m | 1h | 4h | 1d | 1wk | 1mo
+            const timeframe = CHART_TF[timeframeRaw] ? timeframeRaw : '1d';
+            const tf = chartTf(timeframe);
 
             const signalSource = (type === 'CRYPTO' || type === 'crypto' || type === 'US') ? 'fng' : 'rsi';
             const isCryptoType = (type === 'CRYPTO' || type === 'crypto');
@@ -4583,26 +4642,17 @@ import { AiPanel } from './chart/smartdca/AiPanel';
             const cmAsset = isCryptoType ? (CM_ASSET_MAP[String(symbol || '').toLowerCase()] || null) : null;
             const [cmData, setCmData] = useState([]);
             const [fngHistory, setFngHistory] = useState([]);
-            const [timeRange, setTimeRange] = useState('max'); // 預設全歷史
             const [history, setHistory] = useState([]);
             const [loadVersion, setLoadVersion] = useState(0); // 每次重新載入 +1;即時跳動不算(圖表只在新載入時重新對齊畫面)
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
             const [live, setLive] = useState(null); // null | 'live' | 'delayed' | 'offline'
 
-            // Auto-extend the underlying fetch range so indicators have enough bars to compute
-            const effectiveHistoryRange = useMemo(() => {
-                let r = timeRange;
-                if (timeframe === '1wk' && ['1mo', '3mo', '6mo', '1y'].includes(r)) r = '2y';
-                if (showMA200) {
-                    if (timeframe === '1d' && ['1mo', '3mo', '6mo'].includes(r)) r = '1y';
-                    if (timeframe === '1wk' && ['1y', '2y'].includes(r)) r = '5y';
-                }
-                return r;
-            }, [timeframe, timeRange, showMA200]);
-
             // ─── Fetch price history (Binance for crypto, Yahoo via cors proxy for stocks) ───
-            const loadHistory = (h) => { setHistory(h); setLoadVersion(v => v + 1); };
+            const dataSetKey = `${symbol}|${type}|${timeframe}`;
+            const [historyKey, setHistoryKey] = useState(null); // 目前 history 屬於哪個標的 + 週期
+            const loadHistory = (h) => { setHistory(h); setHistoryKey(dataSetKey); setLoadVersion(v => v + 1); };
+            // 一律載入全歷史(盤中週期抓最近約 5000 根)
             useEffect(() => {
                 if (!symbol) return;
                 let cancelled = false;
@@ -4610,17 +4660,15 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                     setLoading(true);
                     setError(null);
                     try {
-                        const apiType = (type === 'CRYPTO' || type === 'crypto') ? 'crypto' : 'stock';
-                        if (apiType === 'crypto') {
+                        if (type === 'CRYPTO' || type === 'crypto') {
                             const binSym = getBinanceSymbol(symbol);
                             if (!binSym) { setError(`不支援的幣種：${symbol}（不在 Binance 上市）`); loadHistory([]); return; }
-                            // Binance 一次最多 1000 根:ALL 往前翻頁抓完整歷史(上限約 15 年)
-                            const want = effectiveHistoryRange === 'max' ? 5500 : rangeToDays(effectiveHistoryRange) + 5;
+                            // Binance 一次最多 1000 根:往前翻頁
                             let klines = [];
                             let endTime = null;
-                            while (klines.length < want) {
-                                const limit = Math.min(1000, want - klines.length);
-                                const url = `https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1d&limit=${limit}` + (endTime ? `&endTime=${endTime}` : '');
+                            while (klines.length < tf.want) {
+                                const limit = Math.min(1000, tf.want - klines.length);
+                                const url = `https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=${tf.bin}&limit=${limit}` + (endTime ? `&endTime=${endTime}` : '');
                                 const binRes = await fetch(url);
                                 if (cancelled) return;
                                 if (!binRes.ok) {
@@ -4630,40 +4678,26 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                                 const page = await binRes.json();
                                 if (!Array.isArray(page) || page.length === 0) break;
                                 klines = page.concat(klines);
-                                if (page.length < limit) break; // 已到上市第一天
+                                if (page.length < limit) break; // 已到上市第一根
                                 endTime = page[0][0] - 1;
                             }
                             loadHistory(klines.map(k => ({
+                                t: k[0] / 1000,
                                 date: new Date(k[0]).toISOString().slice(0, 10),
                                 price: +k[4], open: +k[1], high: +k[2], low: +k[3], volume: +k[5],
                             })));
                             return;
                         }
-                        // Yahoo 的 range=max 會自動降成週 / 月 K,所以 ALL 改用 period1/period2 指定起訖,才拿得到完整日 K
-                        const range = ['1mo','3mo','6mo','1y','2y','5y'].includes(effectiveHistoryRange) ? effectiveHistoryRange : null;
-                        const span = range ? `range=${range}` : `period1=0&period2=${Math.floor(Date.now() / 1000)}`;
-                        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&${span}`;
+                        // 日線以上用 period1/period2 指定起訖(range=max 會被 Yahoo 降成週 / 月 K);盤中有 Yahoo 的天數上限
+                        const span = tf.daily ? `period1=0&period2=${Math.floor(Date.now() / 1000)}` : `range=${tf.yRange}`;
+                        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${tf.yahoo}&${span}`;
                         const stockRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yahooUrl));
                         if (cancelled) return;
                         if (!stockRes.ok) { setError(`Yahoo returned ${stockRes.status}`); loadHistory([]); return; }
                         const yfJson = await stockRes.json();
                         const result = yfJson?.chart?.result?.[0];
                         if (!result) { setError(yfJson?.chart?.error?.description || '查無此代號'); loadHistory([]); return; }
-                        const ts = result.timestamp || [];
-                        const q = result.indicators?.quote?.[0] || {};
-                        const opens = q.open || [], highs = q.high || [], lows = q.low || [], closes = q.close || [], vols = q.volume || [];
-                        const hist = [];
-                        for (let i = 0; i < ts.length; i++) {
-                            const c = closes[i];
-                            if (c == null || isNaN(c)) continue;
-                            const entry = { date: new Date(ts[i] * 1000).toISOString().slice(0, 10), price: c };
-                            if (opens[i] != null && !isNaN(opens[i])) entry.open = opens[i];
-                            if (highs[i] != null && !isNaN(highs[i])) entry.high = highs[i];
-                            if (lows[i] != null && !isNaN(lows[i])) entry.low = lows[i];
-                            if (vols[i] != null && !isNaN(vols[i])) entry.volume = vols[i];
-                            hist.push(entry);
-                        }
-                        loadHistory(hist);
+                        loadHistory(yahooEntries(result, tf));
                     } catch (e) {
                         if (!cancelled) setError(String(e));
                     } finally {
@@ -4671,11 +4705,13 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                     }
                 })();
                 return () => { cancelled = true; };
-            }, [symbol, type, effectiveHistoryRange]);
+            }, [symbol, type, timeframe]);
 
             // ─── 即時價格(跟 OpenChart 一樣)───
             // 加密貨幣:Binance WebSocket K 線推播(約每秒);股票:Yahoo 沒有推播,每 15 秒重抓最近幾天(延遲報價)
-            const liveReady = !loading && !error && history.length > 0;
+            // 只在 history 已經是這個標的 + 週期的資料時才接即時(切換週期時舊資料不能被新週期的推播改到)
+            const liveReady = !loading && !error && history.length > 0 && historyKey === dataSetKey;
+            // 切換週期時舊資料還在畫面上,等新資料載入(loading)後才接即時
             useEffect(() => {
                 if (!symbol || !liveReady) return;
                 let stopped = false;
@@ -4689,8 +4725,8 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                     setHistory(h => {
                         if (!h.length) return h;
                         const last = h[h.length - 1];
-                        if (bar.date < last.date) return h;
-                        if (bar.date === last.date) {
+                        if (bar.t < last.t) return h;
+                        if (bar.t === last.t) {
                             if (last.price === bar.price && last.high === bar.high && last.low === bar.low && last.volume === bar.volume) return h;
                             return [...h.slice(0, -1), { ...last, ...bar }];
                         }
@@ -4706,12 +4742,12 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                     let ws = null, attempt = 0, retry = null;
                     const connect = () => {
                         if (stopped) return;
-                        ws = new WebSocket(`${hosts[attempt % hosts.length]}/ws/${binSym.toLowerCase()}@kline_1d`);
+                        ws = new WebSocket(`${hosts[attempt % hosts.length]}/ws/${binSym.toLowerCase()}@kline_${tf.bin}`);
                         ws.onopen = () => { attempt = 0; setLive('live'); };
                         ws.onmessage = (e) => {
                             try {
                                 const k = JSON.parse(e.data).k;
-                                if (k) pending = { date: toDate(k.t), price: +k.c, open: +k.o, high: +k.h, low: +k.l, volume: +k.v };
+                                if (k) pending = { t: k.t / 1000, date: toDate(k.t), price: +k.c, open: +k.o, high: +k.h, low: +k.l, volume: +k.v };
                             } catch { /* 格式不對就略過 */ }
                         };
                         ws.onclose = () => {
@@ -4730,21 +4766,11 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                 const poll = async () => {
                     if (stopped || document.visibilityState === 'hidden') return;
                     try {
-                        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+                        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${tf.yahoo}&range=${tf.poll}`;
                         const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(url));
                         if (!res.ok) throw new Error(String(res.status));
-                        const r = (await res.json())?.chart?.result?.[0];
-                        const ts = r?.timestamp || [];
-                        const q = r?.indicators?.quote?.[0] || {};
-                        for (let i = 0; i < ts.length; i++) {
-                            if (q.close?.[i] == null || isNaN(q.close[i])) continue;
-                            const bar = { date: toDate(ts[i] * 1000), price: q.close[i] };
-                            if (q.open?.[i] != null) bar.open = q.open[i];
-                            if (q.high?.[i] != null) bar.high = q.high[i];
-                            if (q.low?.[i] != null) bar.low = q.low[i];
-                            if (q.volume?.[i] != null) bar.volume = q.volume[i];
-                            pending = bar; // 只留最後一根(今天)
-                        }
+                        const bars = yahooEntries((await res.json())?.chart?.result?.[0], tf);
+                        if (bars.length) pending = bars[bars.length - 1]; // 只留最後一根
                         // 收盤後 Yahoo 的最後一根常常也是即時價,一律交給 flush 判斷有沒有變
                         if (!stopped) setLive('delayed');
                     } catch {
@@ -4756,7 +4782,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                 document.addEventListener('visibilitychange', onVisible);
                 poll();
                 return () => { stopped = true; clearInterval(timer); clearInterval(pollTimer); document.removeEventListener('visibilitychange', onVisible); setLive(null); };
-            }, [symbol, type, liveReady]);
+            }, [symbol, type, liveReady, timeframe]);
 
             // ─── Fetch FNG history (crypto / US only) ───
             useEffect(() => {
@@ -4764,9 +4790,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                 let cancelled = false;
                 (async () => {
                     try {
-                        const r = effectiveHistoryRange;
-                        const days = r === '1mo' ? 30 : r === '3mo' ? 90 : r === '6mo' ? 180 :
-                                     r === '1y' ? 365 : r === '2y' ? 730 : r === 'max' ? 1825 : 365;
+                        const days = 4000; // 全歷史
                         if (type === 'CRYPTO' || type === 'crypto') {
                             const data = await fetchCryptoFNG(days);
                             if (cancelled) return;
@@ -4788,7 +4812,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                     }
                 })();
                 return () => { cancelled = true; };
-            }, [type, effectiveHistoryRange, signalSource]);
+            }, [type, signalSource]);
 
             // ─── Fetch MVRV / Realized Price(crypto 限定,session 內快取)───
             useEffect(() => {
@@ -4806,17 +4830,13 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                 return () => { cancelled = true; };
             }, [cmAsset]);
 
-            const displayHistory = useMemo(
-                () => (timeframe === '1wk' ? aggregateToWeekly(history) : history),
-                [history, timeframe]
-            );
 
             const candleData = useMemo(() => {
                 const seen = new Set();
-                const arr = displayHistory
-                    .filter(p => { if (seen.has(p.date)) return false; seen.add(p.date); return true; })
+                const arr = history
+                    .filter(p => { if (seen.has(p.t)) return false; seen.add(p.t); return true; })
                     .map(p => ({
-                        time: Math.floor(new Date(p.date + 'T00:00:00Z').getTime() / 1000),
+                        time: p.t,
                         open: +(p.open ?? p.price),
                         high: +(p.high ?? p.price),
                         low: +(p.low ?? p.price),
@@ -4825,7 +4845,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                     }));
                 arr.sort((a, b) => a.time - b.time);
                 return arr;
-            }, [displayHistory]);
+            }, [history]);
 
             const fngByDate = useMemo(() => {
                 const m = {};
@@ -4859,7 +4879,8 @@ import { AiPanel } from './chart/smartdca/AiPanel';
 
             // FNG dot markers (crypto / US only) — combined later with EMA cross markers
             const fngMarkers = useMemo(() => {
-                if (!showFearSignal || signalSource !== 'fng' || candleData.length === 0 || fngHistory.length === 0) return [];
+                // 恐懼指數是日資料:盤中週期不標(否則同一天每根都會標)
+                if (!showFearSignal || signalSource !== 'fng' || !tf.daily || candleData.length === 0 || fngHistory.length === 0) return [];
                 const sortedDates = Object.keys(fngByDate).sort();
                 const markers = [];
                 candleData.forEach(bar => {
@@ -4919,16 +4940,6 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                 </button>
             );
 
-            const rangeBtn = (key, label) => (
-                <button
-                    key={key}
-                    onClick={() => setTimeRange(key)}
-                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${timeRange === key ? 'pill-grad' : 'hover:bg-[var(--wash-2)] cursor-pointer'}`}
-                    style={timeRange === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
-                >{label}</button>
-            );
-
-
             // 重置 / 說明(小螢幕放第一列右邊,電腦版放整列最右邊)
             const topActions = (
                 <>
@@ -4947,21 +4958,13 @@ import { AiPanel } from './chart/smartdca/AiPanel';
             // 範圍 • 週期 • 指標開關(電腦版和搜尋同一列)
             const toolbarRow = (
                 <>
-                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }}>
-                                {rangeBtn('1mo', '1M')}
-                                {rangeBtn('3mo', '3M')}
-                                {rangeBtn('6mo', '6M')}
-                                {rangeBtn('1y', '1Y')}
-                                {rangeBtn('max', 'ALL')}
-                            </div>
-
-                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }} title="K 線週期">
-                                <button onClick={() => setTimeframe('1d')}
-                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${timeframe === '1d' ? 'pill-grad' : 'hover:bg-[var(--wash-2)] cursor-pointer'}`}
-                                    style={timeframe === '1d' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>日</button>
-                                <button onClick={() => setTimeframe('1wk')}
-                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${timeframe === '1wk' ? 'pill-grad' : 'hover:bg-[var(--wash-2)] cursor-pointer'}`}
-                                    style={timeframe === '1wk' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>週</button>
+                            <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }} title="時間級別(一律顯示全歷史)">
+                                {Object.entries(CHART_TF).map(([key, t]) => (
+                                    <button key={key} onClick={() => setTimeframe(key)}
+                                        className={`px-2.5 h-7 rounded-md text-[11px] font-bold shrink-0 ${timeframe === key ? 'pill-grad' : 'hover:bg-[var(--wash-2)] cursor-pointer'}`}
+                                        style={timeframe === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                                        data-testid={`tf-${key}`}>{t.label}</button>
+                                ))}
                             </div>
 
                             <div className="w-px h-6 shrink-0" style={{ background: 'var(--line)' }}></div>
