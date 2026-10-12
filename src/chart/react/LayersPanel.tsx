@@ -45,7 +45,10 @@ function entries(layer: DrawingLayer): Entry[] {
 
 type Drop = { kind: "item"; id: string; above: boolean } | { kind: "group"; id: string };
 
-export function LayersPanel({ layer, onClose }: { layer: DrawingLayer; onClose: () => void }) {
+/** A chart series shown as a permanent layer (e.g. the K線): hide only. */
+export type FixedLayer = { id: string; label: string; icon: ReactNode; hidden: boolean; onToggle: () => void };
+
+export function LayersPanel({ layer, onClose, fixed = [] }: { layer: DrawingLayer; onClose: () => void; fixed?: FixedLayer[] }) {
   useLayer(layer);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -280,17 +283,32 @@ export function LayersPanel({ layer, onClose }: { layer: DrawingLayer; onClose: 
         </button>
       </PanelHeader>
 
-      {list.length === 0 ? (
-        <p className="px-4 py-6 text-center text-xs leading-relaxed text-[var(--c-muted)]">
-          還沒有繪圖。
-          <br />
-          從左側工具列選一個工具開始畫，畫好的東西會列在這裡。
-        </p>
-      ) : (
-        <ul className="min-h-0 flex-1 overflow-y-auto py-1" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-          {list.map((e) => (e.kind === "item" ? itemRow(e.item, false) : groupBlock(e.group, e.members)))}
-        </ul>
-      )}
+      <ul className="min-h-0 flex-1 overflow-y-auto py-1" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+        {list.map((e) => (e.kind === "item" ? itemRow(e.item, false) : groupBlock(e.group, e.members)))}
+        {list.length === 0 ? (
+          <li className="px-4 py-5 text-center text-xs leading-relaxed text-[var(--c-muted)]">
+            還沒有繪圖。從左側工具列選一個工具開始畫，畫好的東西會列在這裡。
+          </li>
+        ) : null}
+        {/* chart series sit under every drawing; they can be hidden, not deleted */}
+        {fixed.map((f) => (
+          <li
+            key={f.id}
+            data-layer-fixed={f.id}
+            className="mx-1.5 my-0.5 flex items-center gap-1.5 rounded-md py-1 pl-1.5 pr-1.5 ring-1 ring-inset ring-transparent hover:bg-[var(--c-hover)] hover:ring-[var(--c-line)]"
+            title="圖表本身的圖層：可以隱藏，不能刪除"
+          >
+            <span className="w-3.5" />
+            <span className={`[&_svg]:h-4 [&_svg]:w-4 ${f.hidden ? "opacity-40" : ""}`}>{f.icon}</span>
+            <span className={`min-w-0 flex-1 truncate text-xs font-semibold ${f.hidden ? "text-[var(--c-muted)] line-through" : ""}`}>{f.label}</span>
+            <button className={iconBtn(f.hidden)} title={f.hidden ? "顯示" : "隱藏"} onClick={f.onToggle} data-testid={`fixed-toggle-${f.id}`}>
+              <Icon name={f.hidden ? "eyeOff" : "eye"} />
+            </button>
+            <span className="h-7 w-7 shrink-0" />
+            <span className="h-7 w-7 shrink-0" />
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

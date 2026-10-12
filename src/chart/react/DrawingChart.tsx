@@ -9,7 +9,7 @@ import type { Chart, ChartOptions } from "../engine/chart";
 import { DARK_THEME, type Theme } from "../engine/types";
 import { DrawingToolbar, FibSettingsDialog, PropertiesBar, TextDialog, VolumeSettingsDialog } from "./drawing-ui";
 import { Icon } from "./icons";
-import { LayersPanel } from "./LayersPanel";
+import { LayersPanel, type FixedLayer } from "./LayersPanel";
 import { SideBar, useSidePanel, type SidePanel } from "./SideBar";
 import { TradingChart } from "./TradingChart";
 
@@ -50,11 +50,13 @@ export type DrawingChartProps = {
   sidePanels?: SidePanel[];
   /** Panel open the first time (before the user picks one). */
   defaultSidePanel?: string | null;
+  /** Chart series listed as permanent layers under the drawings (K線). */
+  fixedLayers?: FixedLayer[];
 };
 
 type DialogState = { kind: "fib" | "volume" | "text"; id: string } | null;
 
-export function DrawingChart({ onReady, storageKey, options, className, style, toolbar = true, theme = DARK_THEME, children, sidePanels = [], defaultSidePanel = null }: DrawingChartProps) {
+export function DrawingChart({ onReady, storageKey, options, className, style, toolbar = true, theme = DARK_THEME, children, sidePanels = [], defaultSidePanel = null, fixedLayers = [] }: DrawingChartProps) {
   const [layer, setLayer] = useState<DrawingLayer | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
   const panels: SidePanel[] = [
@@ -63,7 +65,7 @@ export function DrawingChart({ onReady, storageKey, options, className, style, t
       id: "layers",
       title: "圖層",
       icon: <Icon name="layers" />,
-      render: (close) => (layer ? <LayersPanel layer={layer} onClose={close} /> : null),
+      render: (close) => (layer ? <LayersPanel layer={layer} onClose={close} fixed={fixedLayers} /> : null),
     },
   ];
   const [sidePanel, setSidePanel] = useSidePanel(panels, defaultSidePanel);

@@ -85,6 +85,10 @@ export type TechnicalChartViewProps = {
   className?: string;
   /** Overlays drawn over the chart area (OHLC box, signal panel). */
   children?: ReactNode;
+  /** Name of the K-line layer, e.g. "BTC". */
+  symbolLabel?: string;
+  /** Hands the live chart + drawing layer to the page (AI range selection). */
+  onChartReady?: (chart: Chart | null, layer: DrawingLayer | null) => void;
   /** Right-sidebar panels next to 圖層 (watchlist). */
   sidePanels?: SidePanel[];
   defaultSidePanel?: string | null;
@@ -136,7 +140,16 @@ class PaneLegend implements ChartPrimitive {
   }
 }
 
+const candleIcon = (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+    <path d="M6 2v3M6 13v4M14 4v3M14 14v3" />
+    <rect x="4" y="5" width="4" height="8" rx="0.5" />
+    <rect x="12" y="7" width="4" height="7" rx="0.5" fill="currentColor" fillOpacity=".3" />
+  </svg>
+);
+
 export function TechnicalChartView(props: TechnicalChartViewProps) {
+  const [candlesHidden, setCandlesHidden] = useState(false);
   const theme = props.theme === "light" ? SDCA_LIGHT : SDCA_DARK;
   const UP = theme.up;
   const DOWN = theme.down;
@@ -155,7 +168,9 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   const candlesRef = useRef(props.candles);
   candlesRef.current = props.candles;
 
-  const onReady = (c: Chart, _layer: DrawingLayer) => {
+  const readyCb = useRef(props.onChartReady);
+  readyCb.current = props.onChartReady;
+  const onReady = (c: Chart, layer: DrawingLayer) => {
     // no explicit colours: candles take the chart theme's and follow theme switches
     refs.current.candles = c.addCandles(c.mainPane);
     const offLegend = c.addPrimitive(refs.current.legend);
@@ -174,12 +189,19 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       hover.current?.({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, prevClose: index > 0 ? bars[index - 1]!.close : null });
     });
     setChart(c);
+    readyCb.current?.(c, layer);
     return () => {
       off();
       offLegend();
       setChart(null);
+      readyCb.current?.(null, null);
     };
   };
+
+  useEffect(() => {
+    refs.current.candles?.applyOptions({ visible: !candlesHidden });
+    chart?.invalidate();
+  }, [chart, candlesHidden]);
 
   // candles + fit on new data
   useEffect(() => {
@@ -327,7 +349,9 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   }, [chart, props.candles, props.showRSI, props.showMACD, UP, DOWN, theme.text]);
 
   return (
-    <DrawingChart className={props.className} storageKey={props.storageKey} onReady={onReady} theme={theme} sidePanels={props.sidePanels} defaultSidePanel={props.defaultSidePanel}>
+    <DrawingChart className={props.className} storageKey={props.storageKey} onReady={onReady} theme={theme} sidePanels={props.sidePanels} defaultSidePanel={props.defaultSidePanel}
+      fixedLayers={[{ id: "candles", label: `K 線${props.symbolLabel ? ` · ${props.symbolLabel}` : ""}`, icon: candleIcon, hidden: candlesHidden, onToggle: () => setCandlesHidden((h) => !h) }]}
+    >
       {props.children}
     </DrawingChart>
   );

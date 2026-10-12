@@ -113,8 +113,25 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     this.notify(false);
   }
 
+  /**
+   * One-shot range pick (AI analysis): the next click-click or drag on the
+   * chart reports its two times instead of creating a drawing.
+   */
+  captureRange(onPick: (from: number, to: number) => void): void {
+    this.setActiveTool("date_range");
+    this.capture = onPick;
+    this.notify(false);
+  }
+
+  get capturing(): boolean {
+    return this.capture !== null;
+  }
+
+  private capture: ((from: number, to: number) => void) | null = null;
+
   setActiveTool(type: string | null): void {
     this.cancelCreating();
+    this.capture = null;
     this.activeTool = type;
     if (type) this.selectedId = null;
     this.notify(false);
@@ -709,6 +726,15 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
         return;
       }
     }
+    if (this.capture) {
+      const pick = this.capture;
+      this.capture = null;
+      this.activeTool = null;
+      this.notify(false);
+      const [a, b] = anchors;
+      pick(Math.min(a!.time, b!.time), Math.max(a!.time, b!.time));
+      return;
+    }
     cr.item.anchors = anchors;
     this.checkpoint();
     this.items.push(cr.item);
@@ -734,6 +760,7 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     if (e.key === "Escape") {
       // tell outer handlers (e.g. a modal closing on Esc) when the chart used it
       if (this.creating || this.activeTool || this.selectedId) e.preventDefault();
+      this.capture = null;
       if (this.creating) {
         if (this.creating.tool.create === "multi" && this.creating.placed >= 2) {
           this.creating.item.anchors = this.creating.item.anchors.slice(0, this.creating.placed);

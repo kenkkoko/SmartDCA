@@ -5,6 +5,7 @@ import economicCalendar from '../economic_calendar.json';
 import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
 import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
 import { PanelHeader, panelIconBtn } from './chart/react/SideBar';
+import { AiPanel } from './chart/smartdca/AiPanel';
 
         const { useState, useEffect, useMemo, useRef } = React;
 
@@ -4536,6 +4537,7 @@ import { PanelHeader, panelIconBtn } from './chart/react/SideBar';
             const [showHelp, setShowHelp] = useState(false);
             const [hoverInfo, setHoverInfo] = useState(null); // { time, open, high, low, close, prevClose }
             const [fitSignal, setFitSignal] = useState(0);
+            const [chartHandles, setChartHandles] = useState({ chart: null, layer: null }); // AI 分析要用到圖表與畫線圖層
 
             // 預設乾淨:只有 K 線 + 成交量,其他指標自己打開(鍵名 v2:舊的開關設定不沿用)
             const [showEMA, setShowEMA] = useLocalState('tech2-show-ema', false);
@@ -4845,6 +4847,23 @@ import { PanelHeader, panelIconBtn } from './chart/react/SideBar';
 
             const resetZoom = () => setFitSignal(n => n + 1);
 
+            // AI 分析的補充資料:恐懼貪婪、鏈上估值
+            const aiExtras = useMemo(() => {
+                const out = [];
+                if (fngHistory.length) {
+                    const last = fngHistory[fngHistory.length - 1];
+                    const cls = fngClassify(last.fng);
+                    out.push(`${isCryptoType ? '加密貨幣' : '美股'}恐懼貪婪指數 ${last.fng}${cls ? `（${cls.label}）` : ''}，日期 ${last.date}`);
+                    const recent = fngHistory.slice(-30).map(d => d.fng);
+                    if (recent.length > 5) out.push(`近 30 天恐懼貪婪指數介於 ${Math.min(...recent)} ~ ${Math.max(...recent)}`);
+                }
+                if (cmData.length) {
+                    const last = cmData[cmData.length - 1];
+                    out.push(`鏈上 MVRV ${last.mvrv.toFixed(2)}，Realized Price（市場平均持有成本）${last.rp.toFixed(2)}，日期 ${last.date}`);
+                }
+                return out;
+            }, [fngHistory, cmData, isCryptoType]);
+
             // ─── UI atoms ───
             const EyeToggle = ({ label, checked, onChange, color }) => (
                 <button
@@ -4972,6 +4991,8 @@ import { PanelHeader, panelIconBtn } from './chart/react/SideBar';
                                 onHover={setHoverInfo}
                                 fitSignal={fitSignal}
                                 theme={chartTheme}
+                                symbolLabel={chartSymbolLabel(symbol, type)}
+                                onChartReady={(chart, layer) => setChartHandles({ chart, layer })}
                                 defaultSidePanel={typeof window !== 'undefined' && window.innerWidth >= 1024 ? 'watchlist' : null}
                                 sidePanels={[{
                                     id: 'watchlist',
@@ -4987,6 +5008,22 @@ import { PanelHeader, panelIconBtn } from './chart/react/SideBar';
                                             onClose={close}
                                             followList={followList}
                                             holdings={holdings}
+                                        />
+                                    ),
+                                }, {
+                                    id: 'ai',
+                                    title: 'AI 分析（用你電腦上的 AI 分析選取範圍）',
+                                    icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M10 2.5l1.6 4.3 4.4 1.6-4.4 1.6L10 14.3 8.4 10 4 8.4l4.4-1.6z" /><path d="M15.5 13l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" /></svg>,
+                                    render: (close) => (
+                                        <AiPanel
+                                            chart={chartHandles.chart}
+                                            layer={chartHandles.layer}
+                                            bars={candleData}
+                                            symbol={chartSymbolLabel(symbol, type)}
+                                            market={MARKET_LABEL[type] || type}
+                                            timeframe={timeframe}
+                                            extras={aiExtras}
+                                            onClose={close}
                                         />
                                     ),
                                 }]}
@@ -5075,6 +5112,7 @@ import { PanelHeader, panelIconBtn } from './chart/react/SideBar';
                                     <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊標註選取，上方浮動列可改顏色、線寬、填色、延伸、鎖定、複製、刪除；拖曳錨點微調；Delete 刪除、Ctrl+Z / Ctrl+Y 復原 / 重做、Esc 取消。</p>
                                     <p><strong className="text-white">圖層</strong>：右側工具列的圖層鈕打開面板（和觀察清單共用右側，一次開一個），列出所有標註；可點選、隱藏 / 顯示、鎖定、刪除，雙擊改名，拖曳調整上下順序（上面的畫在上層）；資料夾鈕可建立群組，把標註拖進群組後可整組隱藏 / 鎖定 / 收合；拖曳面板左緣可調整寬度。</p>
                                     <p><strong className="text-white">觀察清單</strong>：右側工具列的清單鈕開關。最上面自動同步「我的關注」（各市場頁的 ☆）與「我的投資」持有部位；可新增 / 改名 / 刪除清單（群組），按 ＋ 加入標的，拖曳排序或拖到別的清單；點標的切換圖表，↑↓ 鍵換上一個 / 下一個。</p>
+                                    <p><strong className="text-white">AI 分析</strong>：右側工具列的 ✦ 鈕。選「目前畫面」或在圖上框選範圍，把該範圍的 K 線、均線、RSI、MACD、量能與你畫的線交給你電腦上的 AI（Claude Code / Codex / Ollama）分析；齒輪可選 AI、模型與努力程度。需先在專案資料夾執行 Start-AI-Bridge.bat。</p>
                                     <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20 / 27 / 34 / 41 / 48 / 55（fast=20、slow=55）。線段顏色逐段切換 — fast 站上 slow 該段顯綠、跌破則紅；K 棒下方綠 △ = 金叉（多），K 棒上方紅 ▽ = 死叉（空）。</p>
                                     <p><strong className="text-white">RSI / MACD</strong>：RSI 紫線恆色，加 70 / 50 / 30 參考線，上穿 30 標 △、下穿 70 標 ▽；MACD DIF×DEA 金叉 △、死叉 ▽。</p>
                                     <p><strong className="text-white">Realized Price / MVRV</strong>（加密貨幣）：橘線為鏈上平均持倉成本（Realized Price），價格跌破 = 歷史級抄底區；MVRV = 市值 ÷ 實現市值，&lt;1 低估、&gt;2.4 過熱。資料源 CoinMetrics（BTC / ETH / LINK / DOGE）。美股 / 台股則顯示 MA200。</p>
