@@ -43,7 +43,7 @@ function run(cmd, args, { timeout = 8000, input } = {}) {
     let done = false;
     let child;
     try {
-      child = spawn(cmd, args, { shell: IS_WIN, windowsHide: true });
+      child = IS_WIN ? spawn([cmd, ...args].join(" "), { shell: true, windowsHide: true }) : spawn(cmd, args, { windowsHide: true });
     } catch {
       return resolve({ ok: false, out: "" });
     }
@@ -236,7 +236,10 @@ function analyzeCodex({ model, effort, system, prompt }, emit, signal) {
     if (model) args.push("-m", model);
     if (effort) args.push("-c", `model_reasoning_effort=${effort}`);
     args.push("-"); // 從 stdin 讀題目（避免命令列長度限制）
-    const child = spawn("codex", args, { shell: IS_WIN, windowsHide: true, cwd: os.tmpdir() });
+    // args are validated (model / effort are plain names), so joining them for the Windows shell is safe
+    const child = IS_WIN
+      ? spawn(["codex", ...args].join(" "), { shell: true, windowsHide: true, cwd: os.tmpdir() })
+      : spawn("codex", args, { windowsHide: true, cwd: os.tmpdir() });
     signal.addEventListener("abort", () => child.kill(), { once: true });
     let err = "";
     child.stdout.on("data", (d) => emit({ type: "text", text: d.toString() }));
@@ -330,6 +333,9 @@ const server = createServer(async (req, res) => {
       const runner = RUNNERS[body.provider];
       if (!runner) return json(res, 400, { error: `不認得的 AI：${body.provider}` });
       if (typeof body.prompt !== "string" || !body.prompt) return json(res, 400, { error: "缺少分析內容" });
+      // model / effort reach a command line (codex on Windows runs through the shell): allow plain names only
+      if (body.model && !/^[\w.:\/-]{1,80}$/.test(String(body.model))) return json(res, 400, { error: "模型名稱只能包含英數字與 . : / - _" });
+      if (body.effort && !["minimal", ...EFFORTS].includes(String(body.effort))) return json(res, 400, { error: "不認得的努力程度" });
       res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache", connection: "keep-alive" });
       const ac = new AbortController();
       res.on("close", () => ac.abort());
