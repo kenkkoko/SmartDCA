@@ -4547,7 +4547,6 @@ import { AiPanel } from './chart/smartdca/AiPanel';
             const [showMACD, setShowMACD] = useLocalState('tech2-show-macd', false);
             const [showVolume, setShowVolume] = useLocalState('tech2-show-volume', true);
             const [showFearSignal, setShowFearSignal] = useLocalState('tech2-show-fear', false);
-            const [showSignalPanel, setShowSignalPanel] = useLocalState('tech2-show-panel', false);
             const [timeframe, setTimeframe] = useLocalState('tech-timeframe', '1d'); // '1d' | '1wk'
 
             const signalSource = (type === 'CRYPTO' || type === 'crypto' || type === 'US') ? 'fng' : 'rsi';
@@ -4858,80 +4857,6 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                 return markers;
             }, [candleData, fngByDate, fngHistory, showFearSignal, signalSource, DOWN_C]);
 
-            // ─── Aggregate every signal we display into the summary panel ───
-            const signalSummary = useMemo(() => {
-                const out = [];
-                if (candleData.length === 0) return out;
-                const closes = candleData.map(d => d.close);
-                const lastPrice = closes[closes.length - 1];
-
-                // FNG (only crypto / US carry a real FNG)
-                if (signalSource === 'fng' && fngHistory.length) {
-                    const last = fngHistory[fngHistory.length - 1];
-                    const cls = fngClassify(last.fng);
-                    if (cls) out.push({ key: 'fng', name: 'FNG', tone: cls.tone, label: `${last.fng} · ${cls.label}` });
-                }
-
-                const rsi = computeRSI(closes, 14);
-
-                // EMA Ribbon (fast 20 vs slow 50)
-                if (showEMA) {
-                    const f = computeEMA(closes, EMA_PERIODS[0]);
-                    const s = computeEMA(closes, EMA_PERIODS[EMA_PERIODS.length - 1]);
-                    const lf = f[f.length - 1], ls = s[s.length - 1];
-                    if (lf != null && ls != null) {
-                        const bull = lf >= ls;
-                        out.push({ key: 'ema', name: 'EMA', tone: bull ? 'bull' : 'bear', label: bull ? '多頭排列' : '空頭排列' });
-                    }
-                }
-
-                // RSI bucket
-                if (showRSI && rsi != null) {
-                    let tone, label;
-                    if (rsi >= 70) { tone = 'bear'; label = `${Math.round(rsi)} 超買`; }
-                    else if (rsi <= 30) { tone = 'bull'; label = `${Math.round(rsi)} 超賣`; }
-                    else if (rsi >= 50) { tone = 'bull'; label = `${Math.round(rsi)} 偏多`; }
-                    else { tone = 'bear'; label = `${Math.round(rsi)} 偏空`; }
-                    out.push({ key: 'rsi', name: 'RSI', tone, label });
-                }
-
-                // MACD: above signal line + positive histogram = bull
-                if (showMACD) {
-                    const m = computeMACD(closes);
-                    const lDif = m.dif[m.dif.length - 1];
-                    const lDea = m.dea[m.dea.length - 1];
-                    const lHist = m.histogram[m.histogram.length - 1];
-                    if (lDif != null && lDea != null && lHist != null) {
-                        const above = lDif > lDea;
-                        const positive = lHist > 0;
-                        const tone = above && positive ? 'bull' : (!above && !positive ? 'bear' : 'neutral');
-                        const label = tone === 'bull' ? '多' : tone === 'bear' ? '空' : '震盪';
-                        out.push({ key: 'macd', name: 'MACD', tone, label });
-                    }
-                }
-
-                // 200MA(非 crypto 限定)
-                if (showMA200 && !isCryptoType && closes.length >= 200) {
-                    let sum = 0;
-                    for (let i = closes.length - 200; i < closes.length; i++) sum += closes[i];
-                    const ma200 = sum / 200;
-                    const bull = lastPrice >= ma200;
-                    out.push({ key: 'ma200', name: 'MA200', tone: bull ? 'bull' : 'bear', label: bull ? '價格站上' : '價格跌破' });
-                }
-
-                // MVRV + Realized Price(crypto 限定,鏈上估值)
-                if (cmAsset && cmData.length) {
-                    const last = cmData[cmData.length - 1];
-                    const cls = mvrvClassify(last.mvrv);
-                    if (cls) out.push({ key: 'mvrv', name: 'MVRV', tone: cls.tone, label: `${last.mvrv.toFixed(2)} ${cls.label}` });
-                    if (showRP && last.rp != null) {
-                        const above = lastPrice >= last.rp;
-                        out.push({ key: 'rp', name: 'R.Price', tone: above ? 'bull' : 'bear', label: above ? '價格站上' : '跌破(抄底區)' });
-                    }
-                }
-
-                return out;
-            }, [candleData, fngHistory, signalSource, showEMA, showRSI, showMACD, showMA200, cmAsset, cmData, showRP]);
 
             const resetZoom = () => setFitSignal(n => n + 1);
 
@@ -4975,51 +4900,10 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                 >{label}</button>
             );
 
-            // tone → pill colors
-            const tonePill = (tone) => {
-                if (tone === 'bull') return { bg: UP_C + '26', color: UP_C, border: UP_C + '66' };
-                if (tone === 'bear') return { bg: DOWN_C + '26', color: DOWN_C, border: DOWN_C + '66' };
-                return { bg: 'var(--wash)', color: 'var(--ink-2)', border: 'var(--rule)' };
-            };
 
-            // ─── Layout ───
-            return (
-                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-                    {/* Top bar */}
-                    <div className="shrink-0 flex flex-col gap-2 px-3 md:px-4 pt-3 pb-2" style={{ borderBottom: '1px solid var(--line)' }}>
-                        {/* Row 1: title + status + help/reset/close */}
-                        <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--wash-2)] cursor-pointer shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>
-                                <div className="min-w-0 shrink-0">
-                                    <p className="label leading-none">{MARKET_LABEL[type] || 'CHART'}</p>
-                                    <h2 className="text-base md:text-lg font-extrabold text-white tracking-tight truncate">{chartSymbolLabel(symbol, type)}</h2>
-                                </div>
-                                <div className="ml-2 flex-1 min-w-[140px]">
-                                    <ChartSymbolSearch onPick={pickSymbol} isLocked={!isPremium} />
-                                </div>
-                                {loading && (
-                                    <div className="hidden sm:flex items-center gap-1.5 text-[10px] ml-2" style={{ color: 'var(--text-3)' }}>
-                                        <RefreshCw className="animate-spin" size={11} />
-                                        載入中
-                                    </div>
-                                )}
-                                {error && <div className="text-[10px] ml-2 truncate" style={{ color: '#ff7d8c' }}>{error}</div>}
-                                {!loading && !error && live && (
-                                    <div className="hidden sm:flex items-center gap-1.5 text-[10px] ml-2 shrink-0" style={{ color: 'var(--text-3)' }}
-                                        title={live === 'live' ? 'Binance 即時推播,價格每秒更新' : live === 'delayed' ? 'Yahoo 延遲報價,每 15 秒更新' : '即時連線中斷,自動重試中'}>
-                                        <span className={`w-1.5 h-1.5 rounded-full ${live === 'live' ? 'animate-pulse' : ''}`} style={{ background: live === 'offline' ? 'var(--text-3)' : UP_C }}></span>
-                                        {live === 'live' ? '即時' : live === 'delayed' ? '每 15 秒更新' : '重新連線中'}
-                                    </div>
-                                )}
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                                <button onClick={() => setShowSignalPanel(!showSignalPanel)}
-                                    className="h-8 px-2 rounded-md text-[10px] mono hover:bg-[var(--wash-2)] cursor-pointer hidden sm:inline-block"
-                                    style={{ color: showSignalPanel ? 'var(--brand-1)' : 'var(--text-2)', border: '1px solid ' + (showSignalPanel ? 'var(--brand-1)' : 'var(--line)') }}
-                                    title="切換信號面板">
-                                    📊 信號
-                                </button>
+            // 重置 / 說明(小螢幕放第一列右邊,電腦版放整列最右邊)
+            const topActions = (
+                <>
                                 <button onClick={resetZoom}
                                     className="h-8 px-2 rounded-md text-[10px] mono hover:bg-[var(--wash-2)] cursor-pointer"
                                     style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }} title="重置縮放">⤾ 重置</button>
@@ -5030,11 +4914,11 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                                         <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
                                     </svg>
                                 </button>
-                            </div>
-                        </div>
-
-                        {/* Row 2: range • timeframe • indicator toggles (horizontally scrollable) */}
-                        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+                </>
+            );
+            // 範圍 • 週期 • 指標開關(電腦版和搜尋同一列)
+            const toolbarRow = (
+                <>
                             <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }}>
                                 {rangeBtn('1mo', '1M')}
                                 {rangeBtn('3mo', '3M')}
@@ -5066,9 +4950,49 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                             <EyeToggle label="成交量" checked={showVolume} onChange={setShowVolume} color="#64748b" />
                             <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
                             <EyeToggle label="MACD" checked={showMACD} onChange={setShowMACD} color="#fbbf24" />
-                        </div>
-                    </div>
+                </>
+            );
 
+            // ─── Layout ───
+            return (
+                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+                    {/* Top bar */}
+                    <div className="shrink-0 flex flex-col lg:flex-row lg:items-center gap-2 px-3 md:px-4 pt-3 pb-2" style={{ borderBottom: '1px solid var(--line)' }}>
+                        {/* Row 1: title + search + status (+ reset/help on small screens). 電腦版和下一列併成同一列 */}
+                        <div className="flex items-center justify-between gap-2 min-w-0 lg:flex-none">
+                            <div className="flex items-center gap-2 min-w-0 flex-1 lg:flex-none">
+                                <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--wash-2)] cursor-pointer shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>
+                                <div className="min-w-0 shrink-0">
+                                    <p className="label leading-none">{MARKET_LABEL[type] || 'CHART'}</p>
+                                    <h2 className="text-base md:text-lg font-extrabold text-white tracking-tight truncate">{chartSymbolLabel(symbol, type)}</h2>
+                                </div>
+                                <div className="ml-2 flex-1 min-w-[140px] lg:flex-none lg:w-[240px]">
+                                    <ChartSymbolSearch onPick={pickSymbol} isLocked={!isPremium} />
+                                </div>
+                                {loading && (
+                                    <div className="hidden sm:flex items-center gap-1.5 text-[10px] ml-2" style={{ color: 'var(--text-3)' }}>
+                                        <RefreshCw className="animate-spin" size={11} />
+                                        載入中
+                                    </div>
+                                )}
+                                {error && <div className="text-[10px] ml-2 truncate" style={{ color: '#ff7d8c' }}>{error}</div>}
+                                {!loading && !error && live && (
+                                    <div className="hidden sm:flex items-center gap-1.5 text-[10px] ml-2 shrink-0" style={{ color: 'var(--text-3)' }}
+                                        title={live === 'live' ? 'Binance 即時推播,價格每秒更新' : live === 'delayed' ? 'Yahoo 延遲報價,每 15 秒更新' : '即時連線中斷,自動重試中'}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${live === 'live' ? 'animate-pulse' : ''}`} style={{ background: live === 'offline' ? 'var(--text-3)' : UP_C }}></span>
+                                        {live === 'live' ? '即時' : live === 'delayed' ? '每 15 秒更新' : '重新連線中'}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0 lg:hidden">{topActions}</div>
+                        </div>
+
+                        {/* Row 2: range • timeframe • indicator toggles (horizontally scrollable) */}
+                        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 lg:mx-0 lg:flex-1 lg:min-w-0" style={{ scrollbarWidth: 'none' }}>
+                            {toolbarRow}
+                        </div>
+                        <div className="hidden lg:flex items-center gap-1 shrink-0">{topActions}</div>
+                    </div>
                     {/* Body: chart with its own drawing toolbar (src/chart) */}
                     <div className="flex-1 min-h-0 flex">
                         <div className="flex-1 min-w-0 min-h-0 relative" style={{ minHeight: '280px' }}>
@@ -5153,43 +5077,6 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                                 );
                             })()}
 
-                            {/* Signal summary panel — top-right, semi-transparent, collapsible */}
-                            {showSignalPanel && signalSummary.length > 0 && (
-                                <div
-                                    className="absolute top-2 right-[88px] rounded-lg p-2 z-20 backdrop-blur"
-                                    style={{
-                                        background: 'color-mix(in srgb, var(--paper) 90%, transparent)',
-                                        border: '1px solid var(--rule)',
-                                        width: 'min(180px, calc(100vw - 80px))',
-                                        maxHeight: 'calc(100% - 16px)',
-                                        overflowY: 'auto',
-                                    }}
-                                >
-                                    <div className="flex items-center justify-between mb-1.5">
-                                        <span className="text-[10px] font-bold tracking-wider uppercase" style={{ color: 'var(--ink-3)' }}>信號總覽</span>
-                                        <button onClick={() => setShowSignalPanel(false)} className="w-5 h-5 rounded hover:bg-[var(--wash-2)] cursor-pointer text-[11px]" style={{ color: 'var(--ink-3)' }} title="收起">−</button>
-                                    </div>
-                                    <div className="space-y-1">
-                                        {signalSummary.map(it => {
-                                            const p = tonePill(it.tone);
-                                            return (
-                                                <div key={it.key} className="flex items-center justify-between text-[10px] gap-2">
-                                                    <span style={{ color: 'var(--ink-3)' }}>{it.name}</span>
-                                                    <span className="px-1.5 py-0.5 rounded font-bold truncate" style={{ background: p.bg, color: p.color, border: '1px solid ' + p.border, maxWidth: 110 }}>{it.label}</span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-                            {!showSignalPanel && (
-                                <button
-                                    onClick={() => setShowSignalPanel(true)}
-                                    className="absolute top-2 right-[88px] px-2 py-1 rounded-lg text-[10px] font-bold z-20 backdrop-blur hover:bg-[var(--wash-2)] cursor-pointer"
-                                    style={{ background: 'color-mix(in srgb, var(--paper) 90%, transparent)', border: '1px solid var(--rule)', color: 'var(--ink-2)' }}
-                                    title="展開信號面板"
-                                >📊 信號</button>
-                            )}
                             </TechnicalChartView>
                         </div>
                     </div>
