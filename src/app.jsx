@@ -1290,13 +1290,13 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             </button>
         );
 
-        // A price-history figure: heading with watch star, 進階分析 link, time range, chart
+        // A price-history figure: heading with watch star, 圖表 link, time range, chart
         const HistorySection = ({ title, watch, onAdvanced, range, onRange, children, height = 'h-[300px] sm:h-[350px]' }) => (
             <section className="fs-section mt-10">
                 <div className="fs-head">
                     <h2 className="fs-title flex items-center gap-2">{title}{watch}</h2>
                     <div className="flex items-center gap-4 flex-wrap">
-                        <button onClick={onAdvanced} className="text-[14px] underline underline-offset-4" style={{ color: 'var(--ink)' }} title="進階技術分析">進階分析</button>
+                        <button onClick={onAdvanced} className="text-[14px] underline underline-offset-4" style={{ color: 'var(--ink)' }} title="開啟圖表">圖表</button>
                         <TimeRangeSelector range={range} onRangeChange={onRange} />
                     </div>
                 </div>
@@ -2149,6 +2149,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             symbol={selectedSymbol}
                             type="US"
                             onClose={() => setShowAdvanced(false)}
+                            isPremium={userInfo.isPremium}
                         />
                     )}
                 </div>
@@ -2633,6 +2634,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             symbol={selectedSymbol.includes('.') ? selectedSymbol : selectedSymbol + '.TW'}
                             type="TW"
                             onClose={() => setShowAdvanced(false)}
+                            isPremium={userInfo.isPremium}
                         />
                     )}
                 </div>
@@ -3009,8 +3011,8 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                                         )}
                                     </h2>
                                     <div className="flex items-center gap-4 flex-wrap">
-                                        <button onClick={() => setShowAdvanced(true)} className="text-[14px] underline underline-offset-4" style={{ color: 'var(--ink)' }} title="進階技術分析">
-                                            進階分析
+                                        <button onClick={() => setShowAdvanced(true)} className="text-[14px] underline underline-offset-4" style={{ color: 'var(--ink)' }} title="開啟圖表">
+                                            圖表
                                         </button>
                                         <TimeRangeSelector range={timeRange} onRangeChange={setTimeRange} />
                                     </div>
@@ -3037,6 +3039,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             symbol={selectedCoin.toLowerCase()}
                             type="CRYPTO"
                             onClose={() => setShowAdvanced(false)}
+                            isPremium={userInfo.isPremium}
                         />
                     )}
                 </div>
@@ -4044,7 +4047,139 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             return { tone: 'bear', label: '極度貪婪' };
         };
 
-        const TechnicalChartModal = ({ symbol, type, onClose }) => {
+        // ─── 圖表的標的搜尋:加密(本地清單)+ 美股 / 台股(Yahoo 搜尋,經 cors 代理)───
+        // 選到的結果回傳 { symbol, type },type 為 'CRYPTO' | 'US' | 'TW'
+        const CRYPTO_SEARCH_LIST = Object.entries(COIN_TO_BINANCE).map(([slug, bin]) => ({
+            symbol: slug, type: 'CRYPTO', ticker: bin.replace(/USDT$/, ''), name: slug,
+        }));
+        const resolveChartQuery = (q) => {
+            const raw = String(q || '').trim();
+            if (!raw) return null;
+            const lower = raw.toLowerCase();
+            if (/^\d{4,6}[a-z]?$/i.test(raw)) return { symbol: raw.toUpperCase() + '.TW', type: 'TW' };
+            if (/\.(tw|two)$/i.test(raw)) return { symbol: raw.toUpperCase(), type: 'TW' };
+            const coin = CRYPTO_SEARCH_LIST.find(c => c.symbol === lower || c.ticker.toLowerCase() === lower);
+            if (coin) return { symbol: coin.symbol, type: 'CRYPTO' };
+            if (/-usd$/i.test(raw)) return { symbol: lower.replace(/-usd$/, ''), type: 'CRYPTO' };
+            return { symbol: raw.toUpperCase(), type: 'US' };
+        };
+        const chartSymbolLabel = (symbol, type) => {
+            if (type === 'CRYPTO' || type === 'crypto') return (getBinanceSymbol(symbol) || String(symbol)).replace(/USDT$/, '').toUpperCase();
+            return String(symbol || '').toUpperCase();
+        };
+        const MARKET_LABEL = { CRYPTO: '加密', crypto: '加密', US: '美股', TW: '台股' };
+
+        const ChartSymbolSearch = ({ onPick, isLocked }) => {
+            const [q, setQ] = useState('');
+            const [open, setOpen] = useState(false);
+            const [remote, setRemote] = useState([]);
+            const [active, setActive] = useState(0);
+            const boxRef = useRef(null);
+
+            // 美股 / 台股:Yahoo 搜尋(停止輸入 250ms 後才查)
+            useEffect(() => {
+                const term = q.trim();
+                if (term.length < 1 || isLocked) { setRemote([]); return; }
+                let cancelled = false;
+                const t = setTimeout(async () => {
+                    try {
+                        const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(term)}&quotesCount=8&newsCount=0`;
+                        const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(url));
+                        if (!res.ok) return;
+                        const json = await res.json();
+                        if (cancelled) return;
+                        const out = [];
+                        for (const it of json.quotes || []) {
+                            if (!it.symbol) continue;
+                            if (it.quoteType === 'CRYPTOCURRENCY') continue; // 加密用本地清單(Binance 資料)
+                            if (!['EQUITY', 'ETF', 'INDEX', 'MUTUALFUND'].includes(it.quoteType)) continue;
+                            const tw = /\.(TW|TWO)$/.test(it.symbol);
+                            if (!tw && it.symbol.includes('.')) continue; // 其他海外市場暫不支援
+                            out.push({ symbol: it.symbol, type: tw ? 'TW' : 'US', ticker: it.symbol, name: it.shortname || it.longname || '' });
+                        }
+                        setRemote(out);
+                    } catch { /* 代理失敗時只剩本地結果與 Enter 直接查 */ }
+                }, 250);
+                return () => { cancelled = true; clearTimeout(t); };
+            }, [q, isLocked]);
+
+            useEffect(() => {
+                if (!open) return;
+                const onDown = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+                document.addEventListener('pointerdown', onDown);
+                return () => document.removeEventListener('pointerdown', onDown);
+            }, [open]);
+
+            const term = q.trim().toLowerCase();
+            const local = term ? CRYPTO_SEARCH_LIST.filter(c => c.ticker.toLowerCase().startsWith(term) || c.name.startsWith(term)).slice(0, 5) : [];
+            const results = [...local, ...remote].slice(0, 10);
+
+            const pick = (item) => {
+                if (!item) return;
+                onPick({ symbol: item.symbol, type: item.type });
+                setQ('');
+                setOpen(false);
+            };
+            const onKeyDown = (e) => {
+                e.stopPropagation(); // 不讓圖表 / modal 的快捷鍵吃掉輸入
+                if (e.key === 'ArrowDown') { e.preventDefault(); setActive(i => Math.min(i + 1, results.length - 1)); }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)); }
+                else if (e.key === 'Enter') pick(results[active] || resolveChartQuery(q));
+                else if (e.key === 'Escape') { setOpen(false); e.currentTarget.blur(); }
+            };
+
+            return (
+                <div ref={boxRef} className="relative w-full max-w-[320px]" data-testid="chart-symbol-search">
+                    <div className="flex items-center gap-2 h-8 px-2.5 rounded-lg" style={{ border: '1px solid var(--line)', background: 'var(--wash)' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ color: 'var(--text-3)' }} aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" /></svg>
+                        <input
+                            value={q}
+                            disabled={isLocked}
+                            onChange={(e) => { setQ(e.target.value); setOpen(true); setActive(0); }}
+                            onFocus={() => setOpen(true)}
+                            onKeyDown={onKeyDown}
+                            placeholder={isLocked ? '升級 Pro 才能搜尋其他標的' : '搜尋標的:BTC、AAPL、2330…'}
+                            className="flex-1 min-w-0 bg-transparent outline-none text-[13px]"
+                            style={{ color: 'var(--text)' }}
+                        />
+                        {isLocked && <Lock size={13} style={{ color: 'var(--text-3)' }} />}
+                    </div>
+                    {open && !isLocked && term && (
+                        <div className="absolute left-0 right-0 top-9 z-[130] rounded-lg shadow-2xl py-1 max-h-[50vh] overflow-y-auto" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
+                            {results.length === 0 && (
+                                <button onClick={() => pick(resolveChartQuery(q))} className="block w-full text-left px-3 py-2 text-[12px] hover:bg-white/[0.06]" style={{ color: 'var(--text-2)' }}>
+                                    直接查詢「{q.trim()}」
+                                </button>
+                            )}
+                            {results.map((it, i) => (
+                                <button
+                                    key={it.type + it.symbol}
+                                    onClick={() => pick(it)}
+                                    onMouseEnter={() => setActive(i)}
+                                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
+                                    style={{ background: i === active ? 'rgba(127,127,127,0.12)' : 'transparent' }}
+                                >
+                                    <span className="text-[13px] font-bold" style={{ color: 'var(--text)' }}>{it.ticker.replace(/\.(TW|TWO)$/, '')}</span>
+                                    <span className="flex-1 truncate text-[11px]" style={{ color: 'var(--text-3)' }}>{it.name}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }}>{MARKET_LABEL[it.type]}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const TechnicalChartModal = ({ symbol: initialSymbol, type: initialType, onClose, embedded = false, isPremium = true, onSymbolChange }) => {
+            // 目前標的(可用上方搜尋欄切換;外部換標的時跟著換)
+            const [current, setCurrent] = useState({ symbol: initialSymbol, type: initialType });
+            useEffect(() => { setCurrent({ symbol: initialSymbol, type: initialType }); }, [initialSymbol, initialType]);
+            const { symbol, type } = current;
+            const pickSymbol = (next) => {
+                setCurrent(next);
+                onSymbolChange && onSymbolChange(next);
+            };
+
             const [showHelp, setShowHelp] = useState(false);
             const [hoverInfo, setHoverInfo] = useState(null); // { time, open, high, low, close, prevClose }
             const [fitSignal, setFitSignal] = useState(0);
@@ -4228,11 +4363,11 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             // Esc 關閉 modal(圖表正在用 Esc 取消繪圖 / 選取時會 preventDefault,不關閉)
             useEffect(() => {
                 const onKey = (e) => {
-                    if (e.key === 'Escape' && !e.defaultPrevented) onClose && onClose();
+                    if (!embedded && e.key === 'Escape' && !e.defaultPrevented) onClose && onClose();
                 };
                 window.addEventListener('keydown', onKey);
                 return () => window.removeEventListener('keydown', onKey);
-            }, [onClose]);
+            }, [onClose, embedded]);
 
             // FNG dot markers (crypto / US only) — combined later with EMA cross markers
             const fngMarkers = useMemo(() => {
@@ -4379,16 +4514,24 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
 
             // ─── Layout ───
             return (
-                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+                <div
+                    className={embedded ? 'relative flex flex-col' : 'fixed inset-0 z-[110] flex flex-col'}
+                    style={embedded
+                        ? { background: 'var(--bg)', height: 'calc(100dvh - 180px)', minHeight: 560 }
+                        : { background: 'var(--bg)', height: '100dvh', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+                >
                     {/* Top bar */}
                     <div className="shrink-0 flex flex-col gap-2 px-3 md:px-4 pt-3 pb-2" style={{ borderBottom: '1px solid var(--line)' }}>
                         {/* Row 1: title + status + help/reset/close */}
                         <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                                <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>
-                                <div className="min-w-0">
-                                    <p className="label leading-none">TECHNICAL</p>
-                                    <h2 className="text-base md:text-lg font-extrabold text-white tracking-tight truncate">{symbol}</h2>
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                                {!embedded && <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>}
+                                <div className="min-w-0 shrink-0">
+                                    <p className="label leading-none">{MARKET_LABEL[type] || 'CHART'}</p>
+                                    <h2 className="text-base md:text-lg font-extrabold text-white tracking-tight truncate">{chartSymbolLabel(symbol, type)}</h2>
+                                </div>
+                                <div className="ml-2 flex-1 min-w-[140px]">
+                                    <ChartSymbolSearch onPick={pickSymbol} isLocked={!isPremium} />
                                 </div>
                                 {loading && (
                                     <div className="hidden sm:flex items-center gap-1.5 text-[10px] ml-2" style={{ color: 'var(--text-3)' }}>
@@ -7678,6 +7821,7 @@ const isBull = price2 < price1 && dif2 > dif1;
                                             <option value="crypto">加密貨幣</option>
                                             <option value="stock">美股</option>
                                             <option value="taiwan">台股</option>
+                                            <option value="chart">圖表</option>
                                             <option value="portfolio">我的投資</option>
                                             <option value="forum">論壇</option>
                                         </select>
@@ -7770,6 +7914,20 @@ const isBull = price2 < price1 && dif2 > dif1;
                 <span className="md:hidden">{short}</span>
             </button>
         );
+
+        // 「圖表」分頁:同一套技術圖表,嵌在頁面裡,記住上次看的標的
+        const ChartPage = ({ isPremium }) => {
+            const [last, setLast] = useLocalState('chart-tab-symbol', { symbol: 'bitcoin', type: 'CRYPTO' });
+            return (
+                <TechnicalChartModal
+                    embedded
+                    symbol={last.symbol}
+                    type={last.type}
+                    isPremium={isPremium}
+                    onSymbolChange={setLast}
+                />
+            );
+        };
 
         const App = () => {
             const [theme, setTheme] = useTheme();
@@ -8272,6 +8430,7 @@ const isBull = price2 < price1 && dif2 > dif1;
                             <NavTab active={activeTab === 'crypto'} onClick={() => setActiveTab('crypto')} full="加密貨幣" short="加密" />
                             <NavTab active={activeTab === 'stock'} onClick={() => setActiveTab('stock')} full="美股市場" short="美股" />
                             <NavTab active={activeTab === 'taiwan'} onClick={() => setActiveTab('taiwan')} full="台股市場" short="台股" />
+                            <NavTab active={activeTab === 'chart'} onClick={() => setActiveTab('chart')} full="圖表" short="圖表" />
                             {(user || PORTFOLIO_FIXTURE) && <NavTab active={activeTab === 'portfolio'} onClick={() => setActiveTab('portfolio')} full="我的投資" short="投資" />}
                             {FORUM_ENABLED && <NavTab active={activeTab === 'forum'} onClick={() => { setActiveTab('forum'); window.location.hash = '#/forum'; }} full="論壇" short="論壇" />}
                         </nav>
@@ -8303,6 +8462,9 @@ const isBull = price2 < price1 && dif2 > dif1;
                                             userInfo={{ isPremium, watchlist, email: user?.email }}
                                             onUpdateWatchlist={handleUpdateWatchlist}
                                         />
+                                    )}
+                                    {activeTab === 'chart' && (
+                                        <ChartPage isPremium={isPremium} />
                                     )}
                                     {activeTab === 'portfolio' && (
                                         <PortfolioDashboard
