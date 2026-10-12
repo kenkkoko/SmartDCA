@@ -841,8 +841,11 @@ function replaceAt(points: Point[], index: number, p: Point): Point[] {
 }
 
 function pickStyle(style: DrawingStyle): Partial<DrawingStyle> {
-  const { color, width, lineStyle, fillColor, fillOpacity, textColor, fontSize } = style;
-  return { color, width, lineStyle, fillColor, fillOpacity, textColor, fontSize };
+  const { color, width, lineStyle, fillColor, fillOpacity, textColor, fontSize, vp } = style;
+  const picked: Partial<DrawingStyle> = { color, width, lineStyle, fillColor, fillOpacity, textColor, fontSize };
+  // volume profile: the next one keeps its colours
+  if (vp) picked.vp = { ...vp };
+  return picked;
 }
 
 function drawHandle(c: PrimitiveContext, p: Point, color: string): void {

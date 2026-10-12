@@ -3871,6 +3871,34 @@ import { AiPanel } from './chart/smartdca/AiPanel';
         // Each weekly bar: open = first day's open or first price, high = max high, low = min low,
         //                  price (close) = last day's close, date = Monday of the week
         // ─────────────────────────────────────────────
+        // 某時區某天幾點(例如紐約 16:00)對應的 epoch 秒數
+        const zonedEpoch = (dateStr, hh, mm, timeZone) => {
+            const [y, mo, d] = dateStr.split('-').map(Number);
+            const guess = Date.UTC(y, mo - 1, d, hh, mm);
+            const parts = new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                .formatToParts(new Date(guess)).reduce((o, p) => (o[p.type] = p.value, o), {});
+            const asZone = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour % 24, +parts.minute);
+            return Math.floor((guess - (asZone - guess)) / 1000);
+        };
+        // 最後一根 K 線什麼時候收線(價格標籤下的倒數)。加密:Binance 以 UTC 00:00 換日;
+        // 美股 16:00 紐約、台股 13:30 台北;週線收在該週最後一個交易日。已收線則回傳 null。
+        const barCloseTimeFor = (lastBar, type, timeframe) => {
+            if (!lastBar) return null;
+            const isCrypto = type === 'CRYPTO' || type === 'crypto';
+            const startDate = new Date(lastBar.time * 1000).toISOString().slice(0, 10);
+            let close;
+            if (isCrypto) {
+                close = lastBar.time + (timeframe === '1wk' ? 7 : 1) * 86400;
+            } else {
+                const zone = type === 'TW' ? ['Asia/Taipei', 13, 30] : type === 'US' ? ['America/New_York', 16, 0] : null;
+                if (!zone) return null;
+                // 週線:週一開始,週五收;日線:當天收
+                const day = timeframe === '1wk' ? new Date((lastBar.time + 4 * 86400) * 1000).toISOString().slice(0, 10) : startDate;
+                close = zonedEpoch(day, zone[1], zone[2], zone[0]);
+            }
+            return close > Date.now() / 1000 ? close : null;
+        };
+
         const aggregateToWeekly = (daily) => {
             if (!Array.isArray(daily) || daily.length === 0) return daily || [];
             const buckets = new Map();
@@ -5000,6 +5028,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                                 className="absolute inset-0"
                                 candles={candleData}
                                 dataKey={`${symbol}|${type}|${timeframe}|${loadVersion}`}
+                                barCloseTime={barCloseTimeFor(candleData[candleData.length - 1], type, timeframe)}
                                 showEMA={showEMA}
                                 showMA200={showMA200 && !isCryptoType}
                                 realizedPrice={realizedPrice}
@@ -5033,6 +5062,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                                 }, {
                                     id: 'ai',
                                     title: 'AI 分析（用你電腦上的 AI 分析選取範圍）',
+                                    bottom: true,
                                     icon: <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"><path d="M10 2.5l1.6 4.3 4.4 1.6-4.4 1.6L10 14.3 8.4 10 4 8.4l4.4-1.6z" /><path d="M15.5 13l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" /></svg>,
                                     render: (close) => (
                                         <AiPanel

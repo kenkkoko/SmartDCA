@@ -345,7 +345,38 @@ export class Chart {
     });
   }
 
+  /**
+   * When the last bar closes (epoch seconds). The last-price label then shows
+   * a countdown under the price, like TradingView. null hides it.
+   */
+  barCloseTime: number | null = null;
+  private countdownTimer: ReturnType<typeof setInterval> | null = null;
+
+  setBarCloseTime(time: number | null): void {
+    this.barCloseTime = time;
+    if (time !== null && !this.countdownTimer) this.countdownTimer = setInterval(() => this.invalidate(), 1000);
+    if (time === null && this.countdownTimer) {
+      clearInterval(this.countdownTimer);
+      this.countdownTimer = null;
+    }
+    this.invalidate();
+  }
+
+  /** "05:30:12", or "3d 05:30" for more than a day; null when closed. */
+  countdownText(now = Date.now() / 1000): string | null {
+    if (this.barCloseTime === null) return null;
+    const left = Math.floor(this.barCloseTime - now);
+    if (left <= 0) return null;
+    const d = Math.floor(left / 86400);
+    const h = Math.floor((left % 86400) / 3600);
+    const m = Math.floor((left % 3600) / 60);
+    const sec = left % 60;
+    const two = (n: number) => String(n).padStart(2, "0");
+    return d > 0 ? `${d}d ${two(h)}:${two(m)}` : `${two(h)}:${two(m)}:${two(sec)}`;
+  }
+
   destroy(): void {
+    if (this.countdownTimer) clearInterval(this.countdownTimer);
     this.disposed = true;
     cancelAnimationFrame(this.frame);
     cancelAnimationFrame(this.kineticFrame);
@@ -577,11 +608,13 @@ export class Chart {
       const r = pane.rect;
       s.clip({ x: x0, y: r.y, width: s.width - x0, height: r.height });
       // coloured labels (last value, price lines) win over tick labels
-      const labels: { y: number; text: string; color: string }[] = [];
+      const labels: { y: number; text: string; color: string; sub?: string }[] = [];
       for (const series of pane.series) {
         if (!series.options.visible) continue;
         const last = series.options.lastValueLabel ? series.lastValue() : undefined;
-        if (last) labels.push({ y: r.y + pane.price.priceToY(last.value), text: pane.price.format(last.value), color: last.color });
+        // bar-close countdown under the main series' last price
+        const sub = last && series === this.mainSeries ? (this.countdownText() ?? undefined) : undefined;
+        if (last) labels.push({ y: r.y + pane.price.priceToY(last.value), text: pane.price.format(last.value), color: last.color, sub });
         for (const line of series.priceLines)
           if (line.axisLabel) labels.push({ y: r.y + pane.price.priceToY(line.price), text: line.title ?? pane.price.format(line.price), color: line.color });
       }
@@ -592,16 +625,24 @@ export class Chart {
         if (labels.some((l) => Math.abs(l.y - y) < half * 2)) continue;
         s.text(tick.label, x0 + 8, y, t.text, this.font());
       }
-      for (const l of labels) this.axisLabel(s, l.y, l.text, l.color, "#ffffff");
+      for (const l of labels) this.axisLabel(s, l.y, l.text, l.color, "#ffffff", l.sub);
       s.restore();
     });
   }
 
-  private axisLabel(s: Surface, y: number, text: string, bg: string, fg: string): void {
+  private axisLabel(s: Surface, y: number, text: string, bg: string, fg: string, sub?: string): void {
     const x0 = this.time.width;
     const h = this.theme.fontSize + 8;
-    s.fillRect(x0 + 1, y - h / 2, s.width - x0 - 1, h, bg);
+    if (!sub) {
+      s.fillRect(x0 + 1, y - h / 2, s.width - x0 - 1, h, bg);
+      s.text(text, x0 + 8, y, fg, this.font("600"));
+      return;
+    }
+    // price on the line, countdown right below it (the label grows downwards)
+    const line = this.theme.fontSize + 3;
+    s.fillRect(x0 + 1, y - h / 2, s.width - x0 - 1, h + line, bg);
     s.text(text, x0 + 8, y, fg, this.font("600"));
+    s.text(sub, x0 + 8, y + line, fg, this.font());
   }
 
   private drawTimeAxis(marks: ReturnType<TimeScale["marks"]>): void {

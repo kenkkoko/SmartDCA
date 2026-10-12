@@ -97,6 +97,31 @@ export type DrawingStyle = {
   showValueArea: boolean;
   /** Fibonacci retracement settings. */
   fib?: FibSettings;
+  /** Volume profile colours (missing = defaults). */
+  vp?: VpColors;
+};
+
+/** Volume profile colours. up / down undefined = the chart's up / down colours. */
+export type VpColors = {
+  up?: string;
+  down?: string;
+  /** Bar opacity inside / outside the value area. */
+  inOpacity: number;
+  outOpacity: number;
+  poc: string;
+  valueArea: string;
+  /** Range box fill; undefined = none. */
+  box?: string;
+  boxOpacity: number;
+};
+
+export const DEFAULT_VP_COLORS: VpColors = {
+  inOpacity: 0.6,
+  outOpacity: 0.25,
+  poc: "#ff4d4f",
+  valueArea: "#5b9cff",
+  box: "#2962ff",
+  boxOpacity: 0.05,
 };
 
 /** "auto" colours follow the chart theme: white-ish on dark, black-ish on light. */

@@ -3,7 +3,7 @@
 // with cross markers, FNG fear dots, plus the full drawing toolset.
 // Data fetching and the signal panel stay in the app; this only paints.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Chart, ChartPrimitive, Pane } from "../engine/chart";
 import type { CandleSeries, HistogramSeries, LineSeries, Marker } from "../engine/series";
 import { DARK_THEME, LIGHT_THEME, type Bar, type Theme, type ValuePoint } from "../engine/types";
@@ -54,6 +54,8 @@ import { crosses, ema, macd, rsi, sma, type Num } from "../indicators";
 import type { DrawingLayer } from "../drawings/layer";
 import { DrawingChart } from "../react/DrawingChart";
 import type { SidePanel } from "../react/SideBar";
+import { applyAppearance, loadAppearance, saveAppearance, type Appearance } from "./appearance";
+import { AppearancePanel } from "./AppearancePanel";
 
 export const EMA_FAST = 20;
 export const EMA_SLOW = 55;
@@ -100,6 +102,8 @@ export type TechnicalChartViewProps = {
   defaultSidePanel?: string | null;
   /** Follows the app's light / dark switch. */
   theme?: "light" | "dark";
+  /** When the last bar closes (epoch s): countdown under the last price. */
+  barCloseTime?: number | null;
 };
 
 const points = (candles: Bar[], values: Num[], color?: (i: number) => string | undefined): ValuePoint[] => {
@@ -146,6 +150,13 @@ class PaneLegend implements ChartPrimitive {
   }
 }
 
+const settingsIcon = (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="10" cy="10" r="2.6" />
+    <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" />
+  </svg>
+);
+
 const candleIcon = (
   <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
     <path d="M6 2v3M6 13v4M14 4v3M14 14v3" />
@@ -156,7 +167,20 @@ const candleIcon = (
 
 export function TechnicalChartView(props: TechnicalChartViewProps) {
   const [candlesHidden, setCandlesHidden] = useState(false);
-  const theme = props.theme === "light" ? SDCA_LIGHT : SDCA_DARK;
+  const mode = props.theme === "light" ? "light" : "dark";
+  const baseTheme = mode === "light" ? SDCA_LIGHT : SDCA_DARK;
+  // 圖表設定: the user's background / grid / candle colours, one set per theme
+  const [appearance, setAppearanceState] = useState<Appearance>(() => loadAppearance(mode));
+  const [appearanceMode, setAppearanceMode] = useState(mode);
+  if (appearanceMode !== mode) {
+    setAppearanceMode(mode);
+    setAppearanceState(loadAppearance(mode));
+  }
+  const setAppearance = (a: Appearance) => {
+    setAppearanceState(a);
+    saveAppearance(mode, a);
+  };
+  const theme = useMemo(() => applyAppearance(baseTheme, appearance), [baseTheme, appearance]);
   const UP = theme.up;
   const DOWN = theme.down;
   const [chart, setChart] = useState<Chart | null>(null);
@@ -207,6 +231,21 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       readyCb.current?.(null, null);
     };
   };
+
+  useEffect(() => {
+    chart?.setBarCloseTime(props.barCloseTime ?? null);
+  }, [chart, props.barCloseTime]);
+
+  // candle colours (runs after DrawingChart applied the theme)
+  useEffect(() => {
+    refs.current.candles?.applyOptions({
+      upColor: theme.up,
+      downColor: theme.down,
+      wickUpColor: appearance.wickUp ?? theme.up,
+      wickDownColor: appearance.wickDown ?? theme.down,
+    });
+    chart?.invalidate();
+  }, [chart, theme, appearance.wickUp, appearance.wickDown]);
 
   useEffect(() => {
     refs.current.candles?.applyOptions({ visible: !candlesHidden });
@@ -377,8 +416,15 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     chart.invalidate();
   }, [chart, props.candles, props.showRSI, props.showMACD, hasBars, dataKey, UP, DOWN, theme.text, theme.border]);
 
+  const appearancePanel: SidePanel = {
+    id: "appearance",
+    title: "圖表設定（背景、K 線顏色）",
+    icon: settingsIcon,
+    render: (close) => <AppearancePanel value={appearance} onChange={setAppearance} base={baseTheme} onClose={close} />,
+  };
+
   return (
-    <DrawingChart className={props.className} storageKey={props.storageKey} onReady={onReady} theme={theme} sidePanels={props.sidePanels} defaultSidePanel={props.defaultSidePanel}
+    <DrawingChart className={props.className} storageKey={props.storageKey} onReady={onReady} theme={theme} sidePanels={[...(props.sidePanels ?? []), appearancePanel]} defaultSidePanel={props.defaultSidePanel}
       fixedLayers={[{ id: "candles", label: `K 線${props.symbolLabel ? ` · ${props.symbolLabel}` : ""}`, icon: candleIcon, hidden: candlesHidden, onToggle: () => setCandlesHidden((h) => !h) }]}
     >
       {props.children}

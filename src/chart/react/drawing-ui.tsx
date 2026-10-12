@@ -8,7 +8,7 @@ import { saveFibTemplate } from "../drawings/storage";
 import type { Tool } from "../drawings/tool";
 import { getTool, TOOL_GROUPS } from "../drawings/tools";
 import { getFibDefaults } from "../drawings/tools/fibonacci";
-import { AUTO_COLOR, defaultFibSettings, type Drawing, type FibSettings } from "../drawings/types";
+import { AUTO_COLOR, DEFAULT_VP_COLORS, defaultFibSettings, type Drawing, type FibSettings, type VpColors } from "../drawings/types";
 import type { LineStyle } from "../engine/types";
 import { Icon } from "./icons";
 
@@ -631,15 +631,30 @@ export function FibSettingsDialog({ layer, item, onClose }: { layer: DrawingLaye
 // Volume profile & text
 // ===========================================================================
 
-type VolumeDraft = { rows: number; valueArea: number; showPoc: boolean; showValueArea: boolean };
+type VolumeDraft = { rows: number; valueArea: number; showPoc: boolean; showValueArea: boolean; vp: VpColors };
 
 export function VolumeSettingsDialog({ layer, item, onClose }: { layer: DrawingLayer; item: Drawing; onClose: () => void }) {
   const { draft, setDraft, commit, revert } = useDraft<VolumeDraft>(
     layer,
     item,
-    (d) => ({ rows: d.style.rows, valueArea: d.style.valueArea, showPoc: d.style.showPoc, showValueArea: d.style.showValueArea }),
-    (d, v) => Object.assign(d.style, v),
+    (d) => ({ rows: d.style.rows, valueArea: d.style.valueArea, showPoc: d.style.showPoc, showValueArea: d.style.showValueArea, vp: { ...DEFAULT_VP_COLORS, ...d.style.vp } }),
+    (d, v) => Object.assign(d.style, { ...v, vp: { ...v.vp } }),
   );
+  const setVp = (patch: Partial<VpColors>) => setDraft((d) => ({ ...d, vp: { ...d.vp, ...patch } }));
+  const pct = (key: "inOpacity" | "outOpacity") => (
+    <label className="flex items-center gap-2">
+      <input type="range" min={0} max={100} value={Math.round(draft.vp[key] * 100)} onChange={(e) => setVp({ [key]: Number(e.target.value) / 100 })} className="w-28" />
+      <span className="w-9 text-right text-xs tabular-nums text-[var(--c-muted)]">{Math.round(draft.vp[key] * 100)}%</span>
+    </label>
+  );
+  const follow = (key: "up" | "down") =>
+    draft.vp[key] ? (
+      <button className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] text-[var(--c-accent)] hover:underline" onClick={() => setVp({ [key]: undefined })}>
+        跟 K 線同色
+      </button>
+    ) : (
+      <span className="text-[11px] text-[var(--c-muted)]">跟 K 線同色</span>
+    );
   const num = (key: "rows" | "valueArea", min: number, max: number) => (
     <input
       type="number"
@@ -679,6 +694,35 @@ export function VolumeSettingsDialog({ layer, item, onClose }: { layer: DrawingL
         <Check checked={draft.showValueArea} onChange={(v) => setDraft((d) => ({ ...d, showValueArea: v }))}>
           顯示價值區（VAH / VAL）
         </Check>
+      </div>
+      <div className="mt-5 border-t border-[var(--c-line)] pt-4">
+        <p className="mb-3 text-xs font-semibold text-[var(--c-muted)]">顏色</p>
+        <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-3 gap-y-2 text-sm" data-testid="vp-colors">
+          <span>上漲量</span>
+          {follow("up")}
+          <ColorButton color={draft.vp.up ?? "#089981"} onChange={(c) => setVp({ up: c })} title="上漲量顏色" />
+          <span>下跌量</span>
+          {follow("down")}
+          <ColorButton color={draft.vp.down ?? "#f23645"} onChange={(c) => setVp({ down: c })} title="下跌量顏色" />
+          <span>價值區內不透明度</span>
+          <span />
+          {pct("inOpacity")}
+          <span>價值區外不透明度</span>
+          <span />
+          {pct("outOpacity")}
+          <span>POC 線</span>
+          <span />
+          <ColorButton color={draft.vp.poc} onChange={(c) => c && setVp({ poc: c })} title="POC 顏色" />
+          <span>VAH / VAL 線</span>
+          <span />
+          <ColorButton color={draft.vp.valueArea} onChange={(c) => c && setVp({ valueArea: c })} title="價值區線顏色" />
+          <span>範圍背景</span>
+          <span />
+          <ColorButton color={draft.vp.box} onChange={(c) => setVp({ box: c })} opacity={draft.vp.boxOpacity} onOpacity={(o) => setVp({ boxOpacity: o })} allowNone title="範圍背景" />
+        </div>
+        <button className="mt-3 cursor-pointer text-xs text-[var(--c-accent)] hover:underline" onClick={() => setVp({ ...DEFAULT_VP_COLORS, up: undefined, down: undefined })}>
+          恢復預設顏色
+        </button>
       </div>
     </Dialog>
   );

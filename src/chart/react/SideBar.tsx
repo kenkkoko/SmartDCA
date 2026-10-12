@@ -12,6 +12,8 @@ export type SidePanel = {
   icon: ReactNode;
   /** Content; `close` hides the panel. */
   render: (close: () => void) => ReactNode;
+  /** Button sits at the bottom of the right toolbar. */
+  bottom?: boolean;
 };
 
 const ACTIVE_PREF = "smartdca.chart.sidePanel";
@@ -101,10 +103,10 @@ export function SideBar({ panels, active, onSelect }: { panels: SidePanel[]; act
         </aside>
       ) : null}
       <nav className="flex h-full w-11 shrink-0 flex-col items-center gap-0.5 border-l border-[var(--c-line)] bg-[var(--c-panel)] py-1.5" data-testid="right-toolbar">
-        {panels.map((p) => (
+        {[...panels.filter((p) => !p.bottom), ...panels.filter((p) => p.bottom)].map((p, i, list) => (
           <button
             key={p.id}
-            className={btn(p.id === active)}
+            className={`${btn(p.id === active)} ${p.bottom && !list[i - 1]?.bottom ? "mt-auto" : ""}`}
             title={p.id === active ? `關閉${p.title}` : p.title}
             aria-pressed={p.id === active}
             data-testid={`toggle-${p.id}`}
