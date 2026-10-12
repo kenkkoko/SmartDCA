@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Chart, ChartPrimitive, Pane } from "../engine/chart";
-import type { CandleSeries, LineSeries, Marker } from "../engine/series";
+import type { CandleSeries, HistogramSeries, LineSeries, Marker } from "../engine/series";
 import type { Bar, ValuePoint } from "../engine/types";
 import { crosses, ema, macd, rsi, sma, type Num } from "../indicators";
 import type { DrawingLayer } from "../drawings/layer";
@@ -17,6 +17,7 @@ export const EMA_PERIODS = [0, 0.2, 0.4, 0.6, 0.8, 1].map((k) => Math.round(EMA_
 const EMA_BULL = "rgba(0, 200, 83, 0.6)";
 const EMA_BEAR = "rgba(255, 23, 68, 0.6)";
 const UP = "#00d68f";
+const VOLUME_MA = 20;
 const DOWN = "#ff5b6e";
 
 export type HoverInfo = { time: number; open: number; high: number; low: number; close: number; prevClose: number | null };
@@ -30,6 +31,8 @@ export type TechnicalChartViewProps = {
   realizedPrice: ValuePoint[] | null;
   showRSI: boolean;
   showMACD: boolean;
+  /** Volume bars at the bottom of the price pane. */
+  showVolume?: boolean;
   /** Extra candle markers (FNG fear dots). */
   markers: Marker[];
   /** Drawings are saved per key (e.g. "BTC.1d"). */
@@ -88,10 +91,12 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   const [chart, setChart] = useState<Chart | null>(null);
   const refs = useRef<{
     candles: CandleSeries | null;
+    volume: HistogramSeries | null;
+    volumeMa: LineSeries | null;
     main: LineSeries[];
     panes: Pane[];
     legend: PaneLegend;
-  }>({ candles: null, main: [], panes: [], legend: new PaneLegend() });
+  }>({ candles: null, volume: null, volumeMa: null, main: [], panes: [], legend: new PaneLegend() });
   const hover = useRef(props.onHover);
   hover.current = props.onHover;
   const candlesRef = useRef(props.candles);
@@ -134,6 +139,33 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   useEffect(() => {
     if (chart && props.fitSignal) chart.fitContent();
   }, [chart, props.fitSignal]);
+
+  // volume: own hidden scale in the bottom fifth of the price pane (TradingView)
+  useEffect(() => {
+    if (!chart) return;
+    const r = refs.current;
+    if (r.volume) chart.removeSeries(r.volume);
+    if (r.volumeMa) chart.removeSeries(r.volumeMa);
+    r.volume = null;
+    r.volumeMa = null;
+    const bars = props.candles;
+    if (props.showVolume === false || !bars.some((b) => (b.volume ?? 0) > 0)) return chart.invalidate();
+    r.volume = chart.addHistogram(chart.mainPane, { scale: "overlay", title: "Vol" });
+    // paint behind the candles
+    const list = chart.mainPane.series;
+    list.splice(list.indexOf(r.volume), 1);
+    list.unshift(r.volume);
+    r.volume.setData(
+      bars.map((b) => ({ time: b.time, value: b.volume ?? 0, color: b.close >= b.open ? "rgba(0,214,143,0.35)" : "rgba(255,91,110,0.35)" })),
+    );
+    // 20-bar volume moving average on the same overlay scale
+    const vols = bars.map((b) => b.volume ?? 0);
+    r.volumeMa = chart.addLine(chart.mainPane, { scale: "overlay", color: "rgba(91,156,255,0.9)", lineWidth: 1.5, title: "Vol MA20" });
+    r.volumeMa.setData(points(bars, sma(vols, VOLUME_MA)));
+    list.splice(list.indexOf(r.volumeMa), 1);
+    list.splice(1, 0, r.volumeMa);
+    chart.invalidate();
+  }, [chart, props.candles, props.showVolume]);
 
   // main-pane overlays + candle markers
   useEffect(() => {

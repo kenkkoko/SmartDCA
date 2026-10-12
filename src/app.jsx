@@ -3930,8 +3930,10 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                 if (!b) {
                     b = { date: key, _firstTs: d.getTime(), _lastTs: d.getTime(),
                           open: p.open ?? p.price, high: p.high ?? p.price, low: p.low ?? p.price, price: p.price };
+                    if (p.volume != null) b.volume = p.volume;
                     buckets.set(key, b);
                 } else {
+                    if (p.volume != null) b.volume = (b.volume || 0) + p.volume;
                     if (d.getTime() < b._firstTs) { b.open = p.open ?? p.price; b._firstTs = d.getTime(); }
                     if (d.getTime() > b._lastTs)  { b.price = p.price; b._lastTs = d.getTime(); }
                     const ph = p.high ?? p.price, pl = p.low ?? p.price;
@@ -4170,7 +4172,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             );
         };
 
-        const TechnicalChartModal = ({ symbol: initialSymbol, type: initialType, onClose, embedded = false, isPremium = true, onSymbolChange }) => {
+        const TechnicalChartModal = ({ symbol: initialSymbol, type: initialType, onClose, isPremium = true, onSymbolChange }) => {
             // 目前標的(可用上方搜尋欄切換;外部換標的時跟著換)
             const [current, setCurrent] = useState({ symbol: initialSymbol, type: initialType });
             useEffect(() => { setCurrent({ symbol: initialSymbol, type: initialType }); }, [initialSymbol, initialType]);
@@ -4189,6 +4191,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             const [showRP, setShowRP] = useLocalState('tech-show-rp', true);
             const [showRSI, setShowRSI] = useLocalState('tech-show-rsi', true);
             const [showMACD, setShowMACD] = useLocalState('tech-show-macd', true);
+            const [showVolume, setShowVolume] = useLocalState('tech-show-volume', true);
             const [showFearSignal, setShowFearSignal] = useLocalState('tech-show-fear', true);
             const [showComposite, setShowComposite] = useLocalState('tech-show-composite', true);
             const [showSignalPanel, setShowSignalPanel] = useLocalState('tech-show-panel', true);
@@ -4236,7 +4239,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             const klines = await binRes.json();
                             setHistory(klines.map(k => ({
                                 date: new Date(k[0]).toISOString().slice(0, 10),
-                                price: +k[4], open: +k[1], high: +k[2], low: +k[3],
+                                price: +k[4], open: +k[1], high: +k[2], low: +k[3], volume: +k[5],
                             })));
                             return;
                         }
@@ -4250,7 +4253,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                         if (!result) { setError(yfJson?.chart?.error?.description || '查無此代號'); setHistory([]); return; }
                         const ts = result.timestamp || [];
                         const q = result.indicators?.quote?.[0] || {};
-                        const opens = q.open || [], highs = q.high || [], lows = q.low || [], closes = q.close || [];
+                        const opens = q.open || [], highs = q.high || [], lows = q.low || [], closes = q.close || [], vols = q.volume || [];
                         const hist = [];
                         for (let i = 0; i < ts.length; i++) {
                             const c = closes[i];
@@ -4259,6 +4262,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             if (opens[i] != null && !isNaN(opens[i])) entry.open = opens[i];
                             if (highs[i] != null && !isNaN(highs[i])) entry.high = highs[i];
                             if (lows[i] != null && !isNaN(lows[i])) entry.low = lows[i];
+                            if (vols[i] != null && !isNaN(vols[i])) entry.volume = vols[i];
                             hist.push(entry);
                         }
                         setHistory(hist);
@@ -4334,6 +4338,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                         high: +(p.high ?? p.price),
                         low: +(p.low ?? p.price),
                         close: +p.price,
+                        volume: p.volume != null ? +p.volume : undefined,
                     }));
                 arr.sort((a, b) => a.time - b.time);
                 return arr;
@@ -4363,11 +4368,11 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             // Esc 關閉 modal(圖表正在用 Esc 取消繪圖 / 選取時會 preventDefault,不關閉)
             useEffect(() => {
                 const onKey = (e) => {
-                    if (!embedded && e.key === 'Escape' && !e.defaultPrevented) onClose && onClose();
+                    if (e.key === 'Escape' && !e.defaultPrevented) onClose && onClose();
                 };
                 window.addEventListener('keydown', onKey);
                 return () => window.removeEventListener('keydown', onKey);
-            }, [onClose, embedded]);
+            }, [onClose]);
 
             // FNG dot markers (crypto / US only) — combined later with EMA cross markers
             const fngMarkers = useMemo(() => {
@@ -4514,18 +4519,13 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
 
             // ─── Layout ───
             return (
-                <div
-                    className={embedded ? 'relative flex flex-col' : 'fixed inset-0 z-[110] flex flex-col'}
-                    style={embedded
-                        ? { background: 'var(--bg)', height: 'calc(100dvh - 180px)', minHeight: 560 }
-                        : { background: 'var(--bg)', height: '100dvh', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
-                >
+                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
                     {/* Top bar */}
                     <div className="shrink-0 flex flex-col gap-2 px-3 md:px-4 pt-3 pb-2" style={{ borderBottom: '1px solid var(--line)' }}>
                         {/* Row 1: title + status + help/reset/close */}
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0 flex-1">
-                                {!embedded && <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>}
+                                <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>
                                 <div className="min-w-0 shrink-0">
                                     <p className="label leading-none">{MARKET_LABEL[type] || 'CHART'}</p>
                                     <h2 className="text-base md:text-lg font-extrabold text-white tracking-tight truncate">{chartSymbolLabel(symbol, type)}</h2>
@@ -4591,6 +4591,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             ) : !isCryptoType ? (
                                 <EyeToggle label="MA200" checked={showMA200} onChange={setShowMA200} color="#f97316" />
                             ) : null}
+                            <EyeToggle label="成交量" checked={showVolume} onChange={setShowVolume} color="#64748b" />
                             <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
                             <EyeToggle label="MACD" checked={showMACD} onChange={setShowMACD} color="#fbbf24" />
                             <EyeToggle label="綜合信號" checked={showComposite} onChange={setShowComposite} color={UP_COLOR} />
@@ -4608,6 +4609,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                                 realizedPrice={realizedPrice}
                                 showRSI={showRSI}
                                 showMACD={showMACD}
+                                showVolume={showVolume}
                                 markers={fngMarkers}
                                 storageKey={`tech.${isCryptoType ? 'crypto' : type}.${symbol}`}
                                 onHover={setHoverInfo}
@@ -7915,12 +7917,12 @@ const isBull = price2 < price1 && dif2 > dif1;
             </button>
         );
 
-        // 「圖表」分頁:同一套技術圖表,嵌在頁面裡,記住上次看的標的
-        const ChartPage = ({ isPremium }) => {
+        // 「圖表」分頁:跟「圖表」按鈕一樣開全螢幕技術圖表,記住上次看的標的;關閉回到原分頁
+        const ChartPage = ({ isPremium, onClose }) => {
             const [last, setLast] = useLocalState('chart-tab-symbol', { symbol: 'bitcoin', type: 'CRYPTO' });
             return (
                 <TechnicalChartModal
-                    embedded
+                    onClose={onClose}
                     symbol={last.symbol}
                     type={last.type}
                     isPremium={isPremium}
@@ -7934,6 +7936,9 @@ const isBull = price2 < price1 && dif2 > dif1;
             const [activeTab, setActiveTab] = useState(() =>
                 window.location.hash.startsWith('#/forum') ? 'forum' : (PORTFOLIO_FIXTURE ? 'portfolio' : 'crypto')
             );
+            // 「圖表」是全螢幕,關閉時回到開啟前的分頁
+            const prevTabRef = useRef('crypto');
+            useEffect(() => { if (activeTab !== 'chart') prevTabRef.current = activeTab; }, [activeTab]);
             const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
             // PWA install prompt
@@ -8464,7 +8469,7 @@ const isBull = price2 < price1 && dif2 > dif1;
                                         />
                                     )}
                                     {activeTab === 'chart' && (
-                                        <ChartPage isPremium={isPremium} />
+                                        <ChartPage isPremium={isPremium} onClose={() => setActiveTab(prevTabRef.current)} />
                                     )}
                                     {activeTab === 'portfolio' && (
                                         <PortfolioDashboard
