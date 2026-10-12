@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
 import economicCalendar from '../economic_calendar.json';
+import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
 
         const { useState, useEffect, useMemo, useRef } = React;
 
@@ -3943,9 +3944,9 @@ import economicCalendar from '../economic_calendar.json';
         };
 
         // ─────────────────────────────────────────────
-        // TechnicalChartModal — full-screen analysis built on
-        // TradingView Lightweight Charts v5 + deepentropy/lightweight-charts-drawing
-        // (68 community-built drawing tools).
+        // TechnicalChartModal — full-screen analysis on Smart DCA's own chart
+        // engine (src/chart): log/linear price axis, TradingView-style gestures
+        // and 43 drawing tools.
         // ─────────────────────────────────────────────
         // EMA Ribbon — mirrors the Pine "BTC EMA Ribbon Reversal" indicator
         //   fast = 20, slow = 55, four mid lines at round(fast + (slow-fast)*0.2/0.4/0.6/0.8)
@@ -3960,98 +3961,8 @@ import economicCalendar from '../economic_calendar.json';
                 Math.round(f + (s - f) * 0.8),
                 s];
         })();
-        // Single semi-transparent color flips with the latest fast>slow trend (matches Pine color.new(..., 40))
-        const EMA_BULL_COLOR = 'rgba(0, 200, 83, 0.6)';
-        const EMA_BEAR_COLOR = 'rgba(255, 23, 68, 0.6)';
         const UP_COLOR = '#00d68f';
         const DOWN_COLOR = '#ff5b6e';
-
-        // 68 tools grouped into 8 categories. Anchor counts come from the library's registry.
-        const DRAWING_TOOL_CATEGORIES = [
-            { key: 'line', label: '線', tools: [
-                { type: 'trend-line', name: '趨勢線', a: 2 },
-                { type: 'ray', name: '射線', a: 2 },
-                { type: 'extended-line', name: '延伸線', a: 2 },
-                { type: 'horizontal-line', name: '水平線', a: 1 },
-                { type: 'horizontal-ray', name: '水平射線', a: 1 },
-                { type: 'vertical-line', name: '垂直線', a: 1 },
-                { type: 'cross-line', name: '十字線', a: 1 },
-                { type: 'info-line', name: '訊息線', a: 2 },
-                { type: 'trend-angle', name: '趨勢角度', a: 2 },
-                { type: 'arrow', name: '箭頭', a: 2 },
-            ]},
-            { key: 'channel', label: '通道', tools: [
-                { type: 'parallel-channel', name: '平行通道', a: 3 },
-                { type: 'regression-trend', name: '迴歸趨勢', a: 2 },
-                { type: 'flat-top-bottom', name: '平頂 / 底', a: 3 },
-                { type: 'disjoint-channel', name: '斷開通道', a: 4 },
-            ]},
-            { key: 'pitchfork', label: '叉形', tools: [
-                { type: 'andrews-pitchfork', name: 'Andrews 叉形', a: 3 },
-                { type: 'schiff-pitchfork', name: 'Schiff 叉形', a: 3 },
-                { type: 'modified-schiff-pitchfork', name: 'Modified Schiff', a: 3 },
-                { type: 'inside-pitchfork', name: 'Inside 叉形', a: 3 },
-            ]},
-            { key: 'fibonacci', label: '黃金分割', tools: [
-                { type: 'fib-retracement', name: 'Fib 回撤', a: 2 },
-                { type: 'fib-extension', name: 'Fib 延伸', a: 3 },
-                { type: 'fib-channel', name: 'Fib 通道', a: 3 },
-                { type: 'fib-time-zone', name: 'Fib 時區', a: 2 },
-                { type: 'fib-speed-fan', name: 'Fib 速度扇形', a: 2 },
-                { type: 'fib-time-extension', name: 'Fib 時間延伸', a: 3 },
-                { type: 'fib-circles', name: 'Fib 圓', a: 2 },
-                { type: 'fib-spiral', name: 'Fib 螺旋', a: 2 },
-                { type: 'fib-arcs', name: 'Fib 弧', a: 2 },
-                { type: 'fib-wedge', name: 'Fib 楔形', a: 3 },
-                { type: 'pitchfan', name: 'Pitchfan', a: 3 },
-            ]},
-            { key: 'gann', label: '江恩', tools: [
-                { type: 'gann-box', name: '江恩盒', a: 2 },
-                { type: 'gann-fan', name: '江恩扇形', a: 2 },
-                { type: 'gann-square-fixed', name: '江恩方形（固定）', a: 1 },
-                { type: 'gann-square', name: '江恩方形', a: 2 },
-            ]},
-            { key: 'forecasting', label: '預測', tools: [
-                { type: 'long-position', name: '多單部位', a: 3 },
-                { type: 'short-position', name: '空單部位', a: 3 },
-                { type: 'forecast', name: '預測', a: 2 },
-                { type: 'bars-pattern', name: 'K 棒模式', a: 3 },
-                { type: 'projection', name: '投影', a: 3 },
-                { type: 'price-range', name: '價格區間', a: 2 },
-                { type: 'date-range', name: '日期區間', a: 2 },
-                { type: 'date-price-range', name: '日期 + 價格區間', a: 2 },
-            ]},
-            { key: 'shape', label: '形狀', tools: [
-                { type: 'rectangle', name: '矩形', a: 2 },
-                { type: 'rotated-rectangle', name: '旋轉矩形', a: 3 },
-                { type: 'circle', name: '圓形', a: 2 },
-                { type: 'triangle', name: '三角形', a: 3 },
-                { type: 'ellipse', name: '橢圓', a: 2 },
-                { type: 'arc', name: '弧', a: 3 },
-                { type: 'path', name: '路徑', a: 2 },
-                { type: 'polyline', name: '折線', a: 2 },
-                { type: 'curve', name: '曲線', a: 4 },
-                { type: 'double-curve', name: '雙曲線', a: 3 },
-            ]},
-            { key: 'annotation', label: '標註', tools: [
-                { type: 'text-annotation', name: '文字', a: 1 },
-                { type: 'callout', name: '標註框', a: 2 },
-                { type: 'anchored-text', name: '錨定文字', a: 2 },
-                { type: 'note', name: '便籤', a: 1 },
-                { type: 'price-note', name: '價格便籤', a: 1 },
-                { type: 'price-label', name: '價格標籤', a: 1 },
-                { type: 'flag-mark', name: '旗幟', a: 1 },
-                { type: 'pin', name: '釘子', a: 1 },
-                { type: 'comment', name: '註解', a: 1 },
-                { type: 'signpost', name: '路標', a: 1 },
-                { type: 'table', name: '表格', a: 1 },
-                { type: 'brush', name: '筆刷', a: 2 },
-                { type: 'highlighter', name: '螢光筆', a: 2 },
-                { type: 'arrow-marker', name: '箭頭記號', a: 1 },
-                { type: 'arrow-mark-up', name: '向上箭頭', a: 1 },
-                { type: 'arrow-mark-down', name: '向下箭頭', a: 1 },
-            ]},
-        ];
 
         // ─── CoinMetrics 社群 API(免金鑰、CORS 開放)───
         // MVRV 與 Realized Price:Realized Price = 現價 ÷ MVRV
@@ -4134,31 +4045,9 @@ import economicCalendar from '../economic_calendar.json';
         };
 
         const TechnicalChartModal = ({ symbol, type, onClose }) => {
-            const containerRef = useRef(null);
-            const chartRef = useRef(null);
-            const candleSeriesRef = useRef(null);
-            const emaSeriesRef = useRef([]);
-            const ma200SeriesRef = useRef(null);
-            const rpSeriesRef = useRef(null);          // Realized Price 線(主圖,crypto 限定)
-            const rsiSeriesRef = useRef(null);
-            const macdRefs = useRef({ dif: null, dea: null, hist: null });
-            const markersPluginRef = useRef(null);     // candle pane: holds FNG dots + EMA LONG/SHORT
-            const rsiMarkersRef = useRef(null);        // RSI pane: 30 / 70 crossover markers
-            const macdMarkersRef = useRef(null);       // MACD pane: DIF×DEA golden / death cross markers
-            const emaCrossesRef = useRef([]);          // cached so the FNG-markers effect can merge them
-            const drawingManagerRef = useRef(null);
-            const drawingsRef = useRef([]);
-            const activeToolRef = useRef(null);
-            const pendingAnchorsRef = useRef([]);
-            const selectedDrawingIdRef = useRef(null);
-            const candleDataRef = useRef([]);
-            const lastHoverTimeRef = useRef(null);   // crosshair 防抖:同一根 K 棒不重複 setState
-
             const [showHelp, setShowHelp] = useState(false);
-            const [activeTool, setActiveTool] = useState(null); // { type, name, requiredAnchors, collected }
-            const [openCategory, setOpenCategory] = useState(null);
-            const [hasSelection, setHasSelection] = useState(false);
             const [hoverInfo, setHoverInfo] = useState(null); // { time, open, high, low, close, prevClose }
+            const [fitSignal, setFitSignal] = useState(0);
 
             const [showEMA, setShowEMA] = useLocalState('tech-show-ema', true);
             const [showMA200, setShowMA200] = useLocalState('tech-show-ma200', true);
@@ -4315,372 +4204,17 @@ import economicCalendar from '../economic_calendar.json';
                 return arr;
             }, [displayHistory]);
 
-            // Click handler reads through this ref so it always sees fresh data
-            useEffect(() => { candleDataRef.current = candleData; }, [candleData]);
-
             const fngByDate = useMemo(() => {
                 const m = {};
                 for (const d of fngHistory) m[d.date] = d.fng;
                 return m;
             }, [fngHistory]);
 
-            // ─── Init chart (once) ───
-            useEffect(() => {
-                if (!containerRef.current || !window.LightweightCharts) return;
-                const LWC = window.LightweightCharts;
-                const chart = LWC.createChart(containerRef.current, {
-                    layout: {
-                        background: { type: (LWC.ColorType && LWC.ColorType.Solid) || 'solid', color: '#07080c' },
-                        textColor: '#b8bcc8',
-                        panes: { separatorColor: 'rgba(255,255,255,0.10)', separatorHoverColor: 'rgba(255,255,255,0.20)', enableResize: true },
-                    },
-                    grid: {
-                        vertLines: { color: 'rgba(255,255,255,0.04)' },
-                        horzLines: { color: 'rgba(255,255,255,0.04)' },
-                    },
-                    timeScale: {
-                        borderColor: 'rgba(255,255,255,0.1)',
-                        borderVisible: true,
-                        visible: true,
-                        timeVisible: true,
-                        secondsVisible: false,
-                        rightOffset: 6,
-                        barSpacing: 8,
-                        minBarSpacing: 0.5,
-                        tickMarkMaxCharacterLength: 10,
-                    },
-                    rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
-                    crosshair: { mode: 1 },
-                    autoSize: true,
-                });
-                chartRef.current = chart;
-
-                const candleSeries = chart.addSeries(LWC.CandlestickSeries, {
-                    upColor: UP_COLOR, downColor: DOWN_COLOR,
-                    borderUpColor: UP_COLOR, borderDownColor: DOWN_COLOR,
-                    wickUpColor: UP_COLOR, wickDownColor: DOWN_COLOR,
-                }, 0);
-                candleSeriesRef.current = candleSeries;
-
-                if (typeof LWC.createSeriesMarkers === 'function') {
-                    markersPluginRef.current = LWC.createSeriesMarkers(candleSeries, []);
-                }
-
-                // ─── Hover-info overlay: read OHLC out of the crosshair payload ───
-                // 只在移到「不同的 K 棒」時才 setState:滑鼠在同一根上垂直移動不重繪,
-                // 避免整個 modal 在畫線 / 平移時被 React 重繪拖慢。
-                chart.subscribeCrosshairMove((param) => {
-                    if (!param || param.time == null || !param.seriesData) {
-                        if (lastHoverTimeRef.current !== null) { lastHoverTimeRef.current = null; setHoverInfo(null); }
-                        return;
-                    }
-                    const cur = param.seriesData.get(candleSeries);
-                    if (!cur || cur.open == null) {
-                        if (lastHoverTimeRef.current !== null) { lastHoverTimeRef.current = null; setHoverInfo(null); }
-                        return;
-                    }
-                    if (lastHoverTimeRef.current === param.time) return;
-                    lastHoverTimeRef.current = param.time;
-                    const data = candleDataRef.current;
-                    let prev = null;
-                    if (param.logical != null && data.length > 1) {
-                        const idx = Math.round(param.logical);
-                        if (idx >= 1 && idx < data.length) prev = data[idx - 1];
-                    }
-                    setHoverInfo({
-                        time: param.time,
-                        open: cur.open, high: cur.high, low: cur.low, close: cur.close,
-                        prevClose: prev ? prev.close : null,
-                    });
-                });
-
-                if (window.LightweightChartsDrawing && window.LightweightChartsDrawing.DrawingManager) {
-                    const manager = new window.LightweightChartsDrawing.DrawingManager();
-                    manager.attach(chart, candleSeries, containerRef.current);
-                    drawingManagerRef.current = manager;
-                    // 選取標註時鎖住圖表平移/縮放:拖曳錨點才不會同時把整張圖拖走
-                    manager.on && manager.on('drawing:selected', (e) => {
-                        selectedDrawingIdRef.current = e.drawingId || null;
-                        setHasSelection(true);
-                        try { chart.applyOptions({ handleScroll: false, handleScale: false }); } catch {}
-                    });
-                    manager.on && manager.on('drawing:deselected', () => {
-                        selectedDrawingIdRef.current = null;
-                        setHasSelection(false);
-                        if (!activeToolRef.current) {
-                            try { chart.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
-                        }
-                    });
-                }
-
-                // ─── Free-form click → anchor: interpolate sub-bar time so the anchor
-                //     lands exactly where the user tapped (no bar snap). ───
-                const onClick = (param) => {
-                    const tool = activeToolRef.current;
-                    if (!tool || !param || !param.point) return;
-                    const data = candleDataRef.current;
-                    let time = null;
-                    try {
-                        const logical = chart.timeScale().coordinateToLogical(param.point.x);
-                        if (logical != null && data.length > 0) {
-                            const idx = Math.floor(logical);
-                            const frac = logical - idx;
-                            if (idx >= 0 && idx < data.length - 1) {
-                                time = data[idx].time + (data[idx + 1].time - data[idx].time) * frac;
-                            } else if (idx >= data.length - 1) {
-                                const n = data.length;
-                                const spacing = n >= 2 ? data[n - 1].time - data[n - 2].time : 86400;
-                                time = data[n - 1].time + spacing * (logical - (n - 1));
-                            } else {
-                                const spacing = data.length >= 2 ? data[1].time - data[0].time : 86400;
-                                time = data[0].time + spacing * logical;
-                            }
-                        }
-                    } catch {}
-                    if (time == null) {
-                        if (param.time == null) return;
-                        time = param.time;
-                    }
-                    time = Math.floor(time);
-                    const price = candleSeries.coordinateToPrice(param.point.y);
-                    if (price == null) return;
-                    pendingAnchorsRef.current.push({ time, price });
-                    setActiveTool(prev => prev ? { ...prev, collected: pendingAnchorsRef.current.length } : prev);
-                    if (pendingAnchorsRef.current.length >= tool.requiredAnchors) {
-                        const registry = window.LightweightChartsDrawing && window.LightweightChartsDrawing.getToolRegistry && window.LightweightChartsDrawing.getToolRegistry();
-                        if (registry && drawingManagerRef.current) {
-                            const id = 'd-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
-                            const drawing = registry.createDrawing(tool.type, id, pendingAnchorsRef.current.slice());
-                            if (drawing) {
-                                drawingManagerRef.current.addDrawing(drawing);
-                                drawingsRef.current.push(id);
-                            }
-                        }
-                        pendingAnchorsRef.current = [];
-                        activeToolRef.current = null;
-                        setActiveTool(null);
-                        if (containerRef.current) containerRef.current.style.cursor = '';
-                        // 繪製完成:恢復圖表平移/縮放
-                        try { chart.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
-                    }
-                };
-                chart.subscribeClick(onClick);
-
-                // ─── Touch → mouse polyfill so the drawing manager's mouse-only
-                //     anchor-drag handlers also respond to finger drags on mobile.
-                //     只在「拖曳」且有作用對象(繪製中/已選取標註)時才合成滑鼠事件:
-                //     - 純點按交給瀏覽器的相容性事件(否則合成+相容性事件重複觸發,
-                //       點一下標註會「選取後立刻取消選取」)
-                //     - 一般單指平移圖表時不合成,避免跟繪圖管理器互搶手勢 ───
-                const container = containerRef.current;
-                const dispatchMouse = (type, t) => {
-                    const ev = new MouseEvent(type, {
-                        bubbles: true, cancelable: true, view: window,
-                        clientX: t.clientX, clientY: t.clientY,
-                        button: 0,
-                    });
-                    container.dispatchEvent(ev);
-                };
-                let touchDrag = null; // { startT, dragging }
-                const onTouchStart = (e) => {
-                    if (e.touches.length !== 1) { touchDrag = null; return; }
-                    touchDrag = { startT: e.touches[0], dragging: false };
-                };
-                const onTouchMove = (e) => {
-                    if (!touchDrag || e.touches.length !== 1) return;
-                    if (!activeToolRef.current && !selectedDrawingIdRef.current) return;
-                    if (!touchDrag.dragging) {
-                        dispatchMouse('mousedown', touchDrag.startT);
-                        touchDrag.dragging = true;
-                    }
-                    dispatchMouse('mousemove', e.touches[0]);
-                };
-                const onTouchEnd = (e) => {
-                    if (touchDrag && touchDrag.dragging) {
-                        const t = e.changedTouches[0];
-                        if (t) dispatchMouse('mouseup', t);
-                    }
-                    touchDrag = null;
-                };
-                container.addEventListener('touchstart', onTouchStart, { passive: true });
-                container.addEventListener('touchmove', onTouchMove, { passive: true });
-                container.addEventListener('touchend', onTouchEnd, { passive: true });
-
-                const onKey = (e) => {
-                    if (e.key === 'Escape') {
-                        if (activeToolRef.current) {
-                            activeToolRef.current = null;
-                            pendingAnchorsRef.current = [];
-                            setActiveTool(null);
-                            if (containerRef.current) containerRef.current.style.cursor = '';
-                            try { chart.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
-                        } else {
-                            onClose && onClose();
-                        }
-                    } else if (e.key === 'Delete' || e.key === 'Backspace') {
-                        const m = drawingManagerRef.current;
-                        const id = selectedDrawingIdRef.current;
-                        if (m && id) {
-                            m.removeDrawing(id);
-                            drawingsRef.current = drawingsRef.current.filter(x => x !== id);
-                            selectedDrawingIdRef.current = null;
-                            setHasSelection(false);
-                            // 程式移除不會觸發 deselected 事件,手動解鎖平移
-                            if (!activeToolRef.current) {
-                                try { chart.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
-                            }
-                        }
-                    }
-                };
-                window.addEventListener('keydown', onKey);
-
-                return () => {
-                    window.removeEventListener('keydown', onKey);
-                    container.removeEventListener('touchstart', onTouchStart);
-                    container.removeEventListener('touchmove', onTouchMove);
-                    container.removeEventListener('touchend', onTouchEnd);
-                    try { chart.unsubscribeClick(onClick); } catch {}
-                    try { drawingManagerRef.current && drawingManagerRef.current.detach(); } catch {}
-                    try { chart.remove(); } catch {}
-                    chartRef.current = null;
-                    candleSeriesRef.current = null;
-                    drawingManagerRef.current = null;
-                    markersPluginRef.current = null;
-                    emaSeriesRef.current = [];
-                    ma200SeriesRef.current = null;
-                    rpSeriesRef.current = null;
-                    rsiSeriesRef.current = null;
-                    macdRefs.current = { dif: null, dea: null, hist: null };
-                };
-            }, []);
-
-            // ─── Apply candle data + auto-fit on first load / range change ───
-            useEffect(() => {
-                const series = candleSeriesRef.current;
-                const chart = chartRef.current;
-                if (!series || !chart || candleData.length === 0) return;
-                series.setData(candleData);
-                try { chart.timeScale().fitContent(); } catch {}
-            }, [candleData]);
-
-            // ─── EMA Ribbon (6 lines on main pane) — per-segment color flip ───
-            // Each EMA line is split into bull / bear segments at every fast×slow
-            // crossover; each segment is its own LineSeries so the ribbon recolors
-            // exactly at the cross instead of being one flat color for the whole
-            // history. Segments overlap by one point at the boundary so the line
-            // doesn't visually break at the crossover bar.
-            useEffect(() => {
-                const chart = chartRef.current;
-                if (!chart) return;
-                emaSeriesRef.current.forEach(s => { try { chart.removeSeries(s); } catch {} });
-                emaSeriesRef.current = [];
-                if (!showEMA || candleData.length === 0) return;
-                const closes = candleData.map(d => d.close);
-                const emas = EMA_PERIODS.map(p => computeEMA(closes, p));
-                const fastArr = emas[0];
-                const slowArr = emas[EMA_PERIODS.length - 1];
-
-                EMA_PERIODS.forEach((period, idx) => {
-                    const ema = emas[idx];
-                    const lineWidth = (idx === 0 || idx === EMA_PERIODS.length - 1) ? 2 : 1;
-                    let curBull = null;
-                    let curPoints = [];
-
-                    const flushSegment = () => {
-                        if (curPoints.length < 2 || curBull == null) return;
-                        const s = chart.addSeries(window.LightweightCharts.LineSeries, {
-                            color: curBull ? EMA_BULL_COLOR : EMA_BEAR_COLOR,
-                            lineWidth,
-                            priceLineVisible: false,
-                            lastValueVisible: false,
-                            crosshairMarkerVisible: false,
-                        }, 0);
-                        s.setData(curPoints);
-                        emaSeriesRef.current.push(s);
-                    };
-
-                    for (let i = 0; i < ema.length; i++) {
-                        if (ema[i] == null || fastArr[i] == null || slowArr[i] == null) continue;
-                        const bull = fastArr[i] >= slowArr[i];
-                        const point = { time: candleData[i].time, value: ema[i] };
-                        if (curBull == null) {
-                            curBull = bull;
-                            curPoints = [point];
-                        } else if (bull === curBull) {
-                            curPoints.push(point);
-                        } else {
-                            // Regime change: include the crossover point as the end of
-                            // this segment AND the start of the next so they meet visually.
-                            curPoints.push(point);
-                            flushSegment();
-                            curBull = bull;
-                            curPoints = [point];
-                        }
-                    }
-                    flushSegment();
-                });
-            }, [showEMA, candleData]);
-
-            // EMA fast×slow cross markers, computed once and reused by the combined-markers effect
-            const emaCrossMarkers = useMemo(() => {
-                if (!showEMA || candleData.length === 0) return [];
-                const closes = candleData.map(d => d.close);
-                const fast = computeEMA(closes, EMA_FAST);
-                const slow = computeEMA(closes, EMA_SLOW);
-                const out = [];
-                for (let i = 1; i < candleData.length; i++) {
-                    const fPrev = fast[i - 1], fCur = fast[i];
-                    const sPrev = slow[i - 1], sCur = slow[i];
-                    if (fPrev == null || fCur == null || sPrev == null || sCur == null) continue;
-                    if (fPrev <= sPrev && fCur > sCur) {
-                        out.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
-                    } else if (fPrev >= sPrev && fCur < sCur) {
-                        out.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
-                    }
-                }
-                return out;
-            }, [showEMA, candleData]);
-
-            // ─── 200-period SMA on main pane (price > MA = bull → green, else red) ───
-            useEffect(() => {
-                const chart = chartRef.current;
-                if (!chart) return;
-                if (ma200SeriesRef.current) { try { chart.removeSeries(ma200SeriesRef.current); } catch {} ma200SeriesRef.current = null; }
-                // crypto 一律不畫 MA200(K 棒最多 1000 根,MA200 沒參考性;主圖改用 Realized Price)
-                if (!showMA200 || isCryptoType || candleData.length < 50) return;
-                const period = 200;
-                const closes = candleData.map(d => d.close);
-                if (closes.length < period) return;
-                const data = [];
-                let sum = 0;
-                for (let i = 0; i < closes.length; i++) {
-                    sum += closes[i];
-                    if (i >= period) sum -= closes[i - period];
-                    if (i >= period - 1) data.push({ time: candleData[i].time, value: sum / period });
-                }
-                if (!data.length) return;
-                const lastPrice = closes[closes.length - 1];
-                const lastMa = data[data.length - 1].value;
-                const bull = lastPrice >= lastMa;
-                const s = chart.addSeries(window.LightweightCharts.LineSeries, {
-                    color: bull ? UP_COLOR : DOWN_COLOR,
-                    lineWidth: 2,
-                    priceLineVisible: false,
-                    lastValueVisible: true,
-                    title: 'MA200',
-                }, 0);
-                s.setData(data);
-                ma200SeriesRef.current = s;
-            }, [showMA200, candleData]);
-
             // ─── Realized Price 線(主圖,crypto 限定)───
             // 鏈上平均成本線:價格跌破 = 歷史級抄底區。資料為日頻,
             // 依 K 棒時間對齊取「當日或之前最近」的值(週線也能正確對齊)。
-            useEffect(() => {
-                const chart = chartRef.current;
-                if (!chart) return;
-                if (rpSeriesRef.current) { try { chart.removeSeries(rpSeriesRef.current); } catch {} rpSeriesRef.current = null; }
-                if (!showRP || !cmAsset || candleData.length === 0 || cmData.length === 0) return;
+            const realizedPrice = useMemo(() => {
+                if (!showRP || !cmAsset || candleData.length === 0 || cmData.length === 0) return null;
                 const data = [];
                 let di = 0, lastRp = null;
                 for (const bar of candleData) {
@@ -4688,144 +4222,17 @@ import economicCalendar from '../economic_calendar.json';
                     while (di < cmData.length && cmData[di].date <= ds) { lastRp = cmData[di].rp; di++; }
                     if (lastRp != null) data.push({ time: bar.time, value: lastRp });
                 }
-                if (!data.length) return;
-                const s = chart.addSeries(window.LightweightCharts.LineSeries, {
-                    color: '#f59e0b',
-                    lineWidth: 2,
-                    priceLineVisible: false,
-                    lastValueVisible: true,
-                    title: 'Realized Price',
-                }, 0);
-                s.setData(data);
-                rpSeriesRef.current = s;
+                return data.length ? data : null;
             }, [showRP, cmAsset, cmData, candleData]);
 
-            // ─── RSI + MACD 副圖(pane 動態配置)───
-            // lightweight-charts v5 在某個 pane 的最後一條 series 被移除後,
-            // 後面的 pane 會往前遞補;因此不能寫死「RSI=pane1、MACD=pane2」——
-            // 舊寫法在「關 RSI 再開」時會把 RSI 加進 MACD 佔用的 pane,兩個指標重疊。
-            // 改為單一 effect:先移除兩者、清掉空 pane,再依開關「依序」分配索引,
-            // 並在 series 建立之後才設定 pane 高度比例(舊版在建立前設定,無效)。
+            // Esc 關閉 modal(圖表正在用 Esc 取消繪圖 / 選取時會 preventDefault,不關閉)
             useEffect(() => {
-                const chart = chartRef.current;
-                const LWC = window.LightweightCharts;
-                if (!chart) return;
-
-                // 1) 移除既有 RSI / MACD series
-                if (rsiSeriesRef.current) { try { chart.removeSeries(rsiSeriesRef.current); } catch {} rsiSeriesRef.current = null; }
-                rsiMarkersRef.current = null;
-                ['dif', 'dea', 'hist'].forEach(k => {
-                    if (macdRefs.current[k]) { try { chart.removeSeries(macdRefs.current[k]); } catch {} macdRefs.current[k] = null; }
-                });
-                macdMarkersRef.current = null;
-
-                // 2) 清掉殘留的空副圖 pane,讓索引從乾淨狀態開始分配
-                try {
-                    const panes = chart.panes();
-                    for (let i = panes.length - 1; i >= 1; i--) {
-                        const series = panes[i].getSeries ? panes[i].getSeries() : [];
-                        if (!series || series.length === 0) chart.removePane(i);
-                    }
-                } catch {}
-
-                if (candleData.length === 0) return;
-                const closes = candleData.map(d => d.close);
-                let nextPane = 1;
-
-                // 3) RSI — 70 / 50 / 30 參考線 + 上穿30 △ / 下穿70 ▽ 標記
-                if (showRSI && closes.length > 14) {
-                    const period = 14;
-                    let gains = 0, losses = 0;
-                    for (let i = 1; i <= period; i++) {
-                        const d = closes[i] - closes[i - 1];
-                        if (d > 0) gains += d; else losses -= d;
-                    }
-                    let avgGain = gains / period;
-                    let avgLoss = losses / period;
-                    const out = [];
-                    const pushRsi = (idx) => {
-                        const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss;
-                        const rsi = avgLoss === 0 ? 100 : 100 - 100 / (1 + rs);
-                        out.push({ time: candleData[idx].time, value: rsi });
-                    };
-                    pushRsi(period);
-                    for (let i = period + 1; i < closes.length; i++) {
-                        const d = closes[i] - closes[i - 1];
-                        const gain = d > 0 ? d : 0;
-                        const loss = d < 0 ? -d : 0;
-                        avgGain = (avgGain * (period - 1) + gain) / period;
-                        avgLoss = (avgLoss * (period - 1) + loss) / period;
-                        pushRsi(i);
-                    }
-                    const s = chart.addSeries(LWC.LineSeries, {
-                        color: '#a78bfa',  // purple — bull / bear is conveyed by the cross markers, not the line
-                        lineWidth: 1.5,
-                        priceLineVisible: false, lastValueVisible: true, title: 'RSI(14)',
-                    }, nextPane);
-                    s.setData(out);
-                    try { s.createPriceLine({ price: 70, color: 'rgba(255,91,110,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
-                    try { s.createPriceLine({ price: 50, color: 'rgba(255,255,255,0.18)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
-                    try { s.createPriceLine({ price: 30, color: 'rgba(0,214,143,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); } catch {}
-                    rsiSeriesRef.current = s;
-
-                    if (typeof LWC.createSeriesMarkers === 'function') {
-                        const markers = [];
-                        for (let i = 1; i < out.length; i++) {
-                            const prev = out[i - 1].value, cur = out[i].value;
-                            if (prev <= 30 && cur > 30) {
-                                markers.push({ time: out[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
-                            } else if (prev >= 70 && cur < 70) {
-                                markers.push({ time: out[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
-                            }
-                        }
-                        try { rsiMarkersRef.current = LWC.createSeriesMarkers(s, markers); } catch {}
-                    }
-                    nextPane++;
-                }
-
-                // 4) MACD — DIF×DEA 金叉 △ / 死叉 ▽ 標記在 DIF 線上
-                if (showMACD) {
-                    const macd = computeMACD(closes);
-                    const histData = [];
-                    const difData = [];
-                    const deaData = [];
-                    for (let i = 0; i < closes.length; i++) {
-                        const t = candleData[i].time;
-                        if (macd.histogram[i] != null) histData.push({ time: t, value: macd.histogram[i], color: macd.histogram[i] >= 0 ? 'rgba(0,214,143,0.75)' : 'rgba(255,91,110,0.75)' });
-                        if (macd.dif[i] != null) difData.push({ time: t, value: macd.dif[i] });
-                        if (macd.dea[i] != null) deaData.push({ time: t, value: macd.dea[i] });
-                    }
-                    macdRefs.current.hist = chart.addSeries(LWC.HistogramSeries, { priceLineVisible: false, lastValueVisible: false }, nextPane);
-                    macdRefs.current.hist.setData(histData);
-                    macdRefs.current.dif = chart.addSeries(LWC.LineSeries, { color: '#3b82f6', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DIF' }, nextPane);
-                    macdRefs.current.dif.setData(difData);
-                    macdRefs.current.dea = chart.addSeries(LWC.LineSeries, { color: '#fbbf24', lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false, title: 'DEA' }, nextPane);
-                    macdRefs.current.dea.setData(deaData);
-
-                    if (typeof LWC.createSeriesMarkers === 'function') {
-                        const markers = [];
-                        for (let i = 1; i < closes.length; i++) {
-                            const dPrev = macd.dif[i - 1], dCur = macd.dif[i];
-                            const ePrev = macd.dea[i - 1], eCur = macd.dea[i];
-                            if (dPrev == null || dCur == null || ePrev == null || eCur == null) continue;
-                            if (dPrev <= ePrev && dCur > eCur) {
-                                markers.push({ time: candleData[i].time, position: 'belowBar', shape: 'arrowUp', color: UP_COLOR });
-                            } else if (dPrev >= ePrev && dCur < eCur) {
-                                markers.push({ time: candleData[i].time, position: 'aboveBar', shape: 'arrowDown', color: DOWN_COLOR });
-                            }
-                        }
-                        try { macdMarkersRef.current = LWC.createSeriesMarkers(macdRefs.current.dif, markers); } catch {}
-                    }
-                    nextPane++;
-                }
-
-                // 5) pane 高度比例:主圖 6、每個副圖 2(此時 pane 一定已存在才會生效)
-                try {
-                    const panes = chart.panes();
-                    if (panes[0]) panes[0].setStretchFactor(6);
-                    for (let i = 1; i < panes.length; i++) panes[i].setStretchFactor(2);
-                } catch {}
-            }, [showRSI, showMACD, candleData]);
+                const onKey = (e) => {
+                    if (e.key === 'Escape' && !e.defaultPrevented) onClose && onClose();
+                };
+                window.addEventListener('keydown', onKey);
+                return () => window.removeEventListener('keydown', onKey);
+            }, [onClose]);
 
             // FNG dot markers (crypto / US only) — combined later with EMA cross markers
             const fngMarkers = useMemo(() => {
@@ -4854,14 +4261,6 @@ import economicCalendar from '../economic_calendar.json';
                 });
                 return markers;
             }, [candleData, fngByDate, fngHistory, showFearSignal, signalSource]);
-
-            // Combined candle-pane markers: FNG dots + EMA LONG / SHORT cross arrows, sorted by time
-            useEffect(() => {
-                const plugin = markersPluginRef.current;
-                if (!plugin) return;
-                const combined = [...fngMarkers, ...emaCrossMarkers].sort((a, b) => a.time - b.time);
-                try { plugin.setMarkers(combined); } catch {}
-            }, [fngMarkers, emaCrossMarkers]);
 
             // ─── Aggregate every signal we display into the summary panel ───
             const signalSummary = useMemo(() => {
@@ -4947,49 +4346,7 @@ import economicCalendar from '../economic_calendar.json';
                 return out;
             }, [candleData, fngHistory, signalSource, showEMA, showRSI, showMACD, showMA200, showComposite, cmAsset, cmData, showRP]);
 
-            // ─── Tool picker handlers ───
-            const pickTool = (tool) => {
-                pendingAnchorsRef.current = [];
-                activeToolRef.current = { type: tool.type, requiredAnchors: tool.a };
-                setActiveTool({ type: tool.type, name: tool.name, requiredAnchors: tool.a, collected: 0 });
-                setOpenCategory(null);
-                if (containerRef.current) containerRef.current.style.cursor = 'crosshair';
-                // 繪製期間鎖住平移/縮放:點錨點時圖表不會跟著滑動,下錨更準
-                try { chartRef.current && chartRef.current.applyOptions({ handleScroll: false, handleScale: false }); } catch {}
-            };
-            const cancelTool = () => {
-                activeToolRef.current = null;
-                pendingAnchorsRef.current = [];
-                setActiveTool(null);
-                if (containerRef.current) containerRef.current.style.cursor = '';
-                try { chartRef.current && chartRef.current.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
-            };
-            // 程式移除標註不會觸發 deselected 事件 → 手動解鎖圖表平移/縮放
-            const unlockChart = () => {
-                if (activeToolRef.current) return;
-                try { chartRef.current && chartRef.current.applyOptions({ handleScroll: true, handleScale: true }); } catch {}
-            };
-            const clearAllDrawings = () => {
-                const m = drawingManagerRef.current;
-                if (!m) return;
-                if (!confirm('清除所有畫線標註？')) return;
-                m.clearAll();
-                drawingsRef.current = [];
-                selectedDrawingIdRef.current = null;
-                setHasSelection(false);
-                unlockChart();
-            };
-            const deleteSelected = () => {
-                const m = drawingManagerRef.current;
-                const id = selectedDrawingIdRef.current;
-                if (!m || !id) return;
-                m.removeDrawing(id);
-                drawingsRef.current = drawingsRef.current.filter(x => x !== id);
-                selectedDrawingIdRef.current = null;
-                setHasSelection(false);
-                unlockChart();
-            };
-            const resetZoom = () => { try { chartRef.current && chartRef.current.timeScale().fitContent(); } catch {} };
+            const resetZoom = () => setFitSignal(n => n + 1);
 
             // ─── UI atoms ───
             const EyeToggle = ({ label, checked, onChange, color }) => (
@@ -5013,25 +4370,11 @@ import economicCalendar from '../economic_calendar.json';
                 >{label}</button>
             );
 
-            const CategoryIcon = ({ k }) => {
-                const stroke = 'currentColor';
-                const common = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke, strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' };
-                if (k === 'line') return <svg {...common}><line x1="4" y1="20" x2="20" y2="4"/></svg>;
-                if (k === 'channel') return <svg {...common}><line x1="4" y1="18" x2="20" y2="6"/><line x1="4" y1="14" x2="20" y2="2"/></svg>;
-                if (k === 'pitchfork') return <svg {...common}><line x1="4" y1="20" x2="20" y2="4"/><line x1="8" y1="20" x2="20" y2="8"/><line x1="12" y1="20" x2="20" y2="12"/></svg>;
-                if (k === 'fibonacci') return <svg {...common}><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="3" y1="14" x2="21" y2="14"/><line x1="3" y1="18" x2="21" y2="18"/></svg>;
-                if (k === 'gann') return <svg {...common}><rect x="4" y="4" width="16" height="16"/><line x1="4" y1="4" x2="20" y2="20"/></svg>;
-                if (k === 'forecasting') return <svg {...common}><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>;
-                if (k === 'shape') return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="1"/></svg>;
-                if (k === 'annotation') return <svg {...common}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
-                return null;
-            };
-
             // tone → pill colors
             const tonePill = (tone) => {
                 if (tone === 'bull') return { bg: 'rgba(0,214,143,0.15)', color: UP_COLOR, border: 'rgba(0,214,143,0.4)' };
                 if (tone === 'bear') return { bg: 'rgba(255,91,110,0.15)', color: DOWN_COLOR, border: 'rgba(255,91,110,0.4)' };
-                return { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-2)', border: 'var(--line)' };
+                return { bg: 'rgba(255,255,255,0.06)', color: '#9aa4b2', border: 'rgba(255,255,255,0.15)' };
             };
 
             // ─── Layout ───
@@ -5054,12 +4397,6 @@ import economicCalendar from '../economic_calendar.json';
                                     </div>
                                 )}
                                 {error && <div className="text-[10px] ml-2 truncate" style={{ color: '#ff7d8c' }}>{error}</div>}
-                                {activeTool && (
-                                    <div className="hidden md:flex items-center gap-1.5 text-[10px] ml-2 px-2 py-0.5 rounded-md" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--brand-1)', border: '1px solid var(--brand-1)' }}>
-                                        繪製：{activeTool.name}（{activeTool.collected ?? 0}/{activeTool.requiredAnchors}）
-                                        <button onClick={cancelTool} className="ml-1 hover:underline">取消</button>
-                                    </div>
-                                )}
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                                 <button onClick={() => setShowSignalPanel(!showSignalPanel)}
@@ -5117,112 +4454,38 @@ import economicCalendar from '../economic_calendar.json';
                         </div>
                     </div>
 
-                    {/* Body: drawing toolbar + chart */}
+                    {/* Body: chart with its own drawing toolbar (src/chart) */}
                     <div className="flex-1 min-h-0 flex">
-                        {/* Vertical toolbar (left). Categories pop a submenu of tools. */}
-                        <div className="shrink-0 flex flex-col items-stretch gap-1 py-2 px-1.5" style={{ borderRight: '1px solid var(--line)', width: 48, background: 'var(--wash)' }}>
-                            {DRAWING_TOOL_CATEGORIES.map(cat => (
-                                <div key={cat.key} className="relative">
-                                    <button
-                                        onClick={() => setOpenCategory(openCategory === cat.key ? null : cat.key)}
-                                        className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-white/[0.08] transition-colors"
-                                        style={{
-                                            color: openCategory === cat.key ? 'var(--brand-1)' : 'var(--text-2)',
-                                            background: openCategory === cat.key ? 'rgba(59,130,246,0.12)' : 'transparent',
-                                            border: '1px solid ' + (openCategory === cat.key ? 'var(--brand-1)' : 'transparent'),
-                                        }}
-                                        title={cat.label}
-                                    >
-                                        <CategoryIcon k={cat.key} />
-                                    </button>
-                                </div>
-                            ))}
-
-                            <div className="my-1 h-px" style={{ background: 'var(--line)' }}></div>
-
-                            <button
-                                onClick={deleteSelected}
-                                disabled={!hasSelection}
-                                className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-white/[0.08] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                                style={{ color: hasSelection ? DOWN_COLOR : 'var(--text-3)' }}
-                                title="刪除選取的標註（或按 Delete 鍵）"
-                            >
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                                </svg>
-                            </button>
-                            <button
-                                onClick={clearAllDrawings}
-                                className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-white/[0.08] transition-colors"
-                                style={{ color: 'var(--text-2)' }}
-                                title="清除所有標註"
-                            >
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
-                                </svg>
-                            </button>
-                        </div>
-
-                        {/* Tool-category popup. Positioned absolute next to the sidebar but clamped
-                            to the viewport so it never spills off a narrow phone screen. */}
-                        {openCategory && (() => {
-                            const cat = DRAWING_TOOL_CATEGORIES.find(c => c.key === openCategory);
-                            if (!cat) return null;
-                            return (
-                                <>
-                                    {/* Backdrop catches outside taps on mobile */}
-                                    <div className="fixed inset-0 z-[115] md:hidden" onClick={() => setOpenCategory(null)}></div>
-                                    <div
-                                        className="fixed z-[116] rounded-lg shadow-2xl p-1 max-h-[60vh] overflow-y-auto"
-                                        style={{
-                                            background: 'var(--surface)',
-                                            border: '1px solid var(--line)',
-                                            top: 'calc(env(safe-area-inset-top, 0px) + 120px)',
-                                            left: 56,
-                                            width: 'min(220px, calc(100vw - 72px))',
-                                        }}
-                                    >
-                                        <div className="text-[10px] uppercase tracking-wider px-2 py-1 mb-0.5 flex items-center justify-between" style={{ color: 'var(--text-3)' }}>
-                                            <span>{cat.label}（{cat.tools.length}）</span>
-                                            <button onClick={() => setOpenCategory(null)} className="md:hidden text-[11px] hover:text-white">✕</button>
-                                        </div>
-                                        {cat.tools.map(tool => (
-                                            <button
-                                                key={tool.type}
-                                                onClick={() => pickTool(tool)}
-                                                className="block w-full text-left px-2 py-1.5 rounded-md text-xs hover:bg-white/[0.06]"
-                                                style={{ color: 'var(--text)' }}
-                                            >
-                                                {tool.name}
-                                                <span className="ml-2 text-[10px]" style={{ color: 'var(--text-3)' }}>{tool.a} 點</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </>
-                            );
-                        })()}
-
-                        {/* Chart container — absolute inset so the chart canvas can NEVER
-                            overflow its parent and clip the bottom time axis. The min-height
-                            lives on the parent so a tiny viewport still gets a usable chart. */}
                         <div className="flex-1 min-w-0 min-h-0 relative" style={{ minHeight: '280px' }}>
-                            <div ref={containerRef} className="absolute inset-1 md:inset-2"></div>
+                            <TechnicalChartView
+                                className="absolute inset-0"
+                                candles={candleData}
+                                showEMA={showEMA}
+                                showMA200={showMA200 && !isCryptoType}
+                                realizedPrice={realizedPrice}
+                                showRSI={showRSI}
+                                showMACD={showMACD}
+                                markers={fngMarkers}
+                                storageKey={`tech.${isCryptoType ? 'crypto' : type}.${symbol}`}
+                                onHover={setHoverInfo}
+                                fitSignal={fitSignal}
+                            />
 
                             {/* OHLC hover overlay — top-left, compact. Driven by crosshair. */}
                             {hoverInfo && (() => {
                                 const fmtPrice = (v) => v == null ? '—' : (Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : v.toFixed(Math.abs(v) >= 1 ? 2 : 4));
                                 const change = (hoverInfo.prevClose != null) ? hoverInfo.close - hoverInfo.prevClose : null;
                                 const changePct = (change != null && hoverInfo.prevClose) ? (change / hoverInfo.prevClose) * 100 : null;
-                                const changeColor = change == null ? 'var(--text-3)' : (change >= 0 ? UP_COLOR : DOWN_COLOR);
+                                const changeColor = change == null ? '#6b7280' : (change >= 0 ? UP_COLOR : DOWN_COLOR);
                                 const d = new Date(hoverInfo.time * 1000);
                                 const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
                                 const isUp = hoverInfo.close >= hoverInfo.open;
                                 return (
-                                    <div className="absolute top-2 left-2 z-20 px-2 py-1.5 rounded-md backdrop-blur pointer-events-none mono"
-                                        style={{ background: 'rgba(18,20,28,0.85)', border: '1px solid var(--line)', fontSize: 10, lineHeight: 1.35, color: 'var(--text-2)' }}>
-                                        <div className="font-bold" style={{ color: 'var(--text)' }}>{dateStr}</div>
+                                    <div className="absolute top-2 left-[52px] z-20 px-2 py-1.5 rounded-md backdrop-blur pointer-events-none mono"
+                                        style={{ background: 'rgba(18,20,28,0.85)', border: '1px solid rgba(255,255,255,0.12)', fontSize: 10, lineHeight: 1.35, color: '#9aa4b2' }}>
+                                        <div className="font-bold" style={{ color: '#e6e9ef' }}>{dateStr}</div>
                                         <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
-                                            <span>開 <span style={{ color: 'var(--text)' }}>{fmtPrice(hoverInfo.open)}</span></span>
+                                            <span>開 <span style={{ color: '#e6e9ef' }}>{fmtPrice(hoverInfo.open)}</span></span>
                                             <span>高 <span style={{ color: UP_COLOR }}>{fmtPrice(hoverInfo.high)}</span></span>
                                             <span>低 <span style={{ color: DOWN_COLOR }}>{fmtPrice(hoverInfo.low)}</span></span>
                                             <span>收 <span style={{ color: isUp ? UP_COLOR : DOWN_COLOR }}>{fmtPrice(hoverInfo.close)}</span></span>
@@ -5239,25 +4502,25 @@ import economicCalendar from '../economic_calendar.json';
                             {/* Signal summary panel — top-right, semi-transparent, collapsible */}
                             {showSignalPanel && signalSummary.length > 0 && (
                                 <div
-                                    className="absolute top-2 right-2 rounded-lg p-2 z-20 backdrop-blur"
+                                    className="absolute top-2 right-[72px] rounded-lg p-2 z-20 backdrop-blur"
                                     style={{
                                         background: 'rgba(18,20,28,0.85)',
-                                        border: '1px solid var(--line)',
+                                        border: '1px solid rgba(255,255,255,0.12)',
                                         width: 'min(180px, calc(100vw - 80px))',
                                         maxHeight: 'calc(100% - 16px)',
                                         overflowY: 'auto',
                                     }}
                                 >
                                     <div className="flex items-center justify-between mb-1.5">
-                                        <span className="text-[10px] font-bold tracking-wider uppercase" style={{ color: 'var(--text-3)' }}>信號總覽</span>
-                                        <button onClick={() => setShowSignalPanel(false)} className="w-5 h-5 rounded hover:bg-white/[0.08] text-[11px]" style={{ color: 'var(--text-3)' }} title="收起">−</button>
+                                        <span className="text-[10px] font-bold tracking-wider uppercase" style={{ color: '#6b7280' }}>信號總覽</span>
+                                        <button onClick={() => setShowSignalPanel(false)} className="w-5 h-5 rounded hover:bg-white/[0.08] text-[11px]" style={{ color: '#6b7280' }} title="收起">−</button>
                                     </div>
                                     <div className="space-y-1">
                                         {signalSummary.map(it => {
                                             const p = tonePill(it.tone);
                                             return (
                                                 <div key={it.key} className="flex items-center justify-between text-[10px] gap-2">
-                                                    <span style={{ color: 'var(--text-3)' }}>{it.name}</span>
+                                                    <span style={{ color: '#6b7280' }}>{it.name}</span>
                                                     <span className="px-1.5 py-0.5 rounded font-bold truncate" style={{ background: p.bg, color: p.color, border: '1px solid ' + p.border, maxWidth: 110 }}>{it.label}</span>
                                                 </div>
                                             );
@@ -5268,18 +4531,12 @@ import economicCalendar from '../economic_calendar.json';
                             {!showSignalPanel && (
                                 <button
                                     onClick={() => setShowSignalPanel(true)}
-                                    className="absolute top-2 right-2 px-2 py-1 rounded-lg text-[10px] font-bold z-20 backdrop-blur hover:bg-white/[0.08]"
-                                    style={{ background: 'rgba(18,20,28,0.85)', border: '1px solid var(--line)', color: 'var(--text-2)' }}
+                                    className="absolute top-2 right-[72px] px-2 py-1 rounded-lg text-[10px] font-bold z-20 backdrop-blur hover:bg-white/[0.08]"
+                                    style={{ background: 'rgba(18,20,28,0.85)', border: '1px solid rgba(255,255,255,0.12)', color: '#9aa4b2' }}
                                     title="展開信號面板"
                                 >📊 信號</button>
                             )}
 
-                            {activeTool && (
-                                <div className="md:hidden absolute top-2 left-2 right-[150px] px-3 py-2 rounded-lg flex items-center justify-between text-[11px] z-20" style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--brand-1)', border: '1px solid var(--brand-1)' }}>
-                                    <span className="truncate">繪製：{activeTool.name}（{activeTool.collected ?? 0}/{activeTool.requiredAnchors}）</span>
-                                    <button onClick={cancelTool} className="hover:underline ml-2 shrink-0">取消</button>
-                                </div>
-                            )}
                         </div>
                     </div>
 
@@ -5292,9 +4549,9 @@ import economicCalendar from '../economic_calendar.json';
                                     <button onClick={() => setShowHelp(false)} className="w-7 h-7 rounded-full hover:bg-white/10" style={{ color: 'var(--text-2)' }}>✕</button>
                                 </div>
                                 <div className="text-[11px] leading-relaxed space-y-1.5" style={{ color: 'var(--text-2)' }}>
-                                    <p><strong className="text-white">圖表</strong>：基於 TradingView Lightweight Charts v5；滑鼠拖曳平移、滾輪縮放、雙指捏合縮放；拖曳價格軸 / 時間軸縮放單一方向。</p>
-                                    <p><strong className="text-white">畫線工具</strong>：左側工具列共 8 分類、68 種工具。點分類圖示打開選單，挑選工具後在圖表上任意位置點擊指定數量的錨點即完成（自由位置，不會吸到 K 棒）。</p>
-                                    <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊已完成的標註可選取，拖曳錨點微調；按 Delete 或左側垃圾桶刪除；Esc 取消當前繪製。手機可用單指拖曳錨點。</p>
+                                    <p><strong className="text-white">圖表</strong>：Smart DCA 自製圖表引擎，預設對數座標（上方可切線性）；拖曳平移、滾輪縮放、雙指捏合；拖曳價格軸 / 時間軸可單向縮放，雙擊軸重置。</p>
+                                    <p><strong className="text-white">畫線工具</strong>：左側工具列 9 組、43 種工具（點按鈕右下的 ▸ 展開）。可點擊或按住拖曳放置；選了工具時也能畫在其他標註上，按住 Alt 則改為選取下方標註；Shift 鎖水平 / 45°。斐波那契可自訂水平並「儲存為預設」。標註會自動儲存。</p>
+                                    <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊標註選取，上方浮動列可改顏色、線寬、填色、延伸、鎖定、複製、刪除；拖曳錨點微調；Delete 刪除、Ctrl+Z / Ctrl+Y 復原 / 重做、Esc 取消。</p>
                                     <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20 / 27 / 34 / 41 / 48 / 55（fast=20、slow=55）。線段顏色逐段切換 — fast 站上 slow 該段顯綠、跌破則紅；K 棒下方綠 △ = 金叉（多），K 棒上方紅 ▽ = 死叉（空）。</p>
                                     <p><strong className="text-white">RSI / MACD</strong>：RSI 紫線恆色，加 70 / 50 / 30 參考線，上穿 30 標 △、下穿 70 標 ▽；MACD DIF×DEA 金叉 △、死叉 ▽。</p>
                                     <p><strong className="text-white">Realized Price / MVRV</strong>（加密貨幣）：橘線為鏈上平均持倉成本（Realized Price），價格跌破 = 歷史級抄底區；MVRV = 市值 ÷ 實現市值，&lt;1 低估、&gt;2.4 過熱。資料源 CoinMetrics（BTC / ETH / LINK / DOGE）。美股 / 台股則顯示 MA200。</p>

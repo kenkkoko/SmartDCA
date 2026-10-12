@@ -513,16 +513,21 @@ export class Chart {
     if (!series.markers.length) return;
     const s = this.base;
     const size = Math.max(5, Math.min(10, this.time.barSpacing * 0.9));
-    const candle = series instanceof CandleSeries ? series : (pane.series.find((x) => x instanceof CandleSeries) as CandleSeries | undefined);
+    // candles anchor to the bar's high / low, lines and histograms to their own value
+    const candle = series instanceof CandleSeries ? series : undefined;
     for (const m of series.markers) {
       const index = this.time.timeToIndex(m.time);
       if (index < from - 1 || index > to + 1) continue;
       const x = this.time.indexToX(index);
       const bar = candle?.barAt(Math.round(index));
+      const value = m.value ?? series.valueAt(Math.round(index));
+      const high = bar?.high ?? value;
+      const low = bar?.low ?? value;
+      if (high === undefined || low === undefined) continue;
       let y: number;
       if (m.position === "atValue" && m.value !== undefined) y = pane.price.priceToY(m.value);
-      else if (m.position === "aboveBar") y = pane.price.priceToY(bar?.high ?? m.value ?? 0) - size - 2;
-      else y = pane.price.priceToY(bar?.low ?? m.value ?? 0) + size + 2;
+      else if (m.position === "aboveBar") y = pane.price.priceToY(high) - size - 2;
+      else y = pane.price.priceToY(low) + size + 2;
       y += pane.rect.y;
       drawMarkerShape(s, m, x, y, (m.size ?? 1) * size);
       if (m.text) {

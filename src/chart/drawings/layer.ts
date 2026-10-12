@@ -603,6 +603,8 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     if (target && /INPUT|TEXTAREA|SELECT/.test(target.tagName)) return;
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === "Escape") {
+      // tell outer handlers (e.g. a modal closing on Esc) when the chart used it
+      if (this.creating || this.activeTool || this.selectedId) e.preventDefault();
       if (this.creating) {
         if (this.creating.tool.create === "multi" && this.creating.placed >= 2) {
           this.creating.item.anchors = this.creating.item.anchors.slice(0, this.creating.placed);
