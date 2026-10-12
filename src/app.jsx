@@ -3930,8 +3930,10 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                 if (!b) {
                     b = { date: key, _firstTs: d.getTime(), _lastTs: d.getTime(),
                           open: p.open ?? p.price, high: p.high ?? p.price, low: p.low ?? p.price, price: p.price };
+                    if (p.volume != null) b.volume = p.volume;
                     buckets.set(key, b);
                 } else {
+                    if (p.volume != null) b.volume = (b.volume || 0) + p.volume;
                     if (d.getTime() < b._firstTs) { b.open = p.open ?? p.price; b._firstTs = d.getTime(); }
                     if (d.getTime() > b._lastTs)  { b.price = p.price; b._lastTs = d.getTime(); }
                     const ph = p.high ?? p.price, pl = p.low ?? p.price;
@@ -4189,6 +4191,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             const [showRP, setShowRP] = useLocalState('tech-show-rp', true);
             const [showRSI, setShowRSI] = useLocalState('tech-show-rsi', true);
             const [showMACD, setShowMACD] = useLocalState('tech-show-macd', true);
+            const [showVolume, setShowVolume] = useLocalState('tech-show-volume', true);
             const [showFearSignal, setShowFearSignal] = useLocalState('tech-show-fear', true);
             const [showComposite, setShowComposite] = useLocalState('tech-show-composite', true);
             const [showSignalPanel, setShowSignalPanel] = useLocalState('tech-show-panel', true);
@@ -4236,7 +4239,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             const klines = await binRes.json();
                             setHistory(klines.map(k => ({
                                 date: new Date(k[0]).toISOString().slice(0, 10),
-                                price: +k[4], open: +k[1], high: +k[2], low: +k[3],
+                                price: +k[4], open: +k[1], high: +k[2], low: +k[3], volume: +k[5],
                             })));
                             return;
                         }
@@ -4250,7 +4253,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                         if (!result) { setError(yfJson?.chart?.error?.description || '查無此代號'); setHistory([]); return; }
                         const ts = result.timestamp || [];
                         const q = result.indicators?.quote?.[0] || {};
-                        const opens = q.open || [], highs = q.high || [], lows = q.low || [], closes = q.close || [];
+                        const opens = q.open || [], highs = q.high || [], lows = q.low || [], closes = q.close || [], vols = q.volume || [];
                         const hist = [];
                         for (let i = 0; i < ts.length; i++) {
                             const c = closes[i];
@@ -4259,6 +4262,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             if (opens[i] != null && !isNaN(opens[i])) entry.open = opens[i];
                             if (highs[i] != null && !isNaN(highs[i])) entry.high = highs[i];
                             if (lows[i] != null && !isNaN(lows[i])) entry.low = lows[i];
+                            if (vols[i] != null && !isNaN(vols[i])) entry.volume = vols[i];
                             hist.push(entry);
                         }
                         setHistory(hist);
@@ -4334,6 +4338,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                         high: +(p.high ?? p.price),
                         low: +(p.low ?? p.price),
                         close: +p.price,
+                        volume: p.volume != null ? +p.volume : undefined,
                     }));
                 arr.sort((a, b) => a.time - b.time);
                 return arr;
@@ -4586,6 +4591,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             ) : !isCryptoType ? (
                                 <EyeToggle label="MA200" checked={showMA200} onChange={setShowMA200} color="#f97316" />
                             ) : null}
+                            <EyeToggle label="成交量" checked={showVolume} onChange={setShowVolume} color="#64748b" />
                             <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
                             <EyeToggle label="MACD" checked={showMACD} onChange={setShowMACD} color="#fbbf24" />
                             <EyeToggle label="綜合信號" checked={showComposite} onChange={setShowComposite} color={UP_COLOR} />
@@ -4603,6 +4609,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                                 realizedPrice={realizedPrice}
                                 showRSI={showRSI}
                                 showMACD={showMACD}
+                                showVolume={showVolume}
                                 markers={fngMarkers}
                                 storageKey={`tech.${isCryptoType ? 'crypto' : type}.${symbol}`}
                                 onHover={setHoverInfo}

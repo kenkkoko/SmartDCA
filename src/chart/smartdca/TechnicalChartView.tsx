@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Chart, ChartPrimitive, Pane } from "../engine/chart";
-import type { CandleSeries, LineSeries, Marker } from "../engine/series";
+import type { CandleSeries, HistogramSeries, LineSeries, Marker } from "../engine/series";
 import type { Bar, ValuePoint } from "../engine/types";
 import { crosses, ema, macd, rsi, sma, type Num } from "../indicators";
 import type { DrawingLayer } from "../drawings/layer";
@@ -30,6 +30,8 @@ export type TechnicalChartViewProps = {
   realizedPrice: ValuePoint[] | null;
   showRSI: boolean;
   showMACD: boolean;
+  /** Volume bars at the bottom of the price pane. */
+  showVolume?: boolean;
   /** Extra candle markers (FNG fear dots). */
   markers: Marker[];
   /** Drawings are saved per key (e.g. "BTC.1d"). */
@@ -88,10 +90,11 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   const [chart, setChart] = useState<Chart | null>(null);
   const refs = useRef<{
     candles: CandleSeries | null;
+    volume: HistogramSeries | null;
     main: LineSeries[];
     panes: Pane[];
     legend: PaneLegend;
-  }>({ candles: null, main: [], panes: [], legend: new PaneLegend() });
+  }>({ candles: null, volume: null, main: [], panes: [], legend: new PaneLegend() });
   const hover = useRef(props.onHover);
   hover.current = props.onHover;
   const candlesRef = useRef(props.candles);
@@ -134,6 +137,25 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   useEffect(() => {
     if (chart && props.fitSignal) chart.fitContent();
   }, [chart, props.fitSignal]);
+
+  // volume: own hidden scale in the bottom fifth of the price pane (TradingView)
+  useEffect(() => {
+    if (!chart) return;
+    const r = refs.current;
+    if (r.volume) chart.removeSeries(r.volume);
+    r.volume = null;
+    const bars = props.candles;
+    if (props.showVolume === false || !bars.some((b) => (b.volume ?? 0) > 0)) return chart.invalidate();
+    r.volume = chart.addHistogram(chart.mainPane, { scale: "overlay", title: "Vol" });
+    // paint behind the candles
+    const list = chart.mainPane.series;
+    list.splice(list.indexOf(r.volume), 1);
+    list.unshift(r.volume);
+    r.volume.setData(
+      bars.map((b) => ({ time: b.time, value: b.volume ?? 0, color: b.close >= b.open ? "rgba(0,214,143,0.35)" : "rgba(255,91,110,0.35)" })),
+    );
+    chart.invalidate();
+  }, [chart, props.candles, props.showVolume]);
 
   // main-pane overlays + candle markers
   useEffect(() => {
