@@ -4196,6 +4196,261 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
             );
         };
 
+        // ─── 圖表右側觀察清單(TradingView 風格:可自訂群組)───
+        // 存在 localStorage('chart-watchlist-v1'),群組可收合 / 改名 / 刪除,
+        // 標的可拖曳排序或拖到別的群組;↑↓ 鍵切換上一個 / 下一個標的。
+        const WATCHLIST_KEY = 'chart-watchlist-v1';
+        const newWlId = () => 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const DEFAULT_WATCHLIST = () => ({
+            groups: [
+                { id: newWlId(), name: '加密貨幣', items: [{ symbol: 'bitcoin', type: 'CRYPTO' }, { symbol: 'ethereum', type: 'CRYPTO' }, { symbol: 'solana', type: 'CRYPTO' }] },
+                { id: newWlId(), name: '美股', items: [{ symbol: 'SPY', type: 'US' }, { symbol: 'QQQ', type: 'US' }, { symbol: 'AAPL', type: 'US' }, { symbol: 'NVDA', type: 'US' }] },
+                { id: newWlId(), name: '台股', items: [{ symbol: '2330.TW', type: 'TW' }, { symbol: '0050.TW', type: 'TW' }] },
+            ],
+        });
+        const sameSymbol = (a, b) => a && b && String(a.symbol).toLowerCase() === String(b.symbol).toLowerCase() && (a.type === b.type || (/crypto/i.test(a.type) && /crypto/i.test(b.type)));
+        const wlKey = (it) => `${/crypto/i.test(it.type) ? 'CRYPTO' : it.type}:${String(it.symbol).toLowerCase()}`;
+
+        // 報價:加密一次批次問 Binance;股票逐檔問 Yahoo(經 cors 代理)
+        const fetchWatchlistQuotes = async (items) => {
+            const out = {};
+            const crypto = items.filter(it => /crypto/i.test(it.type));
+            const stocks = items.filter(it => !/crypto/i.test(it.type));
+            const pairs = [...new Set(crypto.map(it => getBinanceSymbol(it.symbol)).filter(Boolean))];
+            if (pairs.length) {
+                try {
+                    // 批次查詢只要有一個交易對不存在就整批 400 → 退回逐一查詢
+                    let res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(pairs))}`);
+                    let rows = res.ok ? await res.json() : null;
+                    if (!rows) {
+                        rows = (await Promise.all(pairs.map(p => fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${p}`).then(r => (r.ok ? r.json() : null)).catch(() => null)))).filter(Boolean);
+                    }
+                    if (rows) {
+                        const byPair = Object.fromEntries((Array.isArray(rows) ? rows : []).map(r => [r.symbol, r]));
+                        for (const it of crypto) {
+                            const r = byPair[getBinanceSymbol(it.symbol)];
+                            if (r) out[wlKey(it)] = { price: +r.lastPrice, change: +r.priceChangePercent };
+                        }
+                    }
+                } catch { /* 沒報價就顯示 — */ }
+            }
+            await Promise.all(stocks.map(async (it) => {
+                try {
+                    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(it.symbol)}?interval=1d&range=1d`;
+                    const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(url));
+                    if (!res.ok) return;
+                    const meta = (await res.json())?.chart?.result?.[0]?.meta;
+                    const price = meta?.regularMarketPrice;
+                    const prev = meta?.chartPreviousClose ?? meta?.previousClose;
+                    if (price != null) out[wlKey(it)] = { price, change: prev ? (price / prev - 1) * 100 : null };
+                } catch { /* ignore */ }
+            }));
+            return out;
+        };
+
+        const fmtQuote = (v) => v == null || !isFinite(v) ? '—'
+            : Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+            : Math.abs(v) >= 1 ? v.toFixed(2) : v.toPrecision(4);
+
+        const ChartWatchlist = ({ current, onPick, isPremium, upColor, downColor, onClose }) => {
+            const [data, setData] = useLocalState(WATCHLIST_KEY, null);
+            const list = data && Array.isArray(data.groups) ? data : DEFAULT_WATCHLIST();
+            const save = (next) => setData({ groups: next });
+            const groups = list.groups;
+            const [quotes, setQuotes] = useState({});
+            const [adding, setAdding] = useState(null); // group id that shows the search box
+            const [editing, setEditing] = useState(null);
+            const [draft, setDraft] = useState('');
+            const [drag, setDrag] = useState(null); // { gi, ii }
+            const [dropAt, setDropAt] = useState(null); // { gi, ii, above } | { gi, header: true }
+            const listRef = useRef(null);
+
+            useEffect(() => { if (!data) setData(list); }, []); // 第一次使用:存入預設清單
+
+            const allItems = groups.flatMap(g => g.items);
+            const itemsKey = allItems.map(wlKey).join(',');
+            useEffect(() => {
+                let cancelled = false;
+                const load = () => fetchWatchlistQuotes(allItems).then(q => { if (!cancelled) setQuotes(prev => ({ ...prev, ...q })); });
+                load();
+                const t = setInterval(load, 60000);
+                return () => { cancelled = true; clearInterval(t); };
+            }, [itemsKey]);
+
+            const updateGroup = (gi, change) => save(groups.map((g, i) => (i === gi ? change({ ...g, items: [...g.items] }) : g)));
+            const addGroup = () => {
+                let n = groups.length + 1;
+                while (groups.some(g => g.name === `清單 ${n}`)) n++;
+                const g = { id: newWlId(), name: `清單 ${n}`, items: [] };
+                save([...groups, g]);
+                setEditing(g.id); setDraft(g.name);
+            };
+            const addSymbol = (gi, item) => {
+                if (groups[gi].items.some(it => sameSymbol(it, item))) return;
+                updateGroup(gi, g => ({ ...g, items: [...g.items, item] }));
+            };
+            const removeSymbol = (gi, ii) => updateGroup(gi, g => ({ ...g, items: g.items.filter((_, k) => k !== ii) }));
+            const removeGroup = (gi) => {
+                const g = groups[gi];
+                if (g.items.length && !confirm(`刪除清單「${g.name}」和裡面 ${g.items.length} 個標的？`)) return;
+                save(groups.filter((_, i) => i !== gi));
+            };
+            const commitName = (gi) => {
+                const name = draft.trim();
+                if (name) updateGroup(gi, g => ({ ...g, name }));
+                setEditing(null);
+            };
+            const onDrop = (e) => {
+                e.preventDefault();
+                if (!drag || !dropAt) { setDrag(null); setDropAt(null); return; }
+                const next = groups.map(g => ({ ...g, items: [...g.items] }));
+                const [item] = next[drag.gi].items.splice(drag.ii, 1);
+                if (dropAt.header) next[dropAt.gi].items.push(item);
+                else {
+                    let ii = dropAt.ii + (dropAt.above ? 0 : 1);
+                    if (drag.gi === dropAt.gi && drag.ii < ii) ii -= 1;
+                    next[dropAt.gi].items.splice(ii, 0, item);
+                }
+                // 同一個清單裡不留重複
+                next[dropAt.gi].items = next[dropAt.gi].items.filter((it, k, arr) => arr.findIndex(x => sameSymbol(x, it)) === k);
+                save(next);
+                setDrag(null); setDropAt(null);
+            };
+
+            // ↑↓:沿著清單切換標的(跳過收合的群組)
+            const visible = groups.filter(g => !g.collapsed).flatMap(g => g.items);
+            const step = (dir) => {
+                if (!isPremium || !visible.length) return;
+                const i = visible.findIndex(it => sameSymbol(it, current));
+                const next = visible[(i + dir + visible.length) % visible.length];
+                if (next) onPick(next);
+            };
+
+            const iconBtn = 'w-7 h-7 shrink-0 rounded-md flex items-center justify-center cursor-pointer hover:bg-[var(--wash-2)] ring-1 ring-inset ring-transparent hover:ring-[var(--rule)]';
+
+            return (
+                <aside
+                    className="shrink-0 flex flex-col w-[280px] max-w-[85vw] min-h-0"
+                    style={{ borderLeft: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)' }}
+                    data-testid="chart-watchlist"
+                >
+                    <div className="flex items-center gap-1 px-3 py-2" style={{ borderBottom: '1px solid var(--rule)' }}>
+                        <span className="text-sm font-bold">觀察清單</span>
+                        <span className="text-[11px] ml-1" style={{ color: 'var(--ink-3)' }}>{allItems.length}</span>
+                        <button className={iconBtn + ' ml-auto'} title="新增清單(群組)" onClick={addGroup} data-testid="wl-add-group">
+                            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 5.5A1.5 1.5 0 0 1 3.5 4H8l1.6 2h6.9A1.5 1.5 0 0 1 18 7.5v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 14.5z" /><path d="M10 8.5v5M7.5 11h5" /></svg>
+                        </button>
+                        <button className={iconBtn} title="關閉觀察清單" onClick={onClose}>✕</button>
+                    </div>
+                    <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 px-3 py-1 text-[10px]" style={{ color: 'var(--ink-3)', borderBottom: '1px solid var(--rule)' }}>
+                        <span>代號</span><span className="text-right w-[76px]">最新價</span><span className="text-right w-[56px]">漲跌%</span>
+                    </div>
+                    {!isPremium && (
+                        <div className="px-3 py-2 text-[11px] flex items-center gap-1.5" style={{ color: 'var(--ink-2)', background: 'var(--wash)' }}>
+                            <Lock size={12} /> 升級 Pro 才能用清單切換標的
+                        </div>
+                    )}
+                    <div
+                        ref={listRef}
+                        tabIndex={0}
+                        className="flex-1 min-h-0 overflow-y-auto outline-none py-1"
+                        onKeyDown={(e) => {
+                            if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); step(1); }
+                            else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); step(-1); }
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={onDrop}
+                    >
+                        {groups.map((g, gi) => (
+                            <section key={g.id} data-wl-group={g.name}>
+                                <div
+                                    className="group/h flex items-center gap-1 pl-1.5 pr-2 py-1 mx-1 rounded-md cursor-pointer hover:bg-[var(--wash-2)]"
+                                    style={dropAt && dropAt.header && dropAt.gi === gi ? { background: 'var(--wash-2)', boxShadow: 'inset 0 0 0 1px var(--accent)' } : undefined}
+                                    onClick={() => updateGroup(gi, x => ({ ...x, collapsed: !x.collapsed }))}
+                                    onDoubleClick={(e) => { e.stopPropagation(); setEditing(g.id); setDraft(g.name); }}
+                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropAt({ gi, header: true }); }}
+                                    title={g.collapsed ? '展開' : '收合'}
+                                >
+                                    <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--ink-3)', transform: g.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 120ms' }}><path d="M7 5l5 5-5 5" /></svg>
+                                    {editing === g.id ? (
+                                        <input
+                                            autoFocus value={draft}
+                                            onFocus={(e) => e.target.select()}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => setDraft(e.target.value)}
+                                            onBlur={() => commitName(gi)}
+                                            onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') commitName(gi); if (e.key === 'Escape') setEditing(null); }}
+                                            className="flex-1 min-w-0 h-6 px-1.5 text-xs rounded outline-none"
+                                            style={{ border: '1px solid var(--accent)', background: 'var(--surface)', color: 'var(--ink)' }}
+                                        />
+                                    ) : (
+                                        <span className="flex-1 min-w-0 truncate text-[11px] font-bold tracking-wide uppercase" style={{ color: 'var(--ink-2)' }} title="雙擊改名">{g.name}</span>
+                                    )}
+                                    <span className="text-[10px]" style={{ color: 'var(--ink-3)' }}>{g.items.length}</span>
+                                    <button className={iconBtn + ' w-6 h-6'} title="加入標的" disabled={!isPremium} onClick={(e) => { e.stopPropagation(); setAdding(adding === g.id ? null : g.id); if (g.collapsed) updateGroup(gi, x => ({ ...x, collapsed: false })); }} data-testid="wl-add-symbol">＋</button>
+                                    <button className={iconBtn + ' w-6 h-6 hover:!text-[var(--down)]'} title="刪除這個清單" onClick={(e) => { e.stopPropagation(); removeGroup(gi); }}>
+                                        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 5h14M8 5V3h4v2M5 5l1 12h8l1-12" /></svg>
+                                    </button>
+                                </div>
+                                {adding === g.id && (
+                                    <div className="px-2 pb-1.5" onKeyDown={(e) => e.stopPropagation()}>
+                                        <ChartSymbolSearch onPick={(item) => { addSymbol(gi, item); }} isLocked={!isPremium} placeholder="加入:BTC、AAPL、2330…" />
+                                    </div>
+                                )}
+                                {!g.collapsed && g.items.map((it, ii) => {
+                                    const q = quotes[wlKey(it)];
+                                    const active = sameSymbol(it, current);
+                                    const ch = q && q.change != null ? q.change : null;
+                                    const marker = dropAt && !dropAt.header && dropAt.gi === gi && dropAt.ii === ii && drag && !(drag.gi === gi && drag.ii === ii);
+                                    return (
+                                        <div
+                                            key={wlKey(it)}
+                                            draggable
+                                            onDragStart={(e) => { setDrag({ gi, ii }); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', wlKey(it)); }}
+                                            onDragEnd={() => { setDrag(null); setDropAt(null); }}
+                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setDropAt({ gi, ii, above: e.clientY < r.top + r.height / 2 }); }}
+                                            onClick={() => { if (isPremium || active) { onPick(it); listRef.current && listRef.current.focus(); } }}
+                                            data-wl-row={wlKey(it)}
+                                            className={`group/r relative grid grid-cols-[1fr_auto_auto] items-center gap-x-3 mx-1 pl-5 pr-2 py-1.5 rounded-md ${isPremium ? 'cursor-pointer hover:bg-[var(--wash-2)]' : 'cursor-not-allowed'}`}
+                                            style={active ? { background: 'var(--wash-2)', boxShadow: 'inset 2px 0 0 var(--accent)' } : (drag && drag.gi === gi && drag.ii === ii ? { opacity: 0.4 } : undefined)}
+                                            title={isPremium ? '點擊切換到這個標的(拖曳可排序)' : '升級 Pro 才能切換'}
+                                        >
+                                            {marker && <span className="pointer-events-none absolute inset-x-1 h-0.5 rounded" style={{ background: 'var(--accent)', [dropAt.above ? 'top' : 'bottom']: -1 }} />}
+                                            <span className="min-w-0 flex items-center gap-1.5">
+                                                <span className="text-[13px] font-bold truncate">{chartSymbolLabel(it.symbol, it.type)}</span>
+                                                <span className="text-[9px] px-1 rounded shrink-0" style={{ color: 'var(--ink-3)', border: '1px solid var(--rule)' }}>{MARKET_LABEL[it.type] || ''}</span>
+                                            </span>
+                                            <span className="text-right w-[76px] text-[12px] tabular-nums">{fmtQuote(q && q.price)}</span>
+                                            <span className="text-right w-[56px] text-[12px] tabular-nums font-semibold" style={{ color: ch == null ? 'var(--ink-3)' : ch >= 0 ? upColor : downColor }}>
+                                                {ch == null ? '—' : `${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%`}
+                                            </span>
+                                            <button
+                                                className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md hidden group-hover/r:flex items-center justify-center cursor-pointer"
+                                                style={{ background: 'var(--paper)', color: 'var(--ink-2)', boxShadow: 'inset 0 0 0 1px var(--rule)' }}
+                                                title="從清單移除"
+                                                onClick={(e) => { e.stopPropagation(); removeSymbol(gi, ii); }}
+                                            >✕</button>
+                                        </div>
+                                    );
+                                })}
+                                {!g.collapsed && g.items.length === 0 && (
+                                    <p className="pl-7 pr-3 py-1.5 text-[11px]" style={{ color: 'var(--ink-3)' }}>空的清單，按 ＋ 加入標的，或把標的拖到這裡</p>
+                                )}
+                            </section>
+                        ))}
+                    </div>
+                    <div className="px-3 py-2 flex gap-2" style={{ borderTop: '1px solid var(--rule)' }}>
+                        <button
+                            className="fs-btn sm flex-1"
+                            disabled={!isPremium || groups.length === 0 || groups.some(g => g.items.some(it => sameSymbol(it, current)))}
+                            onClick={() => addSymbol(0, { symbol: current.symbol, type: /crypto/i.test(current.type) ? 'CRYPTO' : current.type })}
+                            title="把目前的標的加到第一個清單"
+                        >＋ 加入目前標的</button>
+                    </div>
+                </aside>
+            );
+        };
+
         const TechnicalChartModal = ({ symbol: initialSymbol, type: initialType, onClose, isPremium = true, onSymbolChange }) => {
             // 目前標的(可用上方搜尋欄切換;外部換標的時跟著換)
             const [current, setCurrent] = useState({ symbol: initialSymbol, type: initialType });
@@ -4215,15 +4470,16 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
             const [hoverInfo, setHoverInfo] = useState(null); // { time, open, high, low, close, prevClose }
             const [fitSignal, setFitSignal] = useState(0);
 
-            const [showEMA, setShowEMA] = useLocalState('tech-show-ema', true);
-            const [showMA200, setShowMA200] = useLocalState('tech-show-ma200', true);
-            const [showRP, setShowRP] = useLocalState('tech-show-rp', true);
-            const [showRSI, setShowRSI] = useLocalState('tech-show-rsi', true);
-            const [showMACD, setShowMACD] = useLocalState('tech-show-macd', true);
-            const [showVolume, setShowVolume] = useLocalState('tech-show-volume', true);
-            const [showFearSignal, setShowFearSignal] = useLocalState('tech-show-fear', true);
-            const [showComposite, setShowComposite] = useLocalState('tech-show-composite', true);
-            const [showSignalPanel, setShowSignalPanel] = useLocalState('tech-show-panel', true);
+            // 預設乾淨:只有 K 線 + 成交量,其他指標自己打開(鍵名 v2:舊的開關設定不沿用)
+            const [showEMA, setShowEMA] = useLocalState('tech2-show-ema', false);
+            const [showMA200, setShowMA200] = useLocalState('tech2-show-ma200', false);
+            const [showRP, setShowRP] = useLocalState('tech2-show-rp', false);
+            const [showRSI, setShowRSI] = useLocalState('tech2-show-rsi', false);
+            const [showMACD, setShowMACD] = useLocalState('tech2-show-macd', false);
+            const [showVolume, setShowVolume] = useLocalState('tech2-show-volume', true);
+            const [showFearSignal, setShowFearSignal] = useLocalState('tech2-show-fear', false);
+            const [showSignalPanel, setShowSignalPanel] = useLocalState('tech2-show-panel', false);
+            const [showWatchlist, setShowWatchlist] = useLocalState('tech2-show-watchlist', typeof window !== 'undefined' && window.innerWidth >= 1024);
             const [timeframe, setTimeframe] = useLocalState('tech-timeframe', '1d'); // '1d' | '1wk'
 
             const signalSource = (type === 'CRYPTO' || type === 'crypto' || type === 'US') ? 'fng' : 'rsi';
@@ -4232,7 +4488,7 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
             const cmAsset = isCryptoType ? (CM_ASSET_MAP[String(symbol || '').toLowerCase()] || null) : null;
             const [cmData, setCmData] = useState([]);
             const [fngHistory, setFngHistory] = useState([]);
-            const [timeRange, setTimeRange] = useState('1y');
+            const [timeRange, setTimeRange] = useState('max'); // 預設全歷史
             const [history, setHistory] = useState([]);
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
@@ -4460,16 +4716,7 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                     if (cls) out.push({ key: 'fng', name: 'FNG', tone: cls.tone, label: `${last.fng} · ${cls.label}` });
                 }
 
-                // Composite — same logic as the watchlist (RSI + 1Y position)
                 const rsi = computeRSI(closes, 14);
-                if (showComposite && rsi != null) {
-                    const high = Math.max(...closes);
-                    const low = Math.min(...closes);
-                    const pos = high - low > 0 ? (lastPrice - low) / (high - low) : 0.5;
-                    const comp = getCompositeSignal(rsi, pos);
-                    const tone = /加碼/.test(comp.label) ? 'bull' : /賣出/.test(comp.label) ? 'bear' : 'neutral';
-                    out.push({ key: 'composite', name: '綜合', tone, label: `${comp.emoji || ''} ${comp.label}`.trim() });
-                }
 
                 // EMA Ribbon (fast 20 vs slow 50)
                 if (showEMA) {
@@ -4528,7 +4775,7 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                 }
 
                 return out;
-            }, [candleData, fngHistory, signalSource, showEMA, showRSI, showMACD, showMA200, showComposite, cmAsset, cmData, showRP]);
+            }, [candleData, fngHistory, signalSource, showEMA, showRSI, showMACD, showMA200, cmAsset, cmData, showRP]);
 
             const resetZoom = () => setFitSignal(n => n + 1);
 
@@ -4639,7 +4886,6 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                             <EyeToggle label="成交量" checked={showVolume} onChange={setShowVolume} color="#64748b" />
                             <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
                             <EyeToggle label="MACD" checked={showMACD} onChange={setShowMACD} color="#fbbf24" />
-                            <EyeToggle label="綜合信號" checked={showComposite} onChange={setShowComposite} color={UP_C} />
                         </div>
                     </div>
 
@@ -4729,6 +4975,31 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                             )}
                             </TechnicalChartView>
                         </div>
+                        {showWatchlist && (
+                            <ChartWatchlist
+                                current={{ symbol, type }}
+                                onPick={(it) => pickSymbol({ symbol: it.symbol, type: it.type })}
+                                isPremium={isPremium}
+                                upColor={UP_C}
+                                downColor={DOWN_C}
+                                onClose={() => setShowWatchlist(false)}
+                            />
+                        )}
+                        {/* 右側工具列(TradingView):觀察清單開關 */}
+                        <div className="shrink-0 w-11 flex flex-col items-center gap-1 py-2" style={{ borderLeft: '1px solid var(--rule)', background: 'var(--paper)' }}>
+                            <button
+                                onClick={() => setShowWatchlist(!showWatchlist)}
+                                aria-pressed={showWatchlist}
+                                title={showWatchlist ? '關閉觀察清單' : '觀察清單'}
+                                data-testid="toggle-watchlist"
+                                className="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer ring-1 ring-inset transition-colors"
+                                style={showWatchlist
+                                    ? { background: 'var(--wash-2)', color: 'var(--accent)', boxShadow: 'inset 0 0 0 1px var(--accent)' }
+                                    : { color: 'var(--ink-2)' }}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M3 5h2M3 10h2M3 15h2M8 5h9M8 10h9M8 15h9" /></svg>
+                            </button>
+                        </div>
                     </div>
 
                     {/* Help overlay */}
@@ -4743,7 +5014,8 @@ import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
                                     <p><strong className="text-white">圖表</strong>：Smart DCA 自製圖表引擎，預設對數座標（上方可切線性）；拖曳平移、滾輪縮放、雙指捏合；拖曳價格軸 / 時間軸可單向縮放，雙擊軸重置。</p>
                                     <p><strong className="text-white">畫線工具</strong>：左側工具列 9 組、43 種工具（點按鈕右下角的小三角展開）。預設線條顏色「自動」：深色背景白線、淺色背景黑線，切換主題會跟著變。可點擊或按住拖曳放置；選了工具時也能畫在其他標註上，按住 Alt 則改為選取下方標註；Shift 鎖水平 / 45°。斐波那契可自訂水平並「儲存為預設」。標註會自動儲存。</p>
                                     <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊標註選取，上方浮動列可改顏色、線寬、填色、延伸、鎖定、複製、刪除；拖曳錨點微調；Delete 刪除、Ctrl+Z / Ctrl+Y 復原 / 重做、Esc 取消。</p>
-                                    <p><strong className="text-white">圖層</strong>：左側工具列最下方的圖層鈕打開面板，列出所有標註；可點選、隱藏 / 顯示、鎖定、刪除，雙擊改名，拖曳調整上下順序（上面的畫在上層）。</p>
+                                    <p><strong className="text-white">圖層</strong>：左側工具列最下方的圖層鈕打開面板，列出所有標註；可點選、隱藏 / 顯示、鎖定、刪除，雙擊改名，拖曳調整上下順序（上面的畫在上層）；資料夾鈕可建立群組，把標註拖進群組後可整組隱藏 / 鎖定 / 收合；拖曳面板左緣可調整寬度。</p>
+                                    <p><strong className="text-white">觀察清單</strong>：右側列表鈕開關。可新增 / 改名 / 刪除清單（群組），按 ＋ 加入標的，拖曳排序或拖到別的清單；點標的切換圖表，↑↓ 鍵換上一個 / 下一個。</p>
                                     <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20 / 27 / 34 / 41 / 48 / 55（fast=20、slow=55）。線段顏色逐段切換 — fast 站上 slow 該段顯綠、跌破則紅；K 棒下方綠 △ = 金叉（多），K 棒上方紅 ▽ = 死叉（空）。</p>
                                     <p><strong className="text-white">RSI / MACD</strong>：RSI 紫線恆色，加 70 / 50 / 30 參考線，上穿 30 標 △、下穿 70 標 ▽；MACD DIF×DEA 金叉 △、死叉 ▽。</p>
                                     <p><strong className="text-white">Realized Price / MVRV</strong>（加密貨幣）：橘線為鏈上平均持倉成本（Realized Price），價格跌破 = 歷史級抄底區；MVRV = 市值 ÷ 實現市值，&lt;1 低估、&gt;2.4 過熱。資料源 CoinMetrics（BTC / ETH / LINK / DOGE）。美股 / 台股則顯示 MA200。</p>

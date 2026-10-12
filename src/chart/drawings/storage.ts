@@ -3,7 +3,7 @@
 
 import { getFibDefaults, setFibDefaults } from "./tools/fibonacci";
 import type { DrawingLayer } from "./layer";
-import type { Drawing, DrawingStyle, FibSettings } from "./types";
+import type { Drawing, DrawingGroup, DrawingStyle, FibSettings } from "./types";
 
 const PREFIX = "smartdca.chart.";
 
@@ -25,13 +25,24 @@ function write(key: string, value: unknown): void {
   }
 }
 
-export function loadDrawings(symbol: string): Drawing[] {
-  const items = read<Drawing[]>(`drawings.${symbol}`);
-  return Array.isArray(items) ? items.filter((d) => d && typeof d.type === "string" && Array.isArray(d.anchors)) : [];
+const validDrawing = (d: Drawing) => d && typeof d.type === "string" && Array.isArray(d.anchors);
+
+/** Drawings (and layers-panel folders) for one symbol. Older saves are a bare array. */
+export function loadLayerState(symbol: string): { items: Drawing[]; groups: DrawingGroup[] } {
+  const raw = read<Drawing[] | { items: Drawing[]; groups?: DrawingGroup[] }>(`drawings.${symbol}`);
+  if (Array.isArray(raw)) return { items: raw.filter(validDrawing), groups: [] };
+  if (raw && Array.isArray(raw.items))
+    return { items: raw.items.filter(validDrawing), groups: Array.isArray(raw.groups) ? raw.groups.filter((g) => g && typeof g.id === "string") : [] };
+  return { items: [], groups: [] };
 }
 
-export function saveDrawings(symbol: string, items: Drawing[]): void {
-  write(`drawings.${symbol}`, items.length ? items : null);
+export function loadDrawings(symbol: string): Drawing[] {
+  return loadLayerState(symbol).items;
+}
+
+export function saveDrawings(symbol: string, items: Drawing[], groups: DrawingGroup[] = []): void {
+  if (!items.length && !groups.length) return write(`drawings.${symbol}`, null);
+  write(`drawings.${symbol}`, groups.length ? { items, groups } : items);
 }
 
 /** Restore the saved Fibonacci template into the tool defaults. */
@@ -55,14 +66,15 @@ export function persistLayer(layer: DrawingLayer, symbol: string): () => void {
   const prefs = read<{ keepDrawing?: boolean; magnet?: boolean }>("drawingPrefs") ?? {};
   layer.keepDrawing = !!prefs.keepDrawing;
   layer.magnet = !!prefs.magnet;
-  layer.setItems(loadDrawings(symbol));
+  const state = loadLayerState(symbol);
+  layer.setItems(state.items, state.groups);
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const offItems = layer.onItemsChange((items) => {
+  const offItems = layer.onItemsChange(() => {
     // drags fire many changes; write at most every 250 ms
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      saveDrawings(symbol, items);
+      saveDrawings(symbol, layer.items, layer.groups);
       write("toolStyles", layer.toolStyles);
     }, 250);
   });
@@ -77,7 +89,7 @@ export function persistLayer(layer: DrawingLayer, symbol: string): () => void {
   return () => {
     if (timer) {
       clearTimeout(timer);
-      saveDrawings(symbol, layer.items);
+      saveDrawings(symbol, layer.items, layer.groups);
       write("toolStyles", layer.toolStyles);
     }
     offItems();

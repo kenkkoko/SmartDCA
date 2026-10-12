@@ -17,7 +17,7 @@ import { dist, readable, snapAngle, textOn } from "./geometry";
 import type { Tool, ToolContext } from "./tool";
 import { roundRect } from "./tool";
 import { getTool } from "./tools";
-import { AUTO_COLOR, DEFAULT_STYLE, newId, type Anchor, type Drawing, type DrawingStyle } from "./types";
+import { AUTO_COLOR, DEFAULT_STYLE, newId, type Anchor, type Drawing, type DrawingGroup, type DrawingStyle } from "./types";
 
 type Creating = {
   tool: Tool;
@@ -41,6 +41,8 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
   readonly zIndex = 100;
   readonly chart: Chart;
   items: Drawing[] = [];
+  /** Layers-panel folders; drawings point at them with `groupId`. */
+  groups: DrawingGroup[] = [];
   selectedId: string | null = null;
   hoveredId: string | null = null;
   activeTool: string | null = null;
@@ -101,8 +103,10 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     return this.items.find((d) => d.id === this.selectedId);
   }
 
-  setItems(items: Drawing[]): void {
-    this.items = items.map((d) => ({ ...d, style: { ...DEFAULT_STYLE, ...d.style } }));
+  setItems(items: Drawing[], groups: DrawingGroup[] = []): void {
+    this.groups = groups.map((g) => ({ ...g }));
+    const known = new Set(this.groups.map((g) => g.id));
+    this.items = items.map((d) => ({ ...d, groupId: d.groupId && known.has(d.groupId) ? d.groupId : undefined, style: { ...DEFAULT_STYLE, ...d.style } }));
     this.past = [];
     this.future = [];
     this.selectedId = null;
@@ -169,9 +173,10 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
   }
 
   removeAll(): void {
-    if (!this.items.length) return;
+    if (!this.items.length && !this.groups.length) return;
     this.checkpoint();
     this.items = [];
+    this.groups = [];
     this.selectedId = null;
     this.notify(true);
   }
@@ -201,6 +206,20 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     this.notify(true);
   }
 
+  /** Drop from the layers panel: paint position and folder in one undo step. */
+  place(id: string, index: number, groupId: string | null): void {
+    const from = this.items.findIndex((d) => d.id === id);
+    if (from < 0) return;
+    const to = Math.max(0, Math.min(this.items.length - 1, index));
+    const item = this.items[from]!;
+    if (from === to && (item.groupId ?? null) === groupId) return;
+    this.checkpoint();
+    this.items.splice(from, 1);
+    this.items.splice(to, 0, item);
+    item.groupId = groupId ?? undefined;
+    this.notify(true);
+  }
+
   /** Paint order: later items paint on top. */
   bringToFront(id: string): void {
     const i = this.items.findIndex((d) => d.id === id);
@@ -221,8 +240,8 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
   undo(): void {
     const prev = this.past.pop();
     if (prev === undefined) return;
-    this.future.push(JSON.stringify(this.items));
-    this.items = JSON.parse(prev) as Drawing[];
+    this.future.push(this.snapshot());
+    this.restore(prev);
     if (!this.items.some((d) => d.id === this.selectedId)) this.selectedId = null;
     this.notify(true);
   }
@@ -230,8 +249,8 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
   redo(): void {
     const next = this.future.pop();
     if (next === undefined) return;
-    this.past.push(JSON.stringify(this.items));
-    this.items = JSON.parse(next) as Drawing[];
+    this.past.push(this.snapshot());
+    this.restore(next);
     this.notify(true);
   }
 
@@ -243,8 +262,96 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     return this.future.length > 0;
   }
 
+  private snapshot(): string {
+    return JSON.stringify({ items: this.items, groups: this.groups });
+  }
+
+  private restore(json: string): void {
+    const state = JSON.parse(json) as { items: Drawing[]; groups: DrawingGroup[] };
+    this.items = state.items;
+    this.groups = state.groups;
+  }
+
+  // ---- groups (layers-panel folders) ----
+
+  groupOf(id: string): DrawingGroup | undefined {
+    return this.groups.find((g) => g.id === id);
+  }
+
+  membersOf(groupId: string): Drawing[] {
+    return this.items.filter((d) => d.groupId === groupId);
+  }
+
+  /** New folder (optionally holding some drawings); returns its id. */
+  addGroup(name?: string, memberIds: string[] = []): string {
+    this.checkpoint();
+    const id = newId();
+    let n = this.groups.length + 1;
+    while (this.groups.some((g) => g.name === `群組 ${n}`)) n++;
+    this.groups.unshift({ id, name: name ?? `群組 ${n}` });
+    for (const d of this.items) if (memberIds.includes(d.id)) d.groupId = id;
+    this.notify(true);
+    return id;
+  }
+
+  renameGroup(id: string, name: string): void {
+    const g = this.groupOf(id);
+    if (!g || !name.trim() || g.name === name.trim()) return;
+    this.checkpoint();
+    g.name = name.trim();
+    this.notify(true);
+  }
+
+  /** Fold / unfold in the panel (not an undo step). */
+  setGroupCollapsed(id: string, collapsed: boolean): void {
+    const g = this.groupOf(id);
+    if (!g) return;
+    g.collapsed = collapsed;
+    this.notify(true);
+  }
+
+  /** Move a drawing into a folder (null = out of any folder). */
+  setGroup(itemId: string, groupId: string | null): void {
+    const d = this.items.find((x) => x.id === itemId);
+    if (!d || (d.groupId ?? null) === groupId) return;
+    this.checkpoint();
+    d.groupId = groupId ?? undefined;
+    this.notify(true);
+  }
+
+  setGroupHidden(id: string, hidden: boolean): void {
+    const members = this.membersOf(id);
+    if (!members.length) return;
+    this.checkpoint();
+    for (const d of members) d.hidden = hidden;
+    if (hidden && members.some((d) => d.id === this.selectedId)) this.selectedId = null;
+    this.notify(true);
+  }
+
+  setGroupLocked(id: string, locked: boolean): void {
+    const members = this.membersOf(id);
+    if (!members.length) return;
+    this.checkpoint();
+    for (const d of members) d.locked = locked;
+    this.notify(true);
+  }
+
+  /** Delete a folder; its drawings go with it unless `keepDrawings`. */
+  removeGroup(id: string, keepDrawings = false): void {
+    if (!this.groupOf(id)) return;
+    this.checkpoint();
+    this.groups = this.groups.filter((g) => g.id !== id);
+    if (keepDrawings) {
+      for (const d of this.items) if (d.groupId === id) d.groupId = undefined;
+    } else {
+      this.items = this.items.filter((d) => d.groupId !== id);
+    }
+    if (!this.items.some((d) => d.id === this.selectedId)) this.selectedId = null;
+    this.notify(true);
+  }
+
   private checkpoint(): void {
-    this.past.push(JSON.stringify(this.items));
+    this.past.push(this.snapshot());
     if (this.past.length > 100) this.past.shift();
     this.future = [];
   }
@@ -477,7 +584,7 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     this.selectedId = hit.item.id;
     if (!hit.item.locked) {
       const startAnchors = hit.item.anchors.map((a) => ({ ...a }));
-      const before = JSON.stringify(this.items);
+      const before = this.snapshot();
       if (hit.handle !== null) this.drag = { kind: "handle", id: hit.item.id, index: hit.handle, startAnchors, before, moved: false };
       else this.drag = { kind: "body", id: hit.item.id, start: { x: info.x, y: info.y }, startPoints: this.context(hit.item).points, startAnchors, before, moved: false };
     }

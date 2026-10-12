@@ -312,7 +312,7 @@ export function PropertiesBar({ layer, onOpenDialog }: { layer: DrawingLayer; on
 
   return (
     <div
-      className="absolute left-1/2 top-2 z-20 flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-[var(--c-line)] bg-[var(--c-panel)] px-1.5 py-1 text-[var(--c-text)] shadow-xl backdrop-blur"
+      className="absolute inset-x-2 top-2 z-30 mx-auto flex w-max max-w-[calc(100%-16px)] items-center gap-0.5 overflow-x-auto rounded-lg border border-[var(--c-line)] bg-[var(--c-panel)] px-1.5 py-1 text-[var(--c-text)] shadow-xl backdrop-blur"
       data-testid="properties-bar"
       onPointerDown={(e) => e.stopPropagation()}
     >

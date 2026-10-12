@@ -361,3 +361,65 @@ describe("layers and theme", () => {
     expect(readable("#000000", LIGHT_THEME.background)).toBe("#000000");
   });
 });
+
+describe("layer groups", () => {
+  beforeEach(() => {
+    for (const x of [150, 320, 460]) {
+      layer.setActiveTool("trend_line");
+      click(x, 300);
+      click(x + 140, 200);
+    }
+  });
+
+  it("groups drawings, hides / locks them together and undoes in one step", () => {
+    const [a, b] = layer.items.map((d) => d.id);
+    const g = layer.addGroup("支撐", [a!, b!]);
+    expect(layer.membersOf(g).map((d) => d.id)).toEqual([a, b]);
+    layer.setGroupHidden(g, true);
+    expect(layer.membersOf(g).every((d) => d.hidden)).toBe(true);
+    layer.undo();
+    expect(layer.membersOf(g).some((d) => d.hidden)).toBe(false);
+    layer.setGroupLocked(g, true);
+    expect(layer.items.filter((d) => d.locked)).toHaveLength(2);
+  });
+
+  it("dissolving keeps the drawings, deleting removes them", () => {
+    const [a, b] = layer.items.map((d) => d.id);
+    const g = layer.addGroup(undefined, [a!, b!]);
+    layer.removeGroup(g, true);
+    expect(layer.items).toHaveLength(3);
+    expect(layer.items.every((d) => !d.groupId)).toBe(true);
+    const g2 = layer.addGroup(undefined, [a!, b!]);
+    layer.removeGroup(g2);
+    expect(layer.items).toHaveLength(1);
+    layer.undo();
+    expect(layer.items).toHaveLength(3);
+    expect(layer.groups).toHaveLength(1);
+  });
+
+  it("place() moves into a folder and reorders in one undo step", () => {
+    const [a, b, c] = layer.items.map((d) => d.id);
+    const g = layer.addGroup(undefined, [c!]);
+    layer.place(a!, 2, g);
+    expect(layer.items.map((d) => d.id)).toEqual([b, c, a]);
+    expect(layer.items[2]!.groupId).toBe(g);
+    layer.undo();
+    expect(layer.items.map((d) => d.id)).toEqual([a, b, c]);
+  });
+
+  it("folders are saved with the drawings and old array saves still load", () => {
+    const drawn = layer.items;
+    const off = persistLayer(layer, "GRP"); // loads the (empty) saved state
+    layer.setItems(drawn);
+    layer.addGroup("A", [layer.items[0]!.id]);
+    off();
+    const other = new DrawingLayer(chart);
+    const off2 = persistLayer(other, "GRP");
+    expect(other.groups.map((g) => g.name)).toEqual(["A"]);
+    expect(other.items[0]!.groupId).toBe(other.groups[0]!.id);
+    off2();
+    other.dispose();
+    localStorage.setItem("smartdca.chart.drawings.OLD", JSON.stringify([layer.items[1]]));
+    expect(loadDrawings("OLD")).toHaveLength(1);
+  });
+});

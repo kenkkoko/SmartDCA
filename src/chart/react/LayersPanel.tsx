@@ -1,16 +1,21 @@
-// 圖層 panel (TradingView's object tree): every drawing, top-most first.
-// Click selects, double-click renames, drag reorders; each row can be
-// shown / hidden, locked and deleted.
+// 圖層 panel (TradingView's object tree): every drawing, top-most first, with
+// folders. Click selects, double-click renames, drag reorders or moves a
+// drawing into / out of a folder; rows and folders can be shown / hidden,
+// locked and deleted. The panel's width is dragged from its left edge.
 
-import { useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { DrawingLayer } from "../drawings/layer";
 import { getTool } from "../drawings/tools";
-import type { Drawing } from "../drawings/types";
+import type { Drawing, DrawingGroup } from "../drawings/types";
 import { useLayer } from "./drawing-ui";
 import { Icon } from "./icons";
 
+const WIDTH_PREF = "smartdca.chart.layersWidth";
+const MIN_W = 200;
+const MAX_W = 520;
+
 const iconBtn = (on = false) =>
-  `flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md ring-1 ring-inset transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--c-accent)] [&_svg]:h-4 [&_svg]:w-4 ${
+  `flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md ring-1 ring-inset transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--c-accent)] disabled:cursor-not-allowed disabled:opacity-30 [&_svg]:h-4 [&_svg]:w-4 ${
     on ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)] ring-[var(--c-accent)]" : "text-[var(--c-muted)] ring-transparent hover:bg-[var(--c-hover)] hover:text-[var(--c-text)] hover:ring-[var(--c-line)]"
   }`;
 
@@ -22,50 +27,319 @@ export function layerName(layer: DrawingLayer, item: Drawing): string {
   return same.length > 1 ? `${label} ${same.indexOf(item) + 1}` : label;
 }
 
+type Entry = { kind: "item"; item: Drawing } | { kind: "group"; group: DrawingGroup; members: Drawing[] };
+
+/** Top-level rows, top-most first; a folder sits where its top-most drawing is. */
+function entries(layer: DrawingLayer): Entry[] {
+  const out: Entry[] = [];
+  const seen = new Set<string>();
+  // empty folders first, so a new folder shows up at the top
+  for (const g of layer.groups) if (!layer.items.some((d) => d.groupId === g.id)) out.push({ kind: "group", group: g, members: [] });
+  for (let i = layer.items.length - 1; i >= 0; i--) {
+    const item = layer.items[i]!;
+    const group = item.groupId ? layer.groupOf(item.groupId) : undefined;
+    if (!group) {
+      out.push({ kind: "item", item });
+      continue;
+    }
+    if (seen.has(group.id)) continue;
+    seen.add(group.id);
+    out.push({ kind: "group", group, members: [...layer.membersOf(group.id)].reverse() });
+  }
+  return out;
+}
+
+type Drop = { kind: "item"; id: string; above: boolean } | { kind: "group"; id: string };
+
+function readWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(WIDTH_PREF));
+    return v >= MIN_W && v <= MAX_W ? v : 260;
+  } catch {
+    return 260;
+  }
+}
+
 export function LayersPanel({ layer, onClose }: { layer: DrawingLayer; onClose: () => void }) {
   useLayer(layer);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [dragId, setDragId] = useState<string | null>(null);
-  const [dropAt, setDropAt] = useState<{ id: string; above: boolean } | null>(null);
-  const rows = [...layer.items].reverse(); // top-most first
-  const allHidden = rows.length > 0 && rows.every((d) => d.hidden);
+  const [drop, setDrop] = useState<Drop | null>(null);
+  const [width, setWidth] = useState(readWidth);
+  const resizing = useRef<{ x: number; w: number } | null>(null);
+  const list = entries(layer);
+  const allHidden = layer.items.length > 0 && layer.items.every((d) => d.hidden);
 
-  const commitName = (id: string) => {
+  // drag the left edge to resize
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      const r = resizing.current;
+      if (!r) return;
+      setWidth(Math.max(MIN_W, Math.min(MAX_W, r.w + (r.x - e.clientX))));
+    };
+    const up = () => {
+      if (!resizing.current) return;
+      resizing.current = null;
+      document.body.style.cursor = "";
+      setWidth((w) => {
+        try {
+          localStorage.setItem(WIDTH_PREF, String(Math.round(w)));
+        } catch {
+          // not remembered in private mode
+        }
+        return w;
+      });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+  }, []);
+
+  const startEdit = (id: string, name: string) => {
+    setEditing(id);
+    setDraft(name);
+  };
+  const commitName = (id: string, isGroup: boolean) => {
     const name = draft.trim();
-    layer.update(id, (d) => {
-      d.name = name || undefined;
-    });
+    if (isGroup) layer.renameGroup(id, name);
+    else
+      layer.update(id, (d) => {
+        d.name = name || undefined;
+      });
     setEditing(null);
   };
 
-  const onDrop = (e: DragEvent) => {
-    e.preventDefault();
-    if (!dragId || !dropAt || dragId === dropAt.id) return reset();
-    const target = layer.items.findIndex((d) => d.id === dropAt.id);
-    const from = layer.items.findIndex((d) => d.id === dragId);
-    // rows are reversed: "above" in the list = later in paint order
-    let index = dropAt.above ? target + 1 : target;
-    if (from < index) index -= 1;
-    layer.moveTo(dragId, index);
-    reset();
-  };
   const reset = () => {
     setDragId(null);
-    setDropAt(null);
+    setDrop(null);
+  };
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    if (!dragId || !drop) return reset();
+    const from = layer.items.findIndex((d) => d.id === dragId);
+    if (drop.kind === "group") {
+      // into a folder: just above its current top-most drawing
+      const members = layer.membersOf(drop.id);
+      const top = members.length ? layer.items.indexOf(members[members.length - 1]!) : from;
+      layer.place(dragId, from <= top ? top : top + 1, drop.id);
+    } else if (drop.id !== dragId) {
+      const target = layer.items.find((d) => d.id === drop.id)!;
+      let index = layer.items.indexOf(target) + (drop.above ? 1 : 0);
+      if (from < index) index -= 1;
+      layer.place(dragId, index, target.groupId ?? null);
+    }
+    reset();
+  };
+
+  const nameField = (id: string, isGroup: boolean, label: string, muted: boolean) =>
+    editing === id ? (
+      <input
+        autoFocus
+        onFocus={(e) => e.target.select()}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        onBlur={() => commitName(id, isGroup)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitName(id, isGroup);
+          if (e.key === "Escape") setEditing(null);
+        }}
+        className="h-6 min-w-0 flex-1 rounded border border-[var(--c-accent)] bg-[var(--c-raised)] px-1.5 text-xs outline-none"
+      />
+    ) : (
+      <span className={`min-w-0 flex-1 truncate text-xs ${isGroup ? "font-semibold" : ""} ${muted ? "text-[var(--c-muted)] line-through" : ""}`} title="雙擊重新命名">
+        {label}
+      </span>
+    );
+
+  const itemRow = (item: Drawing, nested: boolean): ReactNode => {
+    const selected = item.id === layer.selectedId;
+    const marker = drop?.kind === "item" && drop.id === item.id && dragId && dragId !== item.id;
+    return (
+      <li
+        key={item.id}
+        draggable={editing !== item.id}
+        onDragStart={(e) => {
+          e.stopPropagation();
+          setDragId(item.id);
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", item.id);
+        }}
+        onDragEnd={reset}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          setDrop({ kind: "item", id: item.id, above: e.clientY < r.top + r.height / 2 });
+        }}
+        onClick={() => layer.select(selected ? null : item.id)}
+        onDoubleClick={() => startEdit(item.id, item.name ?? layerName(layer, item))}
+        data-layer-row={item.id}
+        className={`group relative my-0.5 flex cursor-pointer items-center gap-1.5 rounded-md py-1 pr-1.5 ring-1 ring-inset ${nested ? "ml-5 mr-1.5 pl-1.5" : "mx-1.5 pl-1.5"} ${
+          selected ? "bg-[var(--c-accent-soft)] ring-[var(--c-accent)]" : "ring-transparent hover:bg-[var(--c-hover)] hover:ring-[var(--c-line)]"
+        } ${dragId === item.id ? "opacity-40" : ""}`}
+      >
+        {marker ? <span className={`pointer-events-none absolute inset-x-1 h-0.5 rounded bg-[var(--c-accent)] ${drop.above ? "-top-0.5" : "-bottom-0.5"}`} /> : null}
+        <span className="cursor-grab text-[var(--c-muted)] active:cursor-grabbing [&_svg]:h-3.5 [&_svg]:w-3.5" title="拖曳調整順序，拖到群組上可放進群組">
+          <Icon name="grip" />
+        </span>
+        <span className={`[&_svg]:h-4 [&_svg]:w-4 ${item.hidden ? "opacity-40" : ""}`}>
+          <Icon name={item.type} />
+        </span>
+        {nameField(item.id, false, layerName(layer, item), !!item.hidden)}
+        <button
+          className={iconBtn(!!item.hidden)}
+          title={item.hidden ? "顯示" : "隱藏"}
+          onClick={(e) => {
+            e.stopPropagation();
+            layer.update(item.id, (d) => void (d.hidden = !d.hidden));
+          }}
+        >
+          <Icon name={item.hidden ? "eyeOff" : "eye"} />
+        </button>
+        <button
+          className={iconBtn(!!item.locked)}
+          title={item.locked ? "解除鎖定" : "鎖定（不能拖動）"}
+          onClick={(e) => {
+            e.stopPropagation();
+            layer.update(item.id, (d) => void (d.locked = !d.locked));
+          }}
+        >
+          <Icon name={item.locked ? "lock" : "unlock"} />
+        </button>
+        <button
+          className={`${iconBtn()} hover:!text-[var(--c-danger)]`}
+          title="刪除"
+          onClick={(e) => {
+            e.stopPropagation();
+            layer.remove(item.id);
+          }}
+        >
+          <Icon name="trash" />
+        </button>
+      </li>
+    );
+  };
+
+  const groupBlock = (group: DrawingGroup, members: Drawing[]): ReactNode => {
+    const hidden = members.length > 0 && members.every((d) => d.hidden);
+    const locked = members.length > 0 && members.every((d) => d.locked);
+    const target = drop?.kind === "group" && drop.id === group.id && dragId;
+    return (
+      <li key={group.id} data-layer-group={group.id}>
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDrop({ kind: "group", id: group.id });
+          }}
+          onClick={() => layer.setGroupCollapsed(group.id, !group.collapsed)}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            startEdit(group.id, group.name);
+          }}
+          className={`mx-1.5 my-0.5 flex cursor-pointer items-center gap-1 rounded-md py-1 pl-1 pr-1.5 ring-1 ring-inset ${
+            target ? "bg-[var(--c-accent-soft)] ring-[var(--c-accent)]" : "ring-transparent hover:bg-[var(--c-hover)] hover:ring-[var(--c-line)]"
+          }`}
+          title={group.collapsed ? "展開群組" : "收合群組"}
+        >
+          <span className={`text-[var(--c-muted)] transition-transform [&_svg]:h-3.5 [&_svg]:w-3.5 ${group.collapsed ? "" : "rotate-90"}`}>
+            <Icon name="chevron" />
+          </span>
+          <span className="text-[var(--c-accent)] [&_svg]:h-4 [&_svg]:w-4">
+            <Icon name="folder" />
+          </span>
+          {nameField(group.id, true, group.name, hidden)}
+          <span className="px-1 text-[11px] tabular-nums text-[var(--c-muted)]">{members.length}</span>
+          <button
+            className={iconBtn(hidden)}
+            disabled={!members.length}
+            title={hidden ? "顯示整個群組" : "隱藏整個群組"}
+            onClick={(e) => {
+              e.stopPropagation();
+              layer.setGroupHidden(group.id, !hidden);
+            }}
+          >
+            <Icon name={hidden ? "eyeOff" : "eye"} />
+          </button>
+          <button
+            className={iconBtn(locked)}
+            disabled={!members.length}
+            title={locked ? "解除鎖定整個群組" : "鎖定整個群組"}
+            onClick={(e) => {
+              e.stopPropagation();
+              layer.setGroupLocked(group.id, !locked);
+            }}
+          >
+            <Icon name={locked ? "lock" : "unlock"} />
+          </button>
+          <button
+            className={iconBtn()}
+            title="解散群組（保留裡面的繪圖）"
+            onClick={(e) => {
+              e.stopPropagation();
+              layer.removeGroup(group.id, true);
+            }}
+          >
+            <Icon name="ungroup" />
+          </button>
+          <button
+            className={`${iconBtn()} hover:!text-[var(--c-danger)]`}
+            title="刪除群組與裡面的繪圖"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!members.length || window.confirm(`刪除「${group.name}」和裡面 ${members.length} 個繪圖？（可用 Ctrl+Z 復原）`)) layer.removeGroup(group.id);
+            }}
+          >
+            <Icon name="trash" />
+          </button>
+        </div>
+        {!group.collapsed ? (
+          members.length ? (
+            <ul>{members.map((m) => itemRow(m, true))}</ul>
+          ) : (
+            <p className="ml-9 py-1 text-[11px] text-[var(--c-muted)]">空群組，把繪圖拖到這裡</p>
+          )
+        ) : null}
+      </li>
+    );
   };
 
   return (
     <aside
-      className="flex h-full w-[248px] shrink-0 flex-col border-l border-[var(--c-line)] bg-[var(--c-panel)] text-[var(--c-text)]"
+      className="relative flex h-full shrink-0 flex-col border-l border-[var(--c-line)] bg-[var(--c-panel)] text-[var(--c-text)]"
+      style={{ width }}
       data-testid="layers-panel"
       onKeyDown={(e) => e.stopPropagation()}
     >
+      {/* resize handle */}
+      <div
+        className="absolute -left-1 top-0 z-10 h-full w-2 cursor-col-resize hover:bg-[var(--c-accent-soft)]"
+        title="拖曳調整寬度"
+        data-testid="layers-resize"
+        onPointerDown={(e) => {
+          e.preventDefault();
+          resizing.current = { x: e.clientX, w: width };
+          document.body.style.cursor = "col-resize";
+        }}
+      />
       <div className="flex items-center gap-1 border-b border-[var(--c-line)] px-3 py-2">
         <Icon name="layers" />
         <span className="ml-1 text-sm font-semibold">圖層</span>
-        <span className="text-xs text-[var(--c-muted)]">{rows.length}</span>
-        <button className={`${iconBtn()} ml-auto`} title={allHidden ? "全部顯示" : "全部隱藏"} disabled={!rows.length} onClick={() => layer.setAllHidden(!allHidden)}>
+        <span className="text-xs text-[var(--c-muted)]">{layer.items.length}</span>
+        <button
+          className={`${iconBtn()} ml-auto`}
+          title={layer.selectedId ? "新增群組（把選取的繪圖放進去）" : "新增群組"}
+          data-testid="add-group"
+          onClick={() => layer.addGroup(undefined, layer.selectedId ? [layer.selectedId] : [])}
+        >
+          <Icon name="folderPlus" />
+        </button>
+        <button className={iconBtn()} title={allHidden ? "全部顯示" : "全部隱藏"} disabled={!layer.items.length} onClick={() => layer.setAllHidden(!allHidden)}>
           <Icon name={allHidden ? "eyeOff" : "eye"} />
         </button>
         <button className={iconBtn()} title="關閉圖層面板" onClick={onClose}>
@@ -73,7 +347,7 @@ export function LayersPanel({ layer, onClose }: { layer: DrawingLayer; onClose: 
         </button>
       </div>
 
-      {rows.length === 0 ? (
+      {list.length === 0 ? (
         <p className="px-4 py-6 text-center text-xs leading-relaxed text-[var(--c-muted)]">
           還沒有繪圖。
           <br />
@@ -81,96 +355,9 @@ export function LayersPanel({ layer, onClose }: { layer: DrawingLayer; onClose: 
         </p>
       ) : (
         <ul className="min-h-0 flex-1 overflow-y-auto py-1" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
-          {rows.map((item) => {
-            const selected = item.id === layer.selectedId;
-            const marker = dropAt?.id === item.id && dragId && dragId !== item.id;
-            return (
-              <li
-                key={item.id}
-                draggable={editing !== item.id}
-                onDragStart={(e) => {
-                  setDragId(item.id);
-                  e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData("text/plain", item.id);
-                }}
-                onDragEnd={reset}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  const r = e.currentTarget.getBoundingClientRect();
-                  setDropAt({ id: item.id, above: e.clientY < r.top + r.height / 2 });
-                }}
-                onClick={() => layer.select(selected ? null : item.id)}
-                onDoubleClick={() => {
-                  setEditing(item.id);
-                  setDraft(item.name ?? layerName(layer, item));
-                }}
-                data-layer-row={item.id}
-                className={`group relative mx-1.5 my-0.5 flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 ring-1 ring-inset ${
-                  selected ? "bg-[var(--c-accent-soft)] ring-[var(--c-accent)]" : "ring-transparent hover:bg-[var(--c-hover)] hover:ring-[var(--c-line)]"
-                } ${dragId === item.id ? "opacity-40" : ""}`}
-              >
-                {marker ? <span className={`pointer-events-none absolute inset-x-1 h-0.5 rounded bg-[var(--c-accent)] ${dropAt!.above ? "-top-0.5" : "-bottom-0.5"}`} /> : null}
-                <span className="cursor-grab text-[var(--c-muted)] active:cursor-grabbing [&_svg]:h-3.5 [&_svg]:w-3.5" title="拖曳調整上下順序">
-                  <Icon name="grip" />
-                </span>
-                <span className={`[&_svg]:h-4 [&_svg]:w-4 ${item.hidden ? "opacity-40" : ""}`}>
-                  <Icon name={item.type} />
-                </span>
-                {editing === item.id ? (
-                  <input
-                    autoFocus
-                    onFocus={(e) => e.target.select()}
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onBlur={() => commitName(item.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") commitName(item.id);
-                      if (e.key === "Escape") setEditing(null);
-                    }}
-                    className="h-6 min-w-0 flex-1 rounded border border-[var(--c-accent)] bg-[var(--c-raised)] px-1.5 text-xs outline-none"
-                  />
-                ) : (
-                  <span className={`min-w-0 flex-1 truncate text-xs ${item.hidden ? "text-[var(--c-muted)] line-through" : ""}`} title="雙擊重新命名">
-                    {layerName(layer, item)}
-                  </span>
-                )}
-                <button
-                  className={iconBtn(!!item.hidden)}
-                  title={item.hidden ? "顯示" : "隱藏"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    layer.update(item.id, (d) => void (d.hidden = !d.hidden));
-                  }}
-                >
-                  <Icon name={item.hidden ? "eyeOff" : "eye"} />
-                </button>
-                <button
-                  className={iconBtn(!!item.locked)}
-                  title={item.locked ? "解除鎖定" : "鎖定（不能拖動）"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    layer.update(item.id, (d) => void (d.locked = !d.locked));
-                  }}
-                >
-                  <Icon name={item.locked ? "lock" : "unlock"} />
-                </button>
-                <button
-                  className={`${iconBtn()} hover:!text-[var(--c-danger)]`}
-                  title="刪除"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    layer.remove(item.id);
-                  }}
-                >
-                  <Icon name="trash" />
-                </button>
-              </li>
-            );
-          })}
+          {list.map((e) => (e.kind === "item" ? itemRow(e.item, false) : groupBlock(e.group, e.members)))}
         </ul>
       )}
-      {rows.length > 1 ? <p className="border-t border-[var(--c-line)] px-3 py-2 text-[11px] text-[var(--c-muted)]">最上面的圖層畫在最上方。拖曳列可調整順序，雙擊可改名。</p> : null}
     </aside>
   );
 }

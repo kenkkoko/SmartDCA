@@ -130,6 +130,16 @@ export type Drawing = {
   name?: string;
   locked?: boolean;
   hidden?: boolean;
+  /** Folder in the layers panel. */
+  groupId?: string;
+};
+
+/** A folder of drawings in the layers panel. */
+export type DrawingGroup = {
+  id: string;
+  name: string;
+  /** Folded in the layers panel. */
+  collapsed?: boolean;
 };
 
 let seq = 0;

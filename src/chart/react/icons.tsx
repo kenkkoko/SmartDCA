@@ -72,6 +72,10 @@ const ICONS: Record<string, ReactNode> = {
   middle: svg(<><path d="M2 5h16M2 15h16" /><path d="M2 10h16" strokeDasharray="2 2" /></>),
   stats: svg(<><path d="M3 17V9M8 17V4M13 17v-6M18 17V7" /></>),
   layers: svg(<><path d="M10 2.5l8 4-8 4-8-4z" /><path d="M2 10.5l8 4 8-4" /><path d="M2 14l8 4 8-4" /></>),
+  folder: svg(<path d="M2 5.5A1.5 1.5 0 0 1 3.5 4H8l1.6 2h6.9A1.5 1.5 0 0 1 18 7.5v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 14.5z" />),
+  folderPlus: svg(<><path d="M2 5.5A1.5 1.5 0 0 1 3.5 4H8l1.6 2h6.9A1.5 1.5 0 0 1 18 7.5v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 14.5z" /><path d="M10 8.5v5M7.5 11h5" /></>),
+  ungroup: svg(<><path d="M2 5.5A1.5 1.5 0 0 1 3.5 4H8l1.6 2h6.9A1.5 1.5 0 0 1 18 7.5v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 2 14.5z" /><path d="M7.5 11h5" /></>),
+  chevron: svg(<path d="M7 5l5 5-5 5" />),
   grip: svg(<><circle cx="7.5" cy="5" r="1" fill="currentColor" /><circle cx="12.5" cy="5" r="1" fill="currentColor" /><circle cx="7.5" cy="10" r="1" fill="currentColor" /><circle cx="12.5" cy="10" r="1" fill="currentColor" /><circle cx="7.5" cy="15" r="1" fill="currentColor" /><circle cx="12.5" cy="15" r="1" fill="currentColor" /></>),
   more: svg(<><circle cx="4" cy="10" r="1" fill="currentColor" /><circle cx="10" cy="10" r="1" fill="currentColor" /><circle cx="16" cy="10" r="1" fill="currentColor" /></>),
 };
