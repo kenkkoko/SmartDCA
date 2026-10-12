@@ -11,7 +11,11 @@ import type { Bar } from "../engine/types";
 import { PanelHeader, panelIconBtn } from "../react/SideBar";
 import {
   buildPrompt,
+  extractMarks,
   fetchProviders,
+  MARKS_PROMPT,
+  marksToDrawings,
+  stripMarks,
   loadAiSettings,
   saveAiSettings,
   streamAnalysis,
@@ -24,7 +28,22 @@ const EFFORT_LABEL: Record<string, string> = { low: "低", medium: "中", high: 
 const day = (t: number) => new Date(t * 1000).toISOString().slice(0, 10);
 
 type Status = "checking" | "offline" | "online";
-type Run = { text: string; state: "running" | "done" | "error"; error?: string; meta: string; thinking: boolean; costUsd?: number; ms?: number };
+type Run = {
+  text: string;
+  state: "running" | "done" | "error";
+  error?: string;
+  meta: string;
+  thinking: boolean;
+  costUsd?: number;
+  ms?: number;
+  /** Asked the AI to mark the chart. */
+  marks: boolean;
+  /** Drawings placed from the answer (null = not yet / none found). */
+  placed?: number | null;
+};
+
+/** Folder in the layers panel that holds the AI's marks (one per symbol). */
+const AI_GROUP = "ai-marks";
 
 /** Shaded band over the picked range while the panel is open. */
 class RangeBand implements ChartPrimitive {
@@ -218,7 +237,17 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
     layer.chart.root.focus();
   };
   // stop showing "框選中" if the user pressed Esc
-  useEffect(() => (layer ? layer.subscribe(() => !layer.capturing && setPicking(false)) : undefined), [layer]);
+  // (and refresh the "已在圖上標記" note when the AI folder is deleted)
+  useEffect(
+    () =>
+      layer
+        ? layer.subscribe(() => {
+            if (!layer.capturing) setPicking(false);
+            setTick((n) => n + 1);
+          })
+        : undefined,
+    [layer],
+  );
 
   const start = async () => {
     if (!indices || status !== "online" || !provider) return;
@@ -233,12 +262,22 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
         : [];
     const prompt = buildPrompt({ symbol, market, timeframe, bars, from: indices.from, to: indices.to, drawings, extras, question });
     const meta = `${provider.name} · ${model?.name ?? (settings.model || "預設模型")}${efforts.includes(settings.effort) ? ` · 努力 ${EFFORT_LABEL[settings.effort] ?? settings.effort}` : ""} · ${rangeLabel}`;
-    setRun({ text: "", state: "running", meta, thinking: false });
+    const marks = settings.drawMarks && !!layer;
+    const snapshot = bars;
+    setRun({ text: "", state: "running", meta, thinking: false, marks });
+    let full = "";
     try {
       await streamAnalysis(
         settings.port,
-        { provider: provider.id, model: settings.model, effort: efforts.includes(settings.effort) ? settings.effort : "", system: SYSTEM_PROMPT, prompt },
-        (e) =>
+        {
+          provider: provider.id,
+          model: settings.model,
+          effort: efforts.includes(settings.effort) ? settings.effort : "",
+          system: marks ? SYSTEM_PROMPT + MARKS_PROMPT : SYSTEM_PROMPT,
+          prompt,
+        },
+        (e) => {
+          if (e.type === "text") full += e.text;
           setRun((r) => {
             if (!r) return r;
             if (e.type === "text") return { ...r, text: r.text + e.text, thinking: false };
@@ -247,10 +286,20 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
             if (e.type === "done") return { ...r, state: "done", ms: e.ms };
             if (e.type === "error") return { ...r, state: "error", error: e.message };
             return r;
-          }),
+          });
+        },
         ac.signal,
       );
       setRun((r) => (r && r.state === "running" ? { ...r, state: "done" } : r));
+      if (marks && layer) {
+        const found = extractMarks(full);
+        const drawings = found ? marksToDrawings(found, snapshot) : [];
+        if (drawings.length) {
+          const d = new Date();
+          layer.replaceGroup(AI_GROUP, `AI 標記 · ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`, drawings);
+        }
+        setRun((r) => (r ? { ...r, placed: drawings.length } : r));
+      }
     } catch (e) {
       if (ac.signal.aborted) setRun((r) => (r ? { ...r, state: "done", error: "已停止" } : r));
       else setRun((r) => (r ? { ...r, state: "error", error: e instanceof Error ? e.message : String(e) } : r));
@@ -521,6 +570,10 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
                 <input type="checkbox" className="accent-[var(--c-accent)]" checked={includeDrawings} onChange={(e) => setIncludeDrawings(e.target.checked)} />
                 一併參考我在範圍內畫的線
               </label>
+              <label className="mt-1 flex cursor-pointer items-center gap-1.5 text-[11.5px] text-[var(--c-muted)]">
+                <input type="checkbox" className="accent-[var(--c-accent)]" checked={settings.drawMarks} onChange={(e) => update({ drawMarks: e.target.checked })} data-testid="ai-draw-marks" />
+                讓 AI 在圖上標記支撐、壓力、趨勢線與重點
+              </label>
             </div>
 
             {status === "online" ? <div className="border-t border-[var(--c-line)] pt-3">{modelControls}</div> : null}
@@ -550,14 +603,28 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
                     {run.meta}
                   </span>
                   {run.text ? (
-                    <button className={`${panelIconBtn()} !h-6 !w-auto px-2 text-[11px]`} onClick={() => void navigator.clipboard?.writeText(run.text)} title="複製分析內容">
+                    <button className={`${panelIconBtn()} !h-6 !w-auto px-2 text-[11px]`} onClick={() => void navigator.clipboard?.writeText(stripMarks(run.text))} title="複製分析內容">
                       複製
                     </button>
                   ) : null}
                 </div>
-                {run.text ? <Markdown text={run.text} /> : null}
+                {run.text ? <Markdown text={stripMarks(run.text)} /> : null}
                 {run.state === "running" ? (
-                  <p className="mt-2 animate-pulse text-[11.5px] text-[var(--c-muted)]">{run.thinking ? "AI 思考中…" : run.text ? "撰寫中…" : "傳送資料給 AI…"}</p>
+                  <p className="mt-2 animate-pulse text-[11.5px] text-[var(--c-muted)]">
+                    {run.thinking ? "AI 思考中…" : run.text.includes("```chart-marks") ? "在圖上標記中…" : run.text ? "撰寫中…" : "傳送資料給 AI…"}
+                  </p>
+                ) : null}
+                {run.marks && run.placed != null ? (
+                  run.placed > 0 && layer?.groupOf(AI_GROUP) ? (
+                    <div className="mt-2 flex items-center gap-2 rounded-md bg-[var(--c-accent-soft)] px-2 py-1.5 text-[11.5px] text-[var(--c-text)]" data-testid="ai-marks-placed">
+                      <span className="min-w-0 flex-1">已在圖上標記 {run.placed} 處（圖層「AI 標記」，可隱藏或刪除）</span>
+                      <button className="shrink-0 cursor-pointer text-[var(--c-accent)] hover:underline" onClick={() => layer.removeGroup(AI_GROUP)} data-testid="ai-marks-clear">
+                        清除標記
+                      </button>
+                    </div>
+                  ) : run.placed === 0 ? (
+                    <p className="mt-2 text-[11px] text-[var(--c-muted)]">這次 AI 沒有給出可畫在圖上的標記。</p>
+                  ) : null
                 ) : null}
                 {run.error ? <p className="mt-2 text-[11.5px] text-[var(--c-danger)]">{run.error}</p> : null}
                 {run.state === "done" && !run.error ? (

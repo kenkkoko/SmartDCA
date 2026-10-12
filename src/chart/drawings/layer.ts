@@ -367,6 +367,21 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     this.notify(true);
   }
 
+  /**
+   * Replace everything in folder `id` (created on top if missing) with
+   * `drawings`, as one undo step. Used for the AI's chart marks.
+   */
+  replaceGroup(id: string, name: string, drawings: Drawing[]): void {
+    this.checkpoint();
+    const g = this.groupOf(id);
+    if (g) g.name = name;
+    else this.groups.unshift({ id, name });
+    this.items = this.items.filter((d) => d.groupId !== id);
+    for (const d of drawings) this.items.push({ ...d, groupId: id, style: { ...DEFAULT_STYLE, ...d.style } });
+    if (!this.items.some((d) => d.id === this.selectedId)) this.selectedId = null;
+    this.notify(true);
+  }
+
   private checkpoint(): void {
     this.past.push(this.snapshot());
     if (this.past.length > 100) this.past.shift();

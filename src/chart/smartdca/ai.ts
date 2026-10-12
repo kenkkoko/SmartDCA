@@ -1,7 +1,8 @@
 // AI analysis: talk to the local bridge (ai-bridge/server.mjs) and turn the
 // selected part of the chart into a compact, number-rich prompt.
 
-import type { Drawing } from "../drawings/types";
+import { getTool } from "../drawings/tools";
+import { DEFAULT_STYLE, newId, type Drawing } from "../drawings/types";
 import type { Bar } from "../engine/types";
 import { crosses, ema, macd, rsi, sma, type Num } from "../indicators";
 
@@ -20,10 +21,10 @@ export type AiProvider = {
   cliVersion?: string | null;
   models: AiModel[];
 };
-export type AiSettings = { port: number; provider: string; model: string; effort: string };
+export type AiSettings = { port: number; provider: string; model: string; effort: string; drawMarks: boolean };
 
 const SETTINGS_KEY = "smartdca.ai.settings";
-export const DEFAULT_AI_SETTINGS: AiSettings = { port: 8765, provider: "claude", model: "", effort: "medium" };
+export const DEFAULT_AI_SETTINGS: AiSettings = { port: 8765, provider: "claude", model: "", effort: "medium", drawMarks: true };
 
 export function loadAiSettings(): AiSettings {
   try {
@@ -252,4 +253,150 @@ export function buildPrompt(input: AnalysisInput): string {
   lines.push("");
   lines.push(input.question?.trim() ? `## 使用者的問題\n${input.question.trim()}` : "請依系統指示的結構完成分析。");
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// chart marks: the AI ends its answer with a JSON block that becomes drawings
+// ---------------------------------------------------------------------------
+
+export const MARKS_FENCE = "```chart-marks";
+
+export const MARKS_PROMPT = [
+  "",
+  "【在圖上標記】分析完後，在回答的最後附上一段程式碼區塊，把你提到的關鍵價位與結構畫到使用者的圖表上。",
+  "格式固定為（開頭一定要是 ```chart-marks，內容是 JSON 陣列，最多 10 個，只標最重要的）：",
+  "```chart-marks",
+  "[",
+  '  {"type":"support","price":58200,"label":"前波低點支撐"},',
+  '  {"type":"resistance","price":73800,"label":"歷史高點壓力"},',
+  '  {"type":"trend","from":["2024-08-05",49000],"to":["2024-11-04",66800],"label":"上升趨勢線"},',
+  '  {"type":"zone","from":"2024-03-14","to":"2024-10-14","top":73800,"bottom":56500,"label":"盤整區"},',
+  '  {"type":"buy","date":"2024-08-05","price":49000,"label":"恐慌低點"},',
+  '  {"type":"sell","date":"2024-03-14","price":73800,"label":"量價背離"},',
+  '  {"type":"note","date":"2024-12-17","price":108000,"text":"RSI 頂背離"}',
+  "]",
+  "```",
+  "type 只能是 support / resistance / trend / zone / buy / sell / note。日期用 YYYY-MM-DD 且必須是資料裡有的日期，價格用資料中的實際數字。",
+  "label 要短（10 字以內）。這段區塊之後不要再寫任何文字；前面的分析內文裡不要提到這段區塊。",
+].join("\n");
+
+/** The analysis text without the marks block (also hides a half-streamed one). */
+export function stripMarks(text: string): string {
+  const i = text.indexOf(MARKS_FENCE);
+  if (i < 0) {
+    // a fence that is still arriving ("```chart-ma")
+    const tail = text.lastIndexOf("```");
+    if (tail >= 0 && MARKS_FENCE.startsWith(text.slice(tail).trim())) return text.slice(0, tail).trimEnd();
+    return text;
+  }
+  return text.slice(0, i).trimEnd();
+}
+
+type RawMark = Record<string, unknown>;
+
+/** Pull the JSON array out of the ```chart-marks block (null when missing / broken). */
+export function extractMarks(text: string): RawMark[] | null {
+  const i = text.indexOf(MARKS_FENCE);
+  if (i < 0) return null;
+  let body = text.slice(i + MARKS_FENCE.length);
+  const end = body.indexOf("```");
+  if (end >= 0) body = body.slice(0, end);
+  const a = body.indexOf("[");
+  const b = body.lastIndexOf("]");
+  if (a < 0 || b <= a) return null;
+  try {
+    const parsed = JSON.parse(body.slice(a, b + 1)) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((m): m is RawMark => !!m && typeof m === "object") : null;
+  } catch {
+    return null;
+  }
+}
+
+export const MARK_COLORS = { up: "#22c55e", down: "#ef4444", zone: "#2962ff", note: "#f59e0b" };
+const TYPE_LABEL: Record<string, string> = { support: "支撐", resistance: "壓力", trend: "趨勢線", zone: "區間", buy: "買點", sell: "賣點", note: "註解" };
+
+/**
+ * Turn the AI's marks into drawings on the price pane. Dates snap to the
+ * nearest loaded bar; anything with a missing or absurd price is dropped.
+ */
+export function marksToDrawings(marks: RawMark[], bars: Bar[]): Drawing[] {
+  if (!bars.length) return [];
+  const lo = Math.min(...bars.map((b) => b.low));
+  const hi = Math.max(...bars.map((b) => b.high));
+  const price = (v: unknown): number | null => {
+    const n = typeof v === "string" ? Number(v.replace(/,/g, "")) : typeof v === "number" ? v : NaN;
+    return Number.isFinite(n) && n > 0 && n >= lo / 3 && n <= hi * 3 ? n : null;
+  };
+  const time = (v: unknown): number | null => {
+    if (typeof v !== "string" && typeof v !== "number") return null;
+    const t = typeof v === "number" ? (v > 1e11 ? v / 1000 : v) : Date.parse(`${String(v).slice(0, 10)}T00:00:00Z`) / 1000;
+    if (!Number.isFinite(t)) return null;
+    // nearest bar (bars are sorted)
+    let a = 0;
+    let b = bars.length - 1;
+    if (t <= bars[0]!.time) return bars[0]!.time;
+    if (t >= bars[b]!.time) return bars[b]!.time;
+    while (b - a > 1) {
+      const m = (a + b) >> 1;
+      if (bars[m]!.time <= t) a = m;
+      else b = m;
+    }
+    return t - bars[a]!.time <= bars[b]!.time - t ? bars[a]!.time : bars[b]!.time;
+  };
+  const point = (v: unknown): { time: number; price: number } | null => {
+    if (!Array.isArray(v) || v.length < 2) return null;
+    const t = time(v[0]);
+    const p = price(v[1]);
+    return t == null || p == null ? null : { time: t, price: p };
+  };
+  const text = (m: RawMark) => {
+    const s = typeof m.label === "string" ? m.label : typeof m.text === "string" ? m.text : "";
+    return s.trim().slice(0, 40);
+  };
+  const lastTime = bars[bars.length - 1]!.time;
+  const make = (type: string, anchors: { time: number; price: number }[], style: Partial<Drawing["style"]>, label: string, kind: string): Drawing => ({
+    id: newId(),
+    type,
+    paneId: "main",
+    anchors,
+    style: { ...DEFAULT_STYLE, ...getTool(type)?.defaults, ...style },
+    text: label || undefined,
+    name: `AI ${TYPE_LABEL[kind] ?? kind}${label ? `：${label}` : ""}`,
+  });
+
+  const out: Drawing[] = [];
+  for (const m of marks.slice(0, 12)) {
+    const kind = String(m.type ?? "").toLowerCase();
+    const label = text(m);
+    if (kind === "support" || kind === "resistance") {
+      const p = price(m.price);
+      if (p == null) continue;
+      const color = kind === "support" ? MARK_COLORS.up : MARK_COLORS.down;
+      out.push(make("horizontal_line", [{ time: lastTime, price: p }], { color, width: 2, lineStyle: "dashed", textColor: color }, label || TYPE_LABEL[kind]!, kind));
+    } else if (kind === "trend") {
+      const a = point(m.from);
+      const b = point(m.to);
+      if (!a || !b || a.time === b.time) continue;
+      out.push(make("trend_line", [a, b], { color: MARK_COLORS.zone, width: 2, extendRight: m.extend !== false }, label, kind));
+    } else if (kind === "zone") {
+      const a = time(m.from);
+      const b = m.to == null ? lastTime : time(m.to);
+      const top = price(m.top);
+      const bottom = price(m.bottom);
+      if (a == null || b == null || top == null || bottom == null || a === b) continue;
+      out.push(make("rectangle", [{ time: a, price: top }, { time: b, price: bottom }], { color: MARK_COLORS.zone, fillColor: MARK_COLORS.zone, fillOpacity: 0.1 }, label, kind));
+    } else if (kind === "buy" || kind === "sell") {
+      const t = time(m.date);
+      const p = price(m.price);
+      if (t == null || p == null) continue;
+      const up = kind === "buy";
+      out.push(make(up ? "arrow_mark_up" : "arrow_mark_down", [{ time: t, price: p }], { color: up ? MARK_COLORS.up : MARK_COLORS.down }, label, kind));
+    } else if (kind === "note") {
+      const t = time(m.date);
+      const p = price(m.price);
+      if (t == null || p == null || !label) continue;
+      out.push(make("text", [{ time: t, price: p }], { textColor: MARK_COLORS.note, fontSize: 13 }, label, kind));
+    }
+  }
+  return out;
 }

@@ -423,3 +423,20 @@ describe("layer groups", () => {
     expect(loadDrawings("OLD")).toHaveLength(1);
   });
 });
+
+describe("replaceGroup (AI marks)", () => {
+  const mk = (id: string) => ({ id, type: "horizontal_line", paneId: "main", anchors: [{ time: bars()[5]!.time, price: 100 }], style: {} as never });
+  it("swaps the folder's drawings in one undo step and keeps the user's own", () => {
+    layer.setItems([mk("mine")]);
+    layer.replaceGroup("ai", "AI 標記", [mk("a1"), mk("a2")]);
+    expect(layer.groups[0]).toMatchObject({ id: "ai", name: "AI 標記" });
+    expect(layer.membersOf("ai").map((d) => d.id)).toEqual(["a1", "a2"]);
+    layer.replaceGroup("ai", "AI 標記 2", [mk("b1")]);
+    expect(layer.groups).toHaveLength(1);
+    expect(layer.items.map((d) => d.id)).toEqual(["mine", "b1"]);
+    layer.undo();
+    expect(layer.items.map((d) => d.id)).toEqual(["mine", "a1", "a2"]);
+    layer.removeGroup("ai");
+    expect(layer.items.map((d) => d.id)).toEqual(["mine"]);
+  });
+});
