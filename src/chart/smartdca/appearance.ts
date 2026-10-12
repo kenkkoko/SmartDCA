@@ -12,6 +12,8 @@ export type Appearance = {
   /** Wick colours; undefined = same as the body. */
   wickUp?: string;
   wickDown?: string;
+  /** Hide the thin current-price line. */
+  priceLineHidden?: boolean;
 };
 
 type Stored = { dark?: Appearance; light?: Appearance };

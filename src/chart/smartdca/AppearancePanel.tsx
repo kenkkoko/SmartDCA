@@ -85,6 +85,13 @@ export function AppearancePanel({
         {row("下跌實體", <ColorButton color={value.down ?? base.down} onChange={(c) => c && set({ down: c })} title="下跌 K 線" />, "down")}
         {row("上漲影線", <ColorButton color={value.wickUp ?? value.up ?? base.up} onChange={(c) => c && set({ wickUp: c })} title="上漲影線（預設跟實體同色）" />, "wickUp")}
         {row("下跌影線", <ColorButton color={value.wickDown ?? value.down ?? base.down} onChange={(c) => c && set({ wickDown: c })} title="下跌影線（預設跟實體同色）" />, "wickDown")}
+        {row(
+          "現價線",
+          <label className="flex cursor-pointer items-center gap-1 text-[11.5px] text-[var(--c-muted)]">
+            <input type="checkbox" className="accent-[var(--c-accent)]" checked={!value.priceLineHidden} onChange={(e) => set({ priceLineHidden: !e.target.checked })} data-testid="appearance-priceline" />
+            顯示
+          </label>,
+        )}
         <p className="mt-1 text-[11px] leading-relaxed text-[var(--c-muted)]">成交量柱也會跟著漲跌顏色。深色和淺色主題各自記住一組設定。</p>
 
         <button

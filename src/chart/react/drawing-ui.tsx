@@ -2,7 +2,7 @@
 // settings dialogs (Fibonacci, volume profile, text). All state lives in the
 // DrawingLayer; React only subscribes to its version counter.
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { DrawingLayer } from "../drawings/layer";
 import { saveFibTemplate } from "../drawings/storage";
 import type { Tool } from "../drawings/tool";
@@ -51,7 +51,7 @@ export const btn = (active = false) =>
 // Left toolbar
 // ===========================================================================
 
-export function DrawingToolbar({ layer }: { layer: DrawingLayer }) {
+export function DrawingToolbar({ layer, footer }: { layer: DrawingLayer; footer?: ReactNode }) {
   useLayer(layer);
   // each group button shows the tool last picked from it (TradingView)
   const [lastInGroup, setLastInGroup] = useState<Record<string, string>>({});
@@ -148,6 +148,7 @@ export function DrawingToolbar({ layer }: { layer: DrawingLayer }) {
       >
         <Icon name="trash" />
       </button>
+      {footer ? <div className="mt-auto flex flex-col items-center gap-0.5 pt-2">{footer}</div> : null}
     </div>
   );
 }
@@ -189,6 +190,26 @@ export function ColorButton({
   const [open, setOpen] = useState(false);
   const close = useMemo(() => () => setOpen(false), []);
   const ref = useOutside(open, close);
+  const popRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  // the menu is fixed and kept inside the window (side panels sit at the right edge)
+  useLayoutEffect(() => {
+    if (!open) return setPos(null);
+    const place = () => {
+      const button = ref.current?.getBoundingClientRect();
+      const pop = popRef.current;
+      if (!button || !pop) return;
+      const w = pop.offsetWidth;
+      const h = pop.offsetHeight;
+      const left = Math.max(8, Math.min(button.left, window.innerWidth - w - 8));
+      const below = button.bottom + 4;
+      const top = below + h <= window.innerHeight - 8 ? below : Math.max(8, button.top - h - 4);
+      setPos({ top, left });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open, ref]);
   return (
     <div className="relative" ref={ref}>
       <button className="flex h-8 min-w-8 cursor-pointer ring-1 ring-inset ring-transparent hover:ring-[var(--c-line)] items-center justify-center gap-1 rounded-md px-1.5 hover:bg-[var(--c-hover)]" title={title} onClick={() => setOpen(!open)}>
@@ -205,7 +226,12 @@ export function ColorButton({
         </span>
       </button>
       {open ? (
-        <div className="absolute left-0 top-9 z-40 w-[232px] rounded-lg border border-[var(--c-line)] bg-[var(--c-panel)] p-2.5 shadow-2xl">
+        <div
+          ref={popRef}
+          className="fixed z-[200] w-[232px] rounded-lg border border-[var(--c-line)] bg-[var(--c-panel)] p-2.5 shadow-2xl"
+          style={pos ? { top: pos.top, left: pos.left } : { top: -9999, left: -9999 }}
+          data-testid="color-popup"
+        >
           <div className="grid grid-cols-10 gap-[3px]">
             {PALETTE.flat().map((c) => (
               <button

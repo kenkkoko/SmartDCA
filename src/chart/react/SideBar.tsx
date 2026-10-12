@@ -14,6 +14,8 @@ export type SidePanel = {
   render: (close: () => void) => ReactNode;
   /** Button sits at the bottom of the right toolbar. */
   bottom?: boolean;
+  /** Button sits at the bottom of the left drawing toolbar instead (圖表設定). */
+  inToolbar?: boolean;
 };
 
 const ACTIVE_PREF = "smartdca.chart.sidePanel";
@@ -103,7 +105,7 @@ export function SideBar({ panels, active, onSelect }: { panels: SidePanel[]; act
         </aside>
       ) : null}
       <nav className="flex h-full w-11 shrink-0 flex-col items-center gap-0.5 border-l border-[var(--c-line)] bg-[var(--c-panel)] py-1.5" data-testid="right-toolbar">
-        {[...panels.filter((p) => !p.bottom), ...panels.filter((p) => p.bottom)].map((p, i, list) => (
+        {[...panels.filter((p) => !p.bottom && !p.inToolbar), ...panels.filter((p) => p.bottom && !p.inToolbar)].map((p, i, list) => (
           <button
             key={p.id}
             className={`${btn(p.id === active)} ${p.bottom && !list[i - 1]?.bottom ? "mt-auto" : ""}`}

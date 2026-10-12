@@ -233,6 +233,10 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   };
 
   useEffect(() => {
+    chart?.setShowPriceLine(!appearance.priceLineHidden);
+  }, [chart, appearance.priceLineHidden]);
+
+  useEffect(() => {
     chart?.setBarCloseTime(props.barCloseTime ?? null);
   }, [chart, props.barCloseTime]);
 
@@ -420,6 +424,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     id: "appearance",
     title: "圖表設定（背景、K 線顏色）",
     icon: settingsIcon,
+    inToolbar: true,
     render: (close) => <AppearancePanel value={appearance} onChange={setAppearance} base={baseTheme} onClose={close} />,
   };
 

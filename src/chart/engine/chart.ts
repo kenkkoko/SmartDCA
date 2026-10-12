@@ -350,6 +350,13 @@ export class Chart {
    * a countdown under the price, like TradingView. null hides it.
    */
   barCloseTime: number | null = null;
+  /** Thin dotted line at the last price (TradingView). */
+  showPriceLine = true;
+
+  setShowPriceLine(on: boolean): void {
+    this.showPriceLine = on;
+    this.invalidate();
+  }
   private countdownTimer: ReturnType<typeof setInterval> | null = null;
 
   setBarCloseTime(time: number | null): void {
@@ -554,6 +561,11 @@ export class Chart {
         for (const line of series.priceLines)
           s.hLine(0, plotRight, r.y + pane.price.priceToY(line.price), line.color, line.lineWidth ?? 1, line.lineStyle ?? "dashed");
         this.drawMarkers(series, pane, from, to);
+      }
+      // thin dotted current-price line across the pane (TradingView)
+      if (this.showPriceLine && this.mainSeries && this.mainSeries.options.visible && pane.series.includes(this.mainSeries)) {
+        const last = this.mainSeries.lastValue();
+        if (last) s.hLine(0, plotRight, r.y + pane.price.priceToY(last.value), last.color, 1, "dotted");
       }
       s.restore();
       // separator below the pane

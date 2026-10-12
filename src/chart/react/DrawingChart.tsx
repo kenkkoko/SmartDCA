@@ -7,7 +7,7 @@ import { getTool } from "../drawings/tools";
 import type { Drawing } from "../drawings/types";
 import type { Chart, ChartOptions } from "../engine/chart";
 import { DARK_THEME, type Theme } from "../engine/types";
-import { DrawingToolbar, FibSettingsDialog, PropertiesBar, TextDialog, VolumeSettingsDialog } from "./drawing-ui";
+import { btn, DrawingToolbar, FibSettingsDialog, PropertiesBar, TextDialog, VolumeSettingsDialog } from "./drawing-ui";
 import { Icon } from "./icons";
 import { LayersPanel, type FixedLayer } from "./LayersPanel";
 import { SideBar, useSidePanel, type SidePanel } from "./SideBar";
@@ -110,7 +110,25 @@ export function DrawingChart({ onReady, storageKey, options, className, style, t
 
   return (
     <div className={`flex min-h-0 ${className ?? ""}`} style={{ ...themeVars(theme), background: theme.background, ...style }}>
-      {toolbar && layer ? <DrawingToolbar layer={layer} /> : null}
+      {toolbar && layer ? (
+        <DrawingToolbar
+          layer={layer}
+          footer={panels
+            .filter((p) => p.inToolbar)
+            .map((p) => (
+              <button
+                key={p.id}
+                className={btn(p.id === sidePanel)}
+                title={p.id === sidePanel ? `關閉${p.title}` : p.title}
+                aria-pressed={p.id === sidePanel}
+                data-testid={`toggle-${p.id}`}
+                onClick={() => setSidePanel(p.id === sidePanel ? null : p.id)}
+              >
+                {p.icon}
+              </button>
+            ))}
+        />
+      ) : null}
       <div className="relative min-h-0 min-w-0 flex-1" data-testid="chart-area">
         <TradingChart className="h-full w-full" options={options} onReady={handleReady} />
         {children}
