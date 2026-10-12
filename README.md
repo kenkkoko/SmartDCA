@@ -20,10 +20,32 @@
 | 層 | 技術 |
 |---|---|
 | 前端 | React 18 + Vite + Tailwind CSS，單頁應用，部署於 GitHub Pages |
-| 圖表 | Chart.js 4（走勢 / 縮放）+ TradingView Lightweight Charts 5（K 線 + 繪圖工具） |
+| 圖表 | Chart.js 4（走勢 / 縮放）+ 自製 React 圖表引擎 `src/chart`（K 線、43 種繪圖工具、圖層、即時報價、AI 分析） |
 | 後端 | Supabase（Auth / Postgres + RLS / Storage / Edge Functions） |
 | Edge Functions | `gemini-proxy`（AI 分析，伺服器端驗證 Premium）、`price-proxy`、`cmc-proxy` |
 | 排程 | GitHub Actions：每日訊號檢查、新文章推播通知 |
+
+## 📁 專案結構
+
+```
+├─ index.html              網站入口(Vite)
+├─ src/
+│  ├─ app.jsx              主程式(各頁面、圖表頁、觀察清單…)
+│  ├─ forum.jsx            論壇
+│  └─ chart/               自製圖表引擎
+│     ├─ engine/           畫布、時間軸 / 價格軸、K 線與指標系列
+│     ├─ drawings/         繪圖工具、圖層、存檔
+│     ├─ react/            工具列、側邊面板、對話框
+│     ├─ smartdca/         Smart DCA 專用:技術圖表、AI 分析、圖表設定
+│     └─ demo/             引擎試玩頁(npm run dev 後開 /src/chart/demo/)
+├─ public/                 靜態檔(圖示、manifest、service worker、下載檔)
+├─ data/                   economic_calendar.json(由 scripts/gen_calendar.py 產生)
+├─ backend/                GitHub Actions 跑的 Python:每日訊號、論壇推播、判讀驗證
+├─ ai-bridge/              本機 AI 橋接(Node):讓圖表的 AI 分析用你電腦上的 Claude / Codex / Ollama
+├─ scripts/                建置與產生資料的小工具(AI 橋接 zip、經濟日曆、圖示)
+├─ supabase/               資料表 SQL 與 Edge Functions
+└─ .github/workflows/      部署與排程
+```
 
 ## 🔐 金鑰管理
 

@@ -10,7 +10,7 @@
 
 ## 使用
 
-1. Windows：雙擊專案根目錄的 `Start-AI-Bridge.bat`（第一次會自動安裝）。
+1. Windows：雙擊 `ai-bridge/windows/Start-AI-Bridge.bat`（第一次會自動安裝）。
    其他系統：`npm run ai-bridge:install` 一次，之後 `npm run ai-bridge`。
 2. 視窗顯示偵測到的 AI 後保持開著。
 3. 在圖表右側工具列打開「AI 分析」，齒輪裡選 AI、模型與努力程度。

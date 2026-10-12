@@ -35,4 +35,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DRY_RUN:      ${{ inputs.dry_run && '1' || '' }}
+        working-directory: backend
         run: python verify_judgments.py

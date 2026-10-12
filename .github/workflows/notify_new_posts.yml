@@ -40,4 +40,5 @@ jobs:
           LINE_USER_ID:               ${{ secrets.LINE_USER_ID }}
           SITE_URL:                   https://dca.hellokai07.com
           DRY_RUN:                    ${{ inputs.dry_run && '1' || '' }}
+        working-directory: backend
         run: python notify_new_posts.py

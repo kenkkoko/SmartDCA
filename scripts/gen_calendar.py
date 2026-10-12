@@ -1,7 +1,7 @@
 """
-產生 economic_calendar.json(repo 根目錄)
+產生 data/economic_calendar.json
 
-用法:  python py/gen_calendar.py
+用法:  python scripts/gen_calendar.py
 
 資料來源(2026 年全部為官方時程,confirmed=true):
   - FOMC:     https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
@@ -22,7 +22,7 @@ import os
 
 D = dt.date
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "economic_calendar.json")
+OUT = os.path.join(ROOT, "data", "economic_calendar.json")
 START, END = D(2026, 9, 1), D(2027, 12, 31)
 
 # ---------------------------------------------------------------------------
@@ -248,7 +248,7 @@ def build():
             "timezone": "America/New_York",
             "range": [START.isoformat(), END.isoformat()],
             "next_review": "2026-12-15",
-            "note": "time_et 為美東時間;confirmed=false 為依規則推估,官方時程公布後請更新 py/gen_calendar.py 並重跑",
+            "note": "time_et 為美東時間;confirmed=false 為依規則推估,官方時程公布後請更新 scripts/gen_calendar.py 並重跑",
         },
         "events": events,
     }

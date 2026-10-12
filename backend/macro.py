@@ -17,7 +17,7 @@ import requests
 
 ET = ZoneInfo("America/New_York")
 TW = ZoneInfo("Asia/Taipei")
-CALENDAR_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "economic_calendar.json")
+CALENDAR_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "economic_calendar.json")
 WEEKDAYS = "一二三四五六日"
 IMPACT_ICON = {"high": "🔴", "medium": "🟠", "low": "⚪"}
 

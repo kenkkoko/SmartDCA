@@ -3,7 +3,7 @@ already invested, the ultramarine square = this period, hollow dots = periods to
 into every raster icon the site ships (public/*.png).
 
 Geometry is the same 64x64 grid as the header SVG (src/app.jsx: LogoMark).
-Run:  python py/gen_logo.py
+Run:  python scripts/gen_logo.py
 """
 import os
 

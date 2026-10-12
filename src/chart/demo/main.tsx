@@ -1,4 +1,4 @@
-// Playground (stages 1 + 3: engine and drawing tools) for the new chart engine: /chart-demo.html
+// Playground (stages 1 + 3: engine and drawing tools) for the new chart engine: /src/chart/demo/ (npm run dev)
 // ?symbol=BTCUSDT (Binance daily) or ?data=synthetic for offline testing.
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";

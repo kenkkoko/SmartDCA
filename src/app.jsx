@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
-import economicCalendar from '../economic_calendar.json';
+import economicCalendar from '../data/economic_calendar.json';
 import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
 import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
 import { PanelHeader, panelIconBtn } from './chart/react/SideBar';
@@ -371,7 +371,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
         // --- Auth Component ---
         // Logo mark "每月一格": a 4x4 month grid. Filled dots = periods invested,
         // the ultramarine square = this period, hollow dots = periods to come.
-        // Same geometry as py/gen_logo.py (the raster icons).
+        // Same geometry as scripts/gen_logo.py (the raster icons).
         const LogoMark = ({ size = 28, className = '' }) => (
             <svg width={size} height={size} viewBox="0 0 64 64" className={className} aria-hidden="true" style={{ flex: 'none' }}>
                 {Array.from({ length: 16 }, (_, i) => {
@@ -829,7 +829,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
             );
         };
 
-        // --- 經濟日曆 (讀 repo 根目錄 economic_calendar.json,由 py/gen_calendar.py 產生) ---
+        // --- 經濟日曆 (讀 data/economic_calendar.json,由 scripts/gen_calendar.py 產生) ---
         // JSON 只存美東時間;這裡依美國日光節約時間換算成台灣時間
         const NY_PARTS = new Intl.DateTimeFormat('en-US', {
             timeZone: 'America/New_York', hourCycle: 'h23',
@@ -5128,7 +5128,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                                     <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊標註選取，上方浮動列可改顏色、線寬、填色、延伸、鎖定、複製、刪除；拖曳錨點微調；Delete 刪除、Ctrl+Z / Ctrl+Y 復原 / 重做、Esc 取消。</p>
                                     <p><strong className="text-white">圖層</strong>：右側工具列的圖層鈕打開面板（和觀察清單共用右側，一次開一個），列出所有標註；可點選、隱藏 / 顯示、鎖定、刪除，雙擊改名，拖曳調整上下順序（上面的畫在上層）；資料夾鈕可建立群組，把標註拖進群組後可整組隱藏 / 鎖定 / 收合；拖曳面板左緣可調整寬度。</p>
                                     <p><strong className="text-white">觀察清單</strong>：右側工具列的清單鈕開關。最上面自動同步「我的關注」（各市場頁的 ☆）與「我的投資」持有部位；可新增 / 改名 / 刪除清單（群組），按 ＋ 加入標的，拖曳排序或拖到別的清單；點標的切換圖表，↑↓ 鍵換上一個 / 下一個。</p>
-                                    <p><strong className="text-white">AI 分析</strong>：右側工具列的 ✦ 鈕。選「目前畫面」或在圖上框選範圍，把該範圍的 K 線、均線、RSI、MACD、量能與你畫的線交給你電腦上的 AI（Claude Code / Codex / Ollama）分析；齒輪可選 AI、模型與努力程度。需先在專案資料夾執行 Start-AI-Bridge.bat。</p>
+                                    <p><strong className="text-white">AI 分析</strong>：右側工具列的 ✦ 鈕。選「目前畫面」或在圖上框選範圍，把該範圍的 K 線、均線、RSI、MACD、量能與你畫的線交給你電腦上的 AI（Claude Code / Codex / Ollama）分析；可在分析鈕上方選 AI、模型與努力程度。第一次使用請照面板上的步驟下載並安裝本機 AI 橋接。</p>
                                     <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20 / 27 / 34 / 41 / 48 / 55（fast=20、slow=55）。線段顏色逐段切換 — fast 站上 slow 該段顯綠、跌破則紅；K 棒下方綠 △ = 金叉（多），K 棒上方紅 ▽ = 死叉（空）。</p>
                                     <p><strong className="text-white">RSI / MACD</strong>：RSI 紫線恆色，加 70 / 50 / 30 參考線，上穿 30 標 △、下穿 70 標 ▽；MACD DIF×DEA 金叉 △、死叉 ▽。</p>
                                     <p><strong className="text-white">Realized Price / MVRV</strong>（加密貨幣）：橘線為鏈上平均持倉成本（Realized Price），價格跌破 = 歷史級抄底區；MVRV = 市值 ÷ 實現市值，&lt;1 低估、&gt;2.4 過熱。資料源 CoinMetrics（BTC / ETH / LINK / DOGE）。美股 / 台股則顯示 MA200。</p>
