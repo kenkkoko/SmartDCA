@@ -1,11 +1,11 @@
-// Stage-1 playground for the new chart engine: /chart-demo.html
+// Playground (stages 1 + 3: engine and drawing tools) for the new chart engine: /chart-demo.html
 // ?symbol=BTCUSDT (Binance daily) or ?data=synthetic for offline testing.
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "../../tailwind.css";
 import type { Chart, CrosshairInfo } from "../engine/chart";
 import type { Bar } from "../engine/types";
-import { TradingChart } from "../react/TradingChart";
+import { DrawingChart } from "../react/DrawingChart";
 
 function synthetic(n = 1200): Bar[] {
   const bars: Bar[] = [];
@@ -52,6 +52,8 @@ function ema(values: number[], period: number): number[] {
   return out;
 }
 
+const symbol = new URLSearchParams(location.search).get("data") === "synthetic" ? "SYNTH" : (new URLSearchParams(location.search).get("symbol") ?? "BTCUSDT");
+
 function App() {
   const [chart, setChart] = useState<Chart | null>(null);
   const [bars, setBars] = useState<Bar[]>([]);
@@ -91,7 +93,7 @@ function App() {
   return (
     <div className="flex h-screen flex-col bg-[#0b0e14] text-slate-200">
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2 text-sm">
-        <span className="font-semibold">新圖表引擎 · 第 1 階段</span>
+        <span className="font-semibold">{symbol} · 新圖表引擎</span>
         {bar ? (
           <span className={`ml-3 font-mono text-xs ${up ? "text-[#00d68f]" : "text-[#ff5b6e]"}`}>
             開 {bar.open.toFixed(2)} 高 {bar.high.toFixed(2)} 低 {bar.low.toFixed(2)} 收 {bar.close.toFixed(2)} ({up ? "+" : ""}
@@ -110,7 +112,7 @@ function App() {
           </button>
         </div>
       </div>
-      <TradingChart className="min-h-0 flex-1" onReady={(c) => setChart(c)} />
+      <DrawingChart className="min-h-0 flex-1" storageKey={`demo.${symbol}`} onReady={(c) => setChart(c)} />
     </div>
   );
 }

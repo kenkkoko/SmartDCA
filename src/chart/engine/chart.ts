@@ -49,6 +49,8 @@ export type ChartPrimitive = {
   /** Lower paints first. Drawings use 100+. */
   zIndex?: number;
   draw(context: PrimitiveContext): void;
+  /** Paints over the axes (e.g. price/time tags of a selected drawing). */
+  drawOverAxes?(context: PrimitiveContext): void;
 };
 
 /** A pointer gesture the drawing layer may claim before the chart pans. */
@@ -125,7 +127,8 @@ export class Chart {
       ...options,
     };
     this.root = document.createElement("div");
-    this.root.style.cssText = "position:relative;width:100%;height:100%;overflow:hidden;touch-action:none;user-select:none;";
+    this.root.style.cssText = "position:relative;width:100%;height:100%;overflow:hidden;touch-action:none;user-select:none;outline:none;";
+    this.root.tabIndex = 0; // keyboard shortcuts for drawings
     const baseCanvas = document.createElement("canvas");
     const overlayCanvas = document.createElement("canvas");
     for (const c of [baseCanvas, overlayCanvas]) c.style.cssText = "position:absolute;left:0;top:0;display:block;";
@@ -281,6 +284,25 @@ export class Chart {
 
   get plotWidth(): number {
     return this.time.width;
+  }
+
+  /** Bottom of the pane area (top of the time axis), CSS px. */
+  get plotBottom(): number {
+    return this.base.height - this.options.timeAxisHeight;
+  }
+
+  get width(): number {
+    return this.base.width;
+  }
+
+  /** Candles of the main series (for tools that read prices / volume). */
+  bars(): Bar[] {
+    return this.mainSeries?.data ?? [];
+  }
+
+  /** Price-axis label text for a pane (same precision as the axis). */
+  formatPrice(pane: Pane, price: number): string {
+    return pane.price.format(price);
   }
 
   /** Repaint (coalesced to the next animation frame). */
@@ -484,6 +506,7 @@ export class Chart {
 
     this.drawPriceAxes(ticksByPane);
     this.drawTimeAxis(marks);
+    for (const p of this.primitives) p.drawOverAxes?.({ surface: s, chart: this, theme: t });
   }
 
   private drawMarkers(series: AnySeries, pane: Pane, from: number, to: number): void {
@@ -638,6 +661,7 @@ export class Chart {
 
   private onPointerDown = (event: PointerEvent) => {
     const target = event.currentTarget as HTMLElement;
+    this.root.focus({ preventScroll: true });
     const p = this.local(event);
     this.pointers.set(event.pointerId, p);
     cancelAnimationFrame(this.kineticFrame);
