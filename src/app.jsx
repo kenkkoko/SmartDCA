@@ -4558,8 +4558,10 @@ import { AiPanel } from './chart/smartdca/AiPanel';
             const [fngHistory, setFngHistory] = useState([]);
             const [timeRange, setTimeRange] = useState('max'); // 預設全歷史
             const [history, setHistory] = useState([]);
+            const [loadVersion, setLoadVersion] = useState(0); // 每次重新載入 +1;即時跳動不算(圖表只在新載入時重新對齊畫面)
             const [loading, setLoading] = useState(true);
             const [error, setError] = useState(null);
+            const [live, setLive] = useState(null); // null | 'live' | 'delayed' | 'offline'
 
             // Auto-extend the underlying fetch range so indicators have enough bars to compute
             const effectiveHistoryRange = useMemo(() => {
@@ -4573,6 +4575,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
             }, [timeframe, timeRange, showMA200]);
 
             // ─── Fetch price history (Binance for crypto, Yahoo via cors proxy for stocks) ───
+            const loadHistory = (h) => { setHistory(h); setLoadVersion(v => v + 1); };
             useEffect(() => {
                 if (!symbol) return;
                 let cancelled = false;
@@ -4583,7 +4586,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                         const apiType = (type === 'CRYPTO' || type === 'crypto') ? 'crypto' : 'stock';
                         if (apiType === 'crypto') {
                             const binSym = getBinanceSymbol(symbol);
-                            if (!binSym) { setError(`不支援的幣種：${symbol}（不在 Binance 上市）`); setHistory([]); return; }
+                            if (!binSym) { setError(`不支援的幣種：${symbol}（不在 Binance 上市）`); loadHistory([]); return; }
                             // Binance 一次最多 1000 根:ALL 往前翻頁抓完整歷史(上限約 15 年)
                             const want = effectiveHistoryRange === 'max' ? 5500 : rangeToDays(effectiveHistoryRange) + 5;
                             let klines = [];
@@ -4595,7 +4598,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                                 if (cancelled) return;
                                 if (!binRes.ok) {
                                     if (klines.length) break;
-                                    setError(`Binance returned ${binRes.status}`); setHistory([]); return;
+                                    setError(`Binance returned ${binRes.status}`); loadHistory([]); return;
                                 }
                                 const page = await binRes.json();
                                 if (!Array.isArray(page) || page.length === 0) break;
@@ -4603,7 +4606,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                                 if (page.length < limit) break; // 已到上市第一天
                                 endTime = page[0][0] - 1;
                             }
-                            setHistory(klines.map(k => ({
+                            loadHistory(klines.map(k => ({
                                 date: new Date(k[0]).toISOString().slice(0, 10),
                                 price: +k[4], open: +k[1], high: +k[2], low: +k[3], volume: +k[5],
                             })));
@@ -4615,10 +4618,10 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                         const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&${span}`;
                         const stockRes = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(yahooUrl));
                         if (cancelled) return;
-                        if (!stockRes.ok) { setError(`Yahoo returned ${stockRes.status}`); setHistory([]); return; }
+                        if (!stockRes.ok) { setError(`Yahoo returned ${stockRes.status}`); loadHistory([]); return; }
                         const yfJson = await stockRes.json();
                         const result = yfJson?.chart?.result?.[0];
-                        if (!result) { setError(yfJson?.chart?.error?.description || '查無此代號'); setHistory([]); return; }
+                        if (!result) { setError(yfJson?.chart?.error?.description || '查無此代號'); loadHistory([]); return; }
                         const ts = result.timestamp || [];
                         const q = result.indicators?.quote?.[0] || {};
                         const opens = q.open || [], highs = q.high || [], lows = q.low || [], closes = q.close || [], vols = q.volume || [];
@@ -4633,7 +4636,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                             if (vols[i] != null && !isNaN(vols[i])) entry.volume = vols[i];
                             hist.push(entry);
                         }
-                        setHistory(hist);
+                        loadHistory(hist);
                     } catch (e) {
                         if (!cancelled) setError(String(e));
                     } finally {
@@ -4642,6 +4645,91 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                 })();
                 return () => { cancelled = true; };
             }, [symbol, type, effectiveHistoryRange]);
+
+            // ─── 即時價格(跟 OpenChart 一樣)───
+            // 加密貨幣:Binance WebSocket K 線推播(約每秒);股票:Yahoo 沒有推播,每 15 秒重抓最近幾天(延遲報價)
+            const liveReady = !loading && !error && history.length > 0;
+            useEffect(() => {
+                if (!symbol || !liveReady) return;
+                let stopped = false;
+                const toDate = (ms) => new Date(ms).toISOString().slice(0, 10);
+                // 只改最後一根或接上新的一根;同一秒多筆推播合併,最多每秒更新一次畫面
+                let pending = null;
+                const flush = () => {
+                    if (!pending) return;
+                    const bar = pending;
+                    pending = null;
+                    setHistory(h => {
+                        if (!h.length) return h;
+                        const last = h[h.length - 1];
+                        if (bar.date < last.date) return h;
+                        if (bar.date === last.date) {
+                            if (last.price === bar.price && last.high === bar.high && last.low === bar.low && last.volume === bar.volume) return h;
+                            return [...h.slice(0, -1), { ...last, ...bar }];
+                        }
+                        return [...h, bar];
+                    });
+                };
+                const timer = setInterval(flush, 1000);
+
+                if (type === 'CRYPTO' || type === 'crypto') {
+                    const binSym = getBinanceSymbol(symbol);
+                    if (!binSym) return () => clearInterval(timer);
+                    const hosts = ['wss://data-stream.binance.vision', 'wss://stream.binance.com:9443'];
+                    let ws = null, attempt = 0, retry = null;
+                    const connect = () => {
+                        if (stopped) return;
+                        ws = new WebSocket(`${hosts[attempt % hosts.length]}/ws/${binSym.toLowerCase()}@kline_1d`);
+                        ws.onopen = () => { attempt = 0; setLive('live'); };
+                        ws.onmessage = (e) => {
+                            try {
+                                const k = JSON.parse(e.data).k;
+                                if (k) pending = { date: toDate(k.t), price: +k.c, open: +k.o, high: +k.h, low: +k.l, volume: +k.v };
+                            } catch { /* 格式不對就略過 */ }
+                        };
+                        ws.onclose = () => {
+                            if (stopped) return;
+                            setLive('offline');
+                            attempt++;
+                            retry = setTimeout(connect, Math.min(30000, 1000 * 2 ** Math.min(attempt, 5)));
+                        };
+                        ws.onerror = () => { try { ws.close(); } catch { /* 已關閉 */ } };
+                    };
+                    connect();
+                    return () => { stopped = true; clearInterval(timer); clearTimeout(retry); if (ws) { ws.onclose = null; ws.close(); } setLive(null); };
+                }
+
+                // 股票:每 15 秒抓最近 5 天(分頁在背景時暫停)
+                const poll = async () => {
+                    if (stopped || document.visibilityState === 'hidden') return;
+                    try {
+                        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+                        const res = await fetch('https://cors.hellokai07.com/?' + encodeURIComponent(url));
+                        if (!res.ok) throw new Error(String(res.status));
+                        const r = (await res.json())?.chart?.result?.[0];
+                        const ts = r?.timestamp || [];
+                        const q = r?.indicators?.quote?.[0] || {};
+                        for (let i = 0; i < ts.length; i++) {
+                            if (q.close?.[i] == null || isNaN(q.close[i])) continue;
+                            const bar = { date: toDate(ts[i] * 1000), price: q.close[i] };
+                            if (q.open?.[i] != null) bar.open = q.open[i];
+                            if (q.high?.[i] != null) bar.high = q.high[i];
+                            if (q.low?.[i] != null) bar.low = q.low[i];
+                            if (q.volume?.[i] != null) bar.volume = q.volume[i];
+                            pending = bar; // 只留最後一根(今天)
+                        }
+                        // 收盤後 Yahoo 的最後一根常常也是即時價,一律交給 flush 判斷有沒有變
+                        if (!stopped) setLive('delayed');
+                    } catch {
+                        if (!stopped) setLive('offline');
+                    }
+                };
+                const pollTimer = setInterval(poll, 15000);
+                const onVisible = () => { if (document.visibilityState === 'visible') poll(); };
+                document.addEventListener('visibilitychange', onVisible);
+                poll();
+                return () => { stopped = true; clearInterval(timer); clearInterval(pollTimer); document.removeEventListener('visibilitychange', onVisible); setLive(null); };
+            }, [symbol, type, liveReady]);
 
             // ─── Fetch FNG history (crypto / US only) ───
             useEffect(() => {
@@ -4917,6 +5005,13 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                                     </div>
                                 )}
                                 {error && <div className="text-[10px] ml-2 truncate" style={{ color: '#ff7d8c' }}>{error}</div>}
+                                {!loading && !error && live && (
+                                    <div className="hidden sm:flex items-center gap-1.5 text-[10px] ml-2 shrink-0" style={{ color: 'var(--text-3)' }}
+                                        title={live === 'live' ? 'Binance 即時推播,價格每秒更新' : live === 'delayed' ? 'Yahoo 延遲報價,每 15 秒更新' : '即時連線中斷,自動重試中'}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${live === 'live' ? 'animate-pulse' : ''}`} style={{ background: live === 'offline' ? 'var(--text-3)' : UP_C }}></span>
+                                        {live === 'live' ? '即時' : live === 'delayed' ? '每 15 秒更新' : '重新連線中'}
+                                    </div>
+                                )}
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                                 <button onClick={() => setShowSignalPanel(!showSignalPanel)}
@@ -4980,6 +5075,7 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                             <TechnicalChartView
                                 className="absolute inset-0"
                                 candles={candleData}
+                                dataKey={`${symbol}|${type}|${timeframe}|${loadVersion}`}
                                 showEMA={showEMA}
                                 showMA200={showMA200 && !isCryptoType}
                                 realizedPrice={realizedPrice}

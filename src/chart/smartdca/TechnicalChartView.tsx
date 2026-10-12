@@ -66,6 +66,12 @@ export type HoverInfo = { time: number; open: number; high: number; low: number;
 
 export type TechnicalChartViewProps = {
   candles: Bar[];
+  /**
+   * Identity of the data set (symbol, timeframe, load). The view re-fits only
+   * when it changes, so live price updates keep the user's zoom and panes.
+   * Without it every new `candles` array counts as a new data set.
+   */
+  dataKey?: string;
   showEMA: boolean;
   /** MA200 line (stocks). */
   showMA200: boolean;
@@ -160,8 +166,12 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     volumeMa: LineSeries | null;
     main: LineSeries[];
     panes: Pane[];
+    rsi: LineSeries | null;
+    macd: { hist: HistogramSeries; dif: LineSeries; dea: LineSeries } | null;
     legend: PaneLegend;
-  }>({ candles: null, volume: null, volumeMa: null, main: [], panes: [], legend: new PaneLegend() });
+  }>({ candles: null, volume: null, volumeMa: null, main: [], panes: [], rsi: null, macd: null, legend: new PaneLegend() });
+  const fittedKey = useRef<string | Bar[] | null>(null);
+  const dataKey = props.dataKey ?? props.candles;
   const hover = useRef(props.onHover);
   const lastHoverIndex = useRef<number | null>(null);
   hover.current = props.onHover;
@@ -208,6 +218,9 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     const series = refs.current.candles;
     if (!chart || !series || !props.candles.length) return;
     series.setData(props.candles);
+    // a live tick of the same data set: keep the view where the user left it
+    if (fittedKey.current === dataKey) return;
+    fittedKey.current = dataKey;
     // another symbol can live in a completely different price range: re-fit
     // both axes, otherwise a manually scaled price axis keeps the old range
     chart.resetView();
@@ -215,7 +228,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     refs.current.legend.index = null;
     lastHoverIndex.current = null;
     hover.current?.(null);
-  }, [chart, props.candles]);
+  }, [chart, props.candles, dataKey]);
 
   useEffect(() => {
     if (chart && props.fitSignal) chart.resetView();
@@ -287,13 +300,43 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     chart.invalidate();
   }, [chart, props.candles, props.showEMA, props.showMA200, props.realizedPrice, props.markers, UP, DOWN]);
 
-  // RSI / MACD panes, rebuilt in order so toggling never stacks them
+  // RSI / MACD panes: built when toggled or for a new data set (pane ids and
+  // heights must survive live ticks), values filled in by the effect below
+  const hasBars = props.candles.length > 0;
   useEffect(() => {
     if (!chart) return;
     const r = refs.current;
     for (const p of r.panes) chart.removePane(p.id);
     r.panes = [];
+    r.rsi = null;
+    r.macd = null;
     r.legend.entries.clear();
+    if (!hasBars) return chart.invalidate();
+    if (props.showRSI) {
+      const pane = chart.addPane({ weight: 1 / 3 });
+      r.rsi = chart.addLine(pane, { color: "#a78bfa", lineWidth: 1.5, lastValueLabel: true, title: "RSI(14)" });
+      r.rsi.setPriceLines([
+        { price: 70, color: withAlpha(DOWN, 0.5), lineStyle: "dashed" },
+        { price: 50, color: theme.border, lineStyle: "dashed" },
+        { price: 30, color: withAlpha(UP, 0.5), lineStyle: "dashed" },
+      ]);
+      r.panes.push(pane);
+    }
+    if (props.showMACD) {
+      const pane = chart.addPane({ weight: 1 / 3 });
+      const hist = chart.addHistogram(pane, {});
+      const dif = chart.addLine(pane, { color: "#3b82f6", lineWidth: 1.5, title: "DIF" });
+      const dea = chart.addLine(pane, { color: "#fbbf24", lineWidth: 1.5, title: "DEA" });
+      r.macd = { hist, dif, dea };
+      r.panes.push(pane);
+    }
+    chart.invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chart, props.showRSI, props.showMACD, hasBars, dataKey, UP, DOWN, theme.border]);
+
+  useEffect(() => {
+    if (!chart) return;
+    const r = refs.current;
     const bars = props.candles;
     if (!bars.length) return;
     const closes = bars.map((b) => b.close);
@@ -303,17 +346,9 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       shape: dir > 0 ? "arrowUp" : "arrowDown",
       color: dir > 0 ? UP : DOWN,
     });
-
-    if (props.showRSI && closes.length > 14) {
-      const pane = chart.addPane({ weight: 1 / 3 });
+    if (r.rsi && r.panes[0]) {
       const values = rsi(closes, 14);
-      const s = chart.addLine(pane, { color: "#a78bfa", lineWidth: 1.5, lastValueLabel: true, title: "RSI(14)" });
-      s.setData(points(bars, values));
-      s.setPriceLines([
-        { price: 70, color: withAlpha(DOWN, 0.5), lineStyle: "dashed" },
-        { price: 50, color: theme.border, lineStyle: "dashed" },
-        { price: 30, color: withAlpha(UP, 0.5), lineStyle: "dashed" },
-      ]);
+      r.rsi.setData(points(bars, values));
       const m: Marker[] = [];
       for (let i = 1; i < values.length; i++) {
         const a = values[i - 1];
@@ -322,22 +357,16 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
         if (a <= 30 && b > 30) m.push(marker(i, 1));
         else if (a >= 70 && b < 70) m.push(marker(i, -1));
       }
-      s.setMarkers(m);
-      r.panes.push(pane);
-      r.legend.entries.set(pane.id, [{ label: "RSI(14)", color: "#a78bfa", values }]);
+      r.rsi.setMarkers(m);
+      r.legend.entries.set(r.panes[0].id, [{ label: "RSI(14)", color: "#a78bfa", values }]);
     }
-
-    if (props.showMACD) {
-      const pane = chart.addPane({ weight: 1 / 3 });
+    if (r.macd) {
+      const pane = r.panes[r.panes.length - 1]!;
       const m = macd(closes);
-      chart
-        .addHistogram(pane, {})
-        .setData(points(bars, m.histogram, (i) => withAlpha(m.histogram[i]! >= 0 ? UP : DOWN, 0.75)));
-      const dif = chart.addLine(pane, { color: "#3b82f6", lineWidth: 1.5, title: "DIF" });
-      dif.setData(points(bars, m.dif));
-      chart.addLine(pane, { color: "#fbbf24", lineWidth: 1.5, title: "DEA" }).setData(points(bars, m.dea));
-      dif.setMarkers(crosses(m.dif, m.dea).map((c) => marker(c.index, c.dir)));
-      r.panes.push(pane);
+      r.macd.hist.setData(points(bars, m.histogram, (i) => withAlpha(m.histogram[i]! >= 0 ? UP : DOWN, 0.75)));
+      r.macd.dif.setData(points(bars, m.dif));
+      r.macd.dea.setData(points(bars, m.dea));
+      r.macd.dif.setMarkers(crosses(m.dif, m.dea).map((c) => marker(c.index, c.dir)));
       r.legend.entries.set(pane.id, [
         { label: "MACD 12 26 9", color: theme.text, values: [] },
         { label: "DIF", color: "#3b82f6", values: m.dif },
@@ -346,7 +375,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       ]);
     }
     chart.invalidate();
-  }, [chart, props.candles, props.showRSI, props.showMACD, UP, DOWN, theme.text]);
+  }, [chart, props.candles, props.showRSI, props.showMACD, hasBars, dataKey, UP, DOWN, theme.text, theme.border]);
 
   return (
     <DrawingChart className={props.className} storageKey={props.storageKey} onReady={onReady} theme={theme} sidePanels={props.sidePanels} defaultSidePanel={props.defaultSidePanel}
