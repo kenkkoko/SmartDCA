@@ -196,9 +196,9 @@ export function ColorButton({
         <span
           className="flex h-4 w-4 items-center justify-center rounded-sm border border-[var(--c-line)] text-[8px] font-bold leading-none"
           style={{
-            background: color === AUTO_COLOR ? "var(--c-drawing)" : (color ?? "transparent"),
+            backgroundColor: color === AUTO_COLOR ? "var(--c-drawing)" : (color ?? "transparent"),
             color: "var(--c-panel)",
-            backgroundImage: color ? undefined : "linear-gradient(135deg,transparent 45%,#f23645 45%,#f23645 55%,transparent 55%)",
+            backgroundImage: color ? "none" : "linear-gradient(135deg,transparent 45%,#f23645 45%,#f23645 55%,transparent 55%)",
           }}
         >
           {color === AUTO_COLOR ? "A" : null}
@@ -304,7 +304,7 @@ export function PropertiesBar({ layer, onOpenDialog }: { layer: DrawingLayer; on
 
   return (
     <div
-      className="absolute inset-x-2 top-2 z-30 mx-auto flex w-max max-w-[calc(100%-16px)] items-center gap-0.5 overflow-x-auto rounded-lg border border-[var(--c-line)] bg-[var(--c-panel)] px-1.5 py-1 text-[var(--c-text)] shadow-xl backdrop-blur"
+      className="absolute inset-x-2 top-2 z-30 mx-auto flex w-max max-w-[calc(100%-16px)] flex-wrap items-center justify-center gap-0.5 rounded-lg border border-[var(--c-line)] bg-[var(--c-panel)] px-1.5 py-1 text-[var(--c-text)] shadow-xl backdrop-blur"
       data-testid="properties-bar"
       onPointerDown={(e) => e.stopPropagation()}
     >
