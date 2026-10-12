@@ -330,3 +330,34 @@ describe("chart view reset (symbol switch)", () => {
     expect(pane.overlay.autoScale).toBe(true);
   });
 });
+
+describe("layers and theme", () => {
+  beforeEach(() => {
+    for (const x of [150, 320, 460]) {
+      layer.setActiveTool("trend_line");
+      click(x, 300);
+      click(x + 140, 200);
+    }
+  });
+
+  it("moveTo reorders paint order as one undo step", () => {
+    const [a, b, c] = layer.items.map((d) => d.id);
+    layer.moveTo(a!, 2);
+    expect(layer.items.map((d) => d.id)).toEqual([b, c, a]);
+    layer.undo();
+    expect(layer.items.map((d) => d.id)).toEqual([a, b, c]);
+  });
+
+  it("new drawings default to the theme colour and keep it as 'auto'", () => {
+    expect(layer.items[0]!.style.color).toBe("auto");
+  });
+
+  it("chart themes define readable drawing colours", async () => {
+    const { DARK_THEME, LIGHT_THEME } = await import("../engine/types");
+    expect(readable(DARK_THEME.drawing, DARK_THEME.background)).toBe(DARK_THEME.drawing);
+    expect(readable(LIGHT_THEME.drawing, LIGHT_THEME.background)).toBe(LIGHT_THEME.drawing);
+    // a black line drawn on a light chart turns light on the dark chart
+    expect(readable("#000000", DARK_THEME.background)).not.toBe("#000000");
+    expect(readable("#000000", LIGHT_THEME.background)).toBe("#000000");
+  });
+});

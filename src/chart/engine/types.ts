@@ -39,6 +39,23 @@ export type Theme = {
   axisLabelText: string;
   fontFamily: string;
   fontSize: number;
+  /** Default colour of drawings ("auto"): white-ish on dark, black-ish on light. */
+  drawing: string;
+  /** Colours for the toolbar, properties bar and dialogs around the canvas. */
+  ui: {
+    /** Toolbars, menus, dialogs. */
+    panel: string;
+    /** Raised surface inside a panel (inputs, hovered rows). */
+    raised: string;
+    text: string;
+    muted: string;
+    line: string;
+    hover: string;
+    accent: string;
+    accentSoft: string;
+    accentText: string;
+    shadow: string;
+  };
 };
 
 /** Green up, red down (Kai's convention). */
@@ -55,6 +72,47 @@ export const DARK_THEME: Theme = {
   fontFamily:
     "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC', sans-serif",
   fontSize: 11,
+  drawing: "#e6e9ef",
+  ui: {
+    panel: "#161b25",
+    raised: "#0e1219",
+    text: "#e6e9ef",
+    muted: "#8b95a5",
+    line: "rgba(255,255,255,0.14)",
+    hover: "rgba(255,255,255,0.10)",
+    accent: "#4c7dff",
+    accentSoft: "rgba(76,125,255,0.22)",
+    accentText: "#ffffff",
+    shadow: "0 12px 32px rgba(0,0,0,0.55)",
+  },
+};
+
+/** Light chart: white paper, black drawings (TradingView light). */
+export const LIGHT_THEME: Theme = {
+  background: "#ffffff",
+  text: "#4a4f5a",
+  grid: "rgba(17,17,17,0.07)",
+  border: "rgba(17,17,17,0.16)",
+  crosshair: "rgba(30,34,45,0.5)",
+  up: "#089981",
+  down: "#f23645",
+  axisLabelBackground: "#131722",
+  axisLabelText: "#ffffff",
+  fontFamily: DARK_THEME.fontFamily,
+  fontSize: 11,
+  drawing: "#131722",
+  ui: {
+    panel: "#ffffff",
+    raised: "#f3f4f6",
+    text: "#131722",
+    muted: "#5d6370",
+    line: "rgba(17,17,17,0.16)",
+    hover: "rgba(17,17,17,0.07)",
+    accent: "#1b39c4",
+    accentSoft: "rgba(27,57,196,0.12)",
+    accentText: "#ffffff",
+    shadow: "0 12px 32px rgba(0,0,0,0.18)",
+  },
 };
 
 export function clamp(value: number, min: number, max: number): number {

@@ -3,10 +3,11 @@
 // with cross markers, FNG fear dots, plus the full drawing toolset.
 // Data fetching and the signal panel stay in the app; this only paints.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Chart, ChartPrimitive, Pane } from "../engine/chart";
 import type { CandleSeries, HistogramSeries, LineSeries, Marker } from "../engine/series";
-import type { Bar, ValuePoint } from "../engine/types";
+import { DARK_THEME, LIGHT_THEME, type Bar, type ValuePoint } from "../engine/types";
+import { withAlpha } from "../drawings/geometry";
 import { crosses, ema, macd, rsi, sma, type Num } from "../indicators";
 import type { DrawingLayer } from "../drawings/layer";
 import { DrawingChart } from "../react/DrawingChart";
@@ -16,9 +17,7 @@ export const EMA_SLOW = 55;
 export const EMA_PERIODS = [0, 0.2, 0.4, 0.6, 0.8, 1].map((k) => Math.round(EMA_FAST + (EMA_SLOW - EMA_FAST) * k));
 const EMA_BULL = "rgba(0, 200, 83, 0.6)";
 const EMA_BEAR = "rgba(255, 23, 68, 0.6)";
-const UP = "#00d68f";
 const VOLUME_MA = 20;
-const DOWN = "#ff5b6e";
 
 export type HoverInfo = { time: number; open: number; high: number; low: number; close: number; prevClose: number | null };
 
@@ -41,6 +40,10 @@ export type TechnicalChartViewProps = {
   /** Bump to fit all bars (the "reset" button). */
   fitSignal?: number;
   className?: string;
+  /** Overlays drawn over the chart area (OHLC box, signal panel). */
+  children?: ReactNode;
+  /** Follows the app's light / dark switch. */
+  theme?: "light" | "dark";
 };
 
 const points = (candles: Bar[], values: Num[], color?: (i: number) => string | undefined): ValuePoint[] => {
@@ -88,6 +91,9 @@ class PaneLegend implements ChartPrimitive {
 }
 
 export function TechnicalChartView(props: TechnicalChartViewProps) {
+  const theme = props.theme === "light" ? LIGHT_THEME : DARK_THEME;
+  const UP = theme.up;
+  const DOWN = theme.down;
   const [chart, setChart] = useState<Chart | null>(null);
   const refs = useRef<{
     candles: CandleSeries | null;
@@ -104,7 +110,8 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   candlesRef.current = props.candles;
 
   const onReady = (c: Chart, _layer: DrawingLayer) => {
-    refs.current.candles = c.addCandles(c.mainPane, { upColor: UP, downColor: DOWN, wickUpColor: UP, wickDownColor: DOWN });
+    // no explicit colours: candles take the chart theme's and follow theme switches
+    refs.current.candles = c.addCandles(c.mainPane);
     const offLegend = c.addPrimitive(refs.current.legend);
     const off = c.onCrosshairMove((info) => {
       const legend = refs.current.legend;
@@ -162,7 +169,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     list.splice(list.indexOf(r.volume), 1);
     list.unshift(r.volume);
     r.volume.setData(
-      bars.map((b) => ({ time: b.time, value: b.volume ?? 0, color: b.close >= b.open ? "rgba(0,214,143,0.35)" : "rgba(255,91,110,0.35)" })),
+      bars.map((b) => ({ time: b.time, value: b.volume ?? 0, color: withAlpha(b.close >= b.open ? UP : DOWN, 0.35) })),
     );
     // 20-bar volume moving average on the same overlay scale
     const vols = bars.map((b) => b.volume ?? 0);
@@ -171,7 +178,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     list.splice(list.indexOf(r.volumeMa), 1);
     list.splice(1, 0, r.volumeMa);
     chart.invalidate();
-  }, [chart, props.candles, props.showVolume]);
+  }, [chart, props.candles, props.showVolume, UP, DOWN]);
 
   // main-pane overlays + candle markers
   useEffect(() => {
@@ -210,7 +217,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     }
     r.candles?.setMarkers(markers.sort((a, b) => a.time - b.time));
     chart.invalidate();
-  }, [chart, props.candles, props.showEMA, props.showMA200, props.realizedPrice, props.markers]);
+  }, [chart, props.candles, props.showEMA, props.showMA200, props.realizedPrice, props.markers, UP, DOWN]);
 
   // RSI / MACD panes, rebuilt in order so toggling never stacks them
   useEffect(() => {
@@ -235,9 +242,9 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       const s = chart.addLine(pane, { color: "#a78bfa", lineWidth: 1.5, lastValueLabel: true, title: "RSI(14)" });
       s.setData(points(bars, values));
       s.setPriceLines([
-        { price: 70, color: "rgba(255,91,110,0.5)", lineStyle: "dashed" },
-        { price: 50, color: "rgba(255,255,255,0.18)", lineStyle: "dashed" },
-        { price: 30, color: "rgba(0,214,143,0.5)", lineStyle: "dashed" },
+        { price: 70, color: withAlpha(DOWN, 0.5), lineStyle: "dashed" },
+        { price: 50, color: theme.border, lineStyle: "dashed" },
+        { price: 30, color: withAlpha(UP, 0.5), lineStyle: "dashed" },
       ]);
       const m: Marker[] = [];
       for (let i = 1; i < values.length; i++) {
@@ -257,21 +264,25 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       const m = macd(closes);
       chart
         .addHistogram(pane, {})
-        .setData(points(bars, m.histogram, (i) => (m.histogram[i]! >= 0 ? "rgba(0,214,143,0.75)" : "rgba(255,91,110,0.75)")));
+        .setData(points(bars, m.histogram, (i) => withAlpha(m.histogram[i]! >= 0 ? UP : DOWN, 0.75)));
       const dif = chart.addLine(pane, { color: "#3b82f6", lineWidth: 1.5, title: "DIF" });
       dif.setData(points(bars, m.dif));
       chart.addLine(pane, { color: "#fbbf24", lineWidth: 1.5, title: "DEA" }).setData(points(bars, m.dea));
       dif.setMarkers(crosses(m.dif, m.dea).map((c) => marker(c.index, c.dir)));
       r.panes.push(pane);
       r.legend.entries.set(pane.id, [
-        { label: "MACD 12 26 9", color: "#9aa4b2", values: [] },
+        { label: "MACD 12 26 9", color: theme.text, values: [] },
         { label: "DIF", color: "#3b82f6", values: m.dif },
         { label: "DEA", color: "#fbbf24", values: m.dea },
-        { label: "Hist", color: "#9aa4b2", values: m.histogram },
+        { label: "Hist", color: theme.text, values: m.histogram },
       ]);
     }
     chart.invalidate();
-  }, [chart, props.candles, props.showRSI, props.showMACD]);
+  }, [chart, props.candles, props.showRSI, props.showMACD, UP, DOWN, theme.text]);
 
-  return <DrawingChart className={props.className} storageKey={props.storageKey} onReady={onReady} />;
+  return (
+    <DrawingChart className={props.className} storageKey={props.storageKey} onReady={onReady} theme={theme}>
+      {props.children}
+    </DrawingChart>
+  );
 }

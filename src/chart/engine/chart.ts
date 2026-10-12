@@ -149,6 +149,25 @@ export class Chart {
     return this.options.theme;
   }
 
+  /** Switch light / dark; the candle series created with the old theme's colours follow. */
+  setTheme(theme: Theme): void {
+    const old = this.options.theme;
+    this.options.theme = theme;
+    for (const pane of this.panes)
+      for (const s of pane.series)
+        if (s instanceof CandleSeries) {
+          const o = s.options;
+          s.applyOptions({
+            upColor: o.upColor === old.up ? theme.up : o.upColor,
+            downColor: o.downColor === old.down ? theme.down : o.downColor,
+            wickUpColor: o.wickUpColor === old.up ? theme.up : o.wickUpColor,
+            wickDownColor: o.wickDownColor === old.down ? theme.down : o.wickDownColor,
+          });
+        }
+    this.invalidate();
+    this.emitView();
+  }
+
   get mainPane(): Pane {
     return this.panes[0]!;
   }

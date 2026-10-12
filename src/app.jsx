@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
 import economicCalendar from '../economic_calendar.json';
 import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
+import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
 
         const { useState, useEffect, useMemo, useRef } = React;
 
@@ -3914,8 +3915,6 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                 Math.round(f + (s - f) * 0.8),
                 s];
         })();
-        const UP_COLOR = '#00d68f';
-        const DOWN_COLOR = '#ff5b6e';
 
         // ─── CoinMetrics 社群 API(免金鑰、CORS 開放)───
         // MVRV 與 Realized Price:Realized Price = 現價 ÷ MVRV
@@ -4202,6 +4201,11 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
             const [current, setCurrent] = useState({ symbol: initialSymbol, type: initialType });
             useEffect(() => { setCurrent({ symbol: initialSymbol, type: initialType }); }, [initialSymbol, initialType]);
             const { symbol, type } = current;
+            // 圖表跟著網站深 / 淺色切換(K 線、畫線、工具列、面板一起換)
+            useThemeVersion();
+            const chartTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+            const UP_C = (chartTheme === 'dark' ? DARK_THEME : LIGHT_THEME).up;
+            const DOWN_C = (chartTheme === 'dark' ? DARK_THEME : LIGHT_THEME).down;
             const pickSymbol = (next) => {
                 setCurrent(next);
                 onSymbolChange && onSymbolChange(next);
@@ -4434,13 +4438,13 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                     markers.push({
                         time: bar.time,
                         position: 'belowBar',
-                        color: v <= 25 ? DOWN_COLOR : '#f59e0b',
+                        color: v <= 25 ? DOWN_C : '#f59e0b',
                         shape: 'circle',
                         size: v <= 25 ? 1 : 0.7,
                     });
                 });
                 return markers;
-            }, [candleData, fngByDate, fngHistory, showFearSignal, signalSource]);
+            }, [candleData, fngByDate, fngHistory, showFearSignal, signalSource, DOWN_C]);
 
             // ─── Aggregate every signal we display into the summary panel ───
             const signalSummary = useMemo(() => {
@@ -4533,11 +4537,12 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                 <button
                     onClick={() => onChange(!checked)}
                     title={label}
-                    className="flex items-center gap-1.5 px-2 h-8 rounded-lg hover:bg-white/[0.06] transition-colors shrink-0"
-                    style={{ border: '1px solid var(--line)', background: checked ? 'rgba(255,255,255,0.04)' : 'transparent' }}
+                    aria-pressed={checked}
+                    className="flex items-center gap-1.5 px-2.5 h-8 rounded-lg transition-colors shrink-0 cursor-pointer hover:bg-[var(--wash-2)] active:scale-[0.97]"
+                    style={{ border: checked ? '1.5px solid var(--ink)' : '1.5px dashed var(--rule)', background: checked ? 'var(--wash)' : 'transparent' }}
                 >
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: color, opacity: checked ? 1 : 0.3 }}></span>
-                    <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: checked ? 'var(--text)' : 'var(--text-3)' }}>{label}</span>
+                    <span className="w-2 h-2 rounded-full" style={checked ? { background: color } : { border: '1.5px solid ' + color }}></span>
+                    <span className="text-[11px] font-semibold whitespace-nowrap" style={{ color: checked ? 'var(--text)' : 'var(--text-3)', textDecoration: checked ? 'none' : 'line-through' }}>{label}</span>
                 </button>
             );
 
@@ -4545,16 +4550,16 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                 <button
                     key={key}
                     onClick={() => setTimeRange(key)}
-                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${timeRange === key ? 'pill-grad' : 'hover:bg-white/[0.08]'}`}
+                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${timeRange === key ? 'pill-grad' : 'hover:bg-[var(--wash-2)] cursor-pointer'}`}
                     style={timeRange === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
                 >{label}</button>
             );
 
             // tone → pill colors
             const tonePill = (tone) => {
-                if (tone === 'bull') return { bg: 'rgba(0,214,143,0.15)', color: UP_COLOR, border: 'rgba(0,214,143,0.4)' };
-                if (tone === 'bear') return { bg: 'rgba(255,91,110,0.15)', color: DOWN_COLOR, border: 'rgba(255,91,110,0.4)' };
-                return { bg: 'rgba(255,255,255,0.06)', color: '#9aa4b2', border: 'rgba(255,255,255,0.15)' };
+                if (tone === 'bull') return { bg: UP_C + '26', color: UP_C, border: UP_C + '66' };
+                if (tone === 'bear') return { bg: DOWN_C + '26', color: DOWN_C, border: DOWN_C + '66' };
+                return { bg: 'var(--wash)', color: 'var(--ink-2)', border: 'var(--rule)' };
             };
 
             // ─── Layout ───
@@ -4565,7 +4570,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                         {/* Row 1: title + status + help/reset/close */}
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>
+                                <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--wash-2)] cursor-pointer shrink-0" style={{ color: 'var(--text-2)' }} title="關閉">✕</button>
                                 <div className="min-w-0 shrink-0">
                                     <p className="label leading-none">{MARKET_LABEL[type] || 'CHART'}</p>
                                     <h2 className="text-base md:text-lg font-extrabold text-white tracking-tight truncate">{chartSymbolLabel(symbol, type)}</h2>
@@ -4583,16 +4588,16 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                                 <button onClick={() => setShowSignalPanel(!showSignalPanel)}
-                                    className="h-8 px-2 rounded-md text-[10px] mono hover:bg-white/[0.08] hidden sm:inline-block"
+                                    className="h-8 px-2 rounded-md text-[10px] mono hover:bg-[var(--wash-2)] cursor-pointer hidden sm:inline-block"
                                     style={{ color: showSignalPanel ? 'var(--brand-1)' : 'var(--text-2)', border: '1px solid ' + (showSignalPanel ? 'var(--brand-1)' : 'var(--line)') }}
                                     title="切換信號面板">
                                     📊 信號
                                 </button>
                                 <button onClick={resetZoom}
-                                    className="h-8 px-2 rounded-md text-[10px] mono hover:bg-white/[0.08]"
+                                    className="h-8 px-2 rounded-md text-[10px] mono hover:bg-[var(--wash-2)] cursor-pointer"
                                     style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }} title="重置縮放">⤾ 重置</button>
                                 <button onClick={() => setShowHelp(true)}
-                                    className="h-8 w-8 rounded-md flex items-center justify-center hover:bg-white/[0.08]"
+                                    className="h-8 w-8 rounded-md flex items-center justify-center hover:bg-[var(--wash-2)] cursor-pointer"
                                     style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }} title="說明">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                         <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
@@ -4613,17 +4618,17 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
 
                             <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }} title="K 線週期">
                                 <button onClick={() => setTimeframe('1d')}
-                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${timeframe === '1d' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${timeframe === '1d' ? 'pill-grad' : 'hover:bg-[var(--wash-2)] cursor-pointer'}`}
                                     style={timeframe === '1d' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>日</button>
                                 <button onClick={() => setTimeframe('1wk')}
-                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${timeframe === '1wk' ? 'pill-grad' : 'hover:bg-white/[0.06]'}`}
+                                    className={`px-2.5 h-7 rounded-md text-[11px] font-bold ${timeframe === '1wk' ? 'pill-grad' : 'hover:bg-[var(--wash-2)] cursor-pointer'}`}
                                     style={timeframe === '1wk' ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}>週</button>
                             </div>
 
                             <div className="w-px h-6 shrink-0" style={{ background: 'var(--line)' }}></div>
 
                             {signalSource === 'fng' && (
-                                <EyeToggle label="FNG 信號" checked={showFearSignal} onChange={setShowFearSignal} color={DOWN_COLOR} />
+                                <EyeToggle label="FNG 信號" checked={showFearSignal} onChange={setShowFearSignal} color={DOWN_C} />
                             )}
                             <EyeToggle label="EMA Ribbon" checked={showEMA} onChange={setShowEMA} color="#3b82f6" />
                             {cmAsset ? (
@@ -4634,7 +4639,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             <EyeToggle label="成交量" checked={showVolume} onChange={setShowVolume} color="#64748b" />
                             <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
                             <EyeToggle label="MACD" checked={showMACD} onChange={setShowMACD} color="#fbbf24" />
-                            <EyeToggle label="綜合信號" checked={showComposite} onChange={setShowComposite} color={UP_COLOR} />
+                            <EyeToggle label="綜合信號" checked={showComposite} onChange={setShowComposite} color={UP_C} />
                         </div>
                     </div>
 
@@ -4654,26 +4659,27 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                                 storageKey={`tech.${isCryptoType ? 'crypto' : type}.${symbol}`}
                                 onHover={setHoverInfo}
                                 fitSignal={fitSignal}
-                            />
+                                theme={chartTheme}
+                            >
 
                             {/* OHLC hover overlay — top-left, compact. Driven by crosshair. */}
                             {hoverInfo && (() => {
                                 const fmtPrice = (v) => v == null ? '—' : (Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : v.toFixed(Math.abs(v) >= 1 ? 2 : 4));
                                 const change = (hoverInfo.prevClose != null) ? hoverInfo.close - hoverInfo.prevClose : null;
                                 const changePct = (change != null && hoverInfo.prevClose) ? (change / hoverInfo.prevClose) * 100 : null;
-                                const changeColor = change == null ? '#6b7280' : (change >= 0 ? UP_COLOR : DOWN_COLOR);
+                                const changeColor = change == null ? 'var(--ink-3)' : (change >= 0 ? UP_C : DOWN_C);
                                 const d = new Date(hoverInfo.time * 1000);
                                 const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
                                 const isUp = hoverInfo.close >= hoverInfo.open;
                                 return (
-                                    <div className="absolute top-2 left-[52px] z-20 px-2 py-1.5 rounded-md backdrop-blur pointer-events-none mono"
-                                        style={{ background: 'rgba(18,20,28,0.85)', border: '1px solid rgba(255,255,255,0.12)', fontSize: 10, lineHeight: 1.35, color: '#9aa4b2' }}>
-                                        <div className="font-bold" style={{ color: '#e6e9ef' }}>{dateStr}</div>
+                                    <div className="absolute top-2 left-2 z-20 px-2 py-1.5 rounded-md backdrop-blur pointer-events-none mono"
+                                        style={{ background: 'color-mix(in srgb, var(--paper) 90%, transparent)', border: '1px solid var(--rule)', fontSize: 10, lineHeight: 1.35, color: 'var(--ink-2)' }}>
+                                        <div className="font-bold" style={{ color: 'var(--ink)' }}>{dateStr}</div>
                                         <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5">
-                                            <span>開 <span style={{ color: '#e6e9ef' }}>{fmtPrice(hoverInfo.open)}</span></span>
-                                            <span>高 <span style={{ color: UP_COLOR }}>{fmtPrice(hoverInfo.high)}</span></span>
-                                            <span>低 <span style={{ color: DOWN_COLOR }}>{fmtPrice(hoverInfo.low)}</span></span>
-                                            <span>收 <span style={{ color: isUp ? UP_COLOR : DOWN_COLOR }}>{fmtPrice(hoverInfo.close)}</span></span>
+                                            <span>開 <span style={{ color: 'var(--ink)' }}>{fmtPrice(hoverInfo.open)}</span></span>
+                                            <span>高 <span style={{ color: UP_C }}>{fmtPrice(hoverInfo.high)}</span></span>
+                                            <span>低 <span style={{ color: DOWN_C }}>{fmtPrice(hoverInfo.low)}</span></span>
+                                            <span>收 <span style={{ color: isUp ? UP_C : DOWN_C }}>{fmtPrice(hoverInfo.close)}</span></span>
                                         </div>
                                         {change != null && (
                                             <div className="mt-0.5" style={{ color: changeColor }}>
@@ -4687,25 +4693,25 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             {/* Signal summary panel — top-right, semi-transparent, collapsible */}
                             {showSignalPanel && signalSummary.length > 0 && (
                                 <div
-                                    className="absolute top-2 right-[72px] rounded-lg p-2 z-20 backdrop-blur"
+                                    className="absolute top-2 right-[88px] rounded-lg p-2 z-20 backdrop-blur"
                                     style={{
-                                        background: 'rgba(18,20,28,0.85)',
-                                        border: '1px solid rgba(255,255,255,0.12)',
+                                        background: 'color-mix(in srgb, var(--paper) 90%, transparent)',
+                                        border: '1px solid var(--rule)',
                                         width: 'min(180px, calc(100vw - 80px))',
                                         maxHeight: 'calc(100% - 16px)',
                                         overflowY: 'auto',
                                     }}
                                 >
                                     <div className="flex items-center justify-between mb-1.5">
-                                        <span className="text-[10px] font-bold tracking-wider uppercase" style={{ color: '#6b7280' }}>信號總覽</span>
-                                        <button onClick={() => setShowSignalPanel(false)} className="w-5 h-5 rounded hover:bg-white/[0.08] text-[11px]" style={{ color: '#6b7280' }} title="收起">−</button>
+                                        <span className="text-[10px] font-bold tracking-wider uppercase" style={{ color: 'var(--ink-3)' }}>信號總覽</span>
+                                        <button onClick={() => setShowSignalPanel(false)} className="w-5 h-5 rounded hover:bg-[var(--wash-2)] cursor-pointer text-[11px]" style={{ color: 'var(--ink-3)' }} title="收起">−</button>
                                     </div>
                                     <div className="space-y-1">
                                         {signalSummary.map(it => {
                                             const p = tonePill(it.tone);
                                             return (
                                                 <div key={it.key} className="flex items-center justify-between text-[10px] gap-2">
-                                                    <span style={{ color: '#6b7280' }}>{it.name}</span>
+                                                    <span style={{ color: 'var(--ink-3)' }}>{it.name}</span>
                                                     <span className="px-1.5 py-0.5 rounded font-bold truncate" style={{ background: p.bg, color: p.color, border: '1px solid ' + p.border, maxWidth: 110 }}>{it.label}</span>
                                                 </div>
                                             );
@@ -4716,12 +4722,12 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             {!showSignalPanel && (
                                 <button
                                     onClick={() => setShowSignalPanel(true)}
-                                    className="absolute top-2 right-[72px] px-2 py-1 rounded-lg text-[10px] font-bold z-20 backdrop-blur hover:bg-white/[0.08]"
-                                    style={{ background: 'rgba(18,20,28,0.85)', border: '1px solid rgba(255,255,255,0.12)', color: '#9aa4b2' }}
+                                    className="absolute top-2 right-[88px] px-2 py-1 rounded-lg text-[10px] font-bold z-20 backdrop-blur hover:bg-[var(--wash-2)] cursor-pointer"
+                                    style={{ background: 'color-mix(in srgb, var(--paper) 90%, transparent)', border: '1px solid var(--rule)', color: 'var(--ink-2)' }}
                                     title="展開信號面板"
                                 >📊 信號</button>
                             )}
-
+                            </TechnicalChartView>
                         </div>
                     </div>
 
@@ -4731,12 +4737,13 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             <div className="w-full max-w-sm rounded-2xl p-5 space-y-2" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }} onClick={(e) => e.stopPropagation()}>
                                 <div className="flex items-center justify-between mb-2">
                                     <h3 className="text-sm font-bold text-white">圖表說明</h3>
-                                    <button onClick={() => setShowHelp(false)} className="w-7 h-7 rounded-full hover:bg-white/10" style={{ color: 'var(--text-2)' }}>✕</button>
+                                    <button onClick={() => setShowHelp(false)} className="w-7 h-7 rounded-full hover:bg-[var(--wash-2)] cursor-pointer" style={{ color: 'var(--text-2)' }}>✕</button>
                                 </div>
                                 <div className="text-[11px] leading-relaxed space-y-1.5" style={{ color: 'var(--text-2)' }}>
                                     <p><strong className="text-white">圖表</strong>：Smart DCA 自製圖表引擎，預設對數座標（上方可切線性）；拖曳平移、滾輪縮放、雙指捏合；拖曳價格軸 / 時間軸可單向縮放，雙擊軸重置。</p>
-                                    <p><strong className="text-white">畫線工具</strong>：左側工具列 9 組、43 種工具（點按鈕右下的 ▸ 展開）。可點擊或按住拖曳放置；選了工具時也能畫在其他標註上，按住 Alt 則改為選取下方標註；Shift 鎖水平 / 45°。斐波那契可自訂水平並「儲存為預設」。標註會自動儲存。</p>
+                                    <p><strong className="text-white">畫線工具</strong>：左側工具列 9 組、43 種工具（點按鈕右下角的小三角展開）。預設線條顏色「自動」：深色背景白線、淺色背景黑線，切換主題會跟著變。可點擊或按住拖曳放置；選了工具時也能畫在其他標註上，按住 Alt 則改為選取下方標註；Shift 鎖水平 / 45°。斐波那契可自訂水平並「儲存為預設」。標註會自動儲存。</p>
                                     <p><strong className="text-white">選取 / 編輯 / 刪除</strong>：點擊標註選取，上方浮動列可改顏色、線寬、填色、延伸、鎖定、複製、刪除；拖曳錨點微調；Delete 刪除、Ctrl+Z / Ctrl+Y 復原 / 重做、Esc 取消。</p>
+                                    <p><strong className="text-white">圖層</strong>：左側工具列最下方的圖層鈕打開面板，列出所有標註；可點選、隱藏 / 顯示、鎖定、刪除，雙擊改名，拖曳調整上下順序（上面的畫在上層）。</p>
                                     <p><strong className="text-white">EMA Ribbon</strong>：6 條均線 20 / 27 / 34 / 41 / 48 / 55（fast=20、slow=55）。線段顏色逐段切換 — fast 站上 slow 該段顯綠、跌破則紅；K 棒下方綠 △ = 金叉（多），K 棒上方紅 ▽ = 死叉（空）。</p>
                                     <p><strong className="text-white">RSI / MACD</strong>：RSI 紫線恆色，加 70 / 50 / 30 參考線，上穿 30 標 △、下穿 70 標 ▽；MACD DIF×DEA 金叉 △、死叉 ▽。</p>
                                     <p><strong className="text-white">Realized Price / MVRV</strong>（加密貨幣）：橘線為鏈上平均持倉成本（Realized Price），價格跌破 = 歷史級抄底區；MVRV = 市值 ÷ 實現市值，&lt;1 低估、&gt;2.4 過熱。資料源 CoinMetrics（BTC / ETH / LINK / DOGE）。美股 / 台股則顯示 MA200。</p>
@@ -4837,12 +4844,12 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                                     <span className="hidden sm:inline text-[10px]" style={{ color: 'var(--text-3)' }}>滾輪 / 雙指縮放 · 拖曳平移</span>
                                     <button
                                         onClick={() => { try { modalChartRef.current && modalChartRef.current.resetZoom(); } catch {} }}
-                                        className="h-7 px-2 rounded-md text-[11px] hover:bg-white/[0.08]"
+                                        className="h-7 px-2 rounded-md text-[11px] hover:bg-[var(--wash-2)] cursor-pointer"
                                         style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }}
                                     >⤾ 重置</button>
                                     <button
                                         onClick={() => setExpanded(false)}
-                                        className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-white/10"
+                                        className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[var(--wash-2)] cursor-pointer"
                                         style={{ color: 'var(--text-2)', border: '1px solid var(--line)' }}
                                     >✕</button>
                                 </div>
@@ -4874,7 +4881,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                 <div className="relative shrink-0" ref={ref}>
                     <button
                         onClick={() => setOpen(o => !o)}
-                        className="flex items-center gap-1.5 pl-2.5 pr-2 h-8 rounded-lg text-[11px] font-bold hover:bg-white/[0.08] transition-colors"
+                        className="flex items-center gap-1.5 pl-2.5 pr-2 h-8 rounded-lg text-[11px] font-bold hover:bg-[var(--wash-2)] cursor-pointer transition-colors"
                         style={{ background: 'var(--wash)', border: '1px solid ' + (open ? 'var(--brand-1)' : 'var(--line)'), color: open ? 'var(--brand-1)' : 'var(--text-2)' }}
                     >
                         {icon && (
@@ -4986,7 +4993,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                     {items.map(it => (
                         <button key={it.key}
                             onClick={() => onPick(it.key)}
-                            className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${active === it.key ? 'pill-grad' : 'hover:bg-white/[0.08]'}`}
+                            className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${active === it.key ? 'pill-grad' : 'hover:bg-[var(--wash-2)] cursor-pointer'}`}
                             style={active === it.key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
                         >{it.label}</button>
                     ))}
@@ -5274,7 +5281,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             onClick={() => !it.disabled && onPick(it.key)}
                             disabled={it.disabled}
                             title={it.disabled ? '暫無資料' : undefined}
-                            className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${active === it.key ? 'pill-grad' : it.disabled ? 'opacity-30 cursor-not-allowed' : 'hover:bg-white/[0.08]'}`}
+                            className={`px-2.5 h-7 rounded-md text-[11px] font-bold transition-all shrink-0 ${active === it.key ? 'pill-grad' : it.disabled ? 'opacity-30 cursor-not-allowed' : 'hover:bg-[var(--wash-2)] cursor-pointer'}`}
                             style={active === it.key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
                         >{it.label}</button>
                     ))}
@@ -5731,7 +5738,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                                                 {headerBtn('signal', '信號')}
                                                 <button
                                                     onClick={() => setShowSignalHelp(true)}
-                                                    className="w-4 h-4 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                                                    className="w-4 h-4 rounded-full flex items-center justify-center hover:bg-[var(--wash-2)] cursor-pointer transition-colors"
                                                     style={{ color: 'var(--brand-1)', border: '1px solid var(--brand-1)' }}
                                                     title="信號邏輯說明"
                                                 >
@@ -5817,7 +5824,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                             <div className="glass-strong p-6 rounded-3xl shadow-2xl max-w-lg w-full relative max-h-[90vh] overflow-y-auto custom-scrollbar">
                                 <button
                                     onClick={() => setShowSignalHelp(false)}
-                                    className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                                    className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--wash-2)] cursor-pointer transition-colors"
                                     style={{ color: 'var(--text-3)' }}
                                 >
                                     ✕
@@ -6041,7 +6048,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
                     <div className="glass-strong p-6 rounded-3xl shadow-2xl max-w-md w-full relative max-h-[90vh] overflow-y-auto custom-scrollbar">
                         <button
                             onClick={onClose}
-                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
+                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--wash-2)] cursor-pointer transition-colors"
                             style={{ color: 'var(--text-3)' }}
                         >
                             ✕
@@ -7795,7 +7802,7 @@ const isBull = price2 < price1 && dif2 > dif1;
                     <div className="glass-strong rounded-3xl shadow-2xl max-w-2xl w-full relative max-h-[90vh] overflow-hidden flex flex-col md:flex-row">
                         <button
                             onClick={onClose}
-                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors z-10"
+                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-[var(--wash-2)] cursor-pointer transition-colors z-10"
                             style={{ color: 'var(--text-3)' }}
                         >
                             ✕
@@ -7903,7 +7910,7 @@ const isBull = price2 < price1 && dif2 > dif1;
                                             <button
                                                 type="button"
                                                 onClick={() => setShowKey(!showKey)}
-                                                className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-[10px] rounded hover:bg-white/10"
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-[10px] rounded hover:bg-[var(--wash-2)] cursor-pointer"
                                                 style={{ color: 'var(--text-3)' }}
                                             >
                                                 {showKey ? '隱藏' : '顯示'}
@@ -7947,7 +7954,7 @@ const isBull = price2 < price1 && dif2 > dif1;
             <button
                 onClick={onClick}
                 aria-current={active ? 'page' : undefined}
-                className="py-2.5 text-[15px] whitespace-nowrap shrink-0 transition-colors"
+                className="nav-tab py-2.5 px-1 text-[15px] whitespace-nowrap shrink-0 transition-colors"
                 style={active
                     ? { color: 'var(--ink)', fontWeight: 700, boxShadow: 'inset 0 -3px 0 var(--ink)' }
                     : { color: 'var(--ink-2)', fontWeight: 500 }}

@@ -257,6 +257,26 @@
     .fs-btn.icon { padding: 0; width: 36px; height: 36px; }
     @media (max-width: 400px) { .fs-btn.icon { width: 32px; height: 32px; } }
 
+    /* ── Clickable affordance ──
+       Anything you can click shows a pointer, a visible hover state in both
+       themes and a focus ring. (Many inline hovers were written as
+       hover:bg-white/…, which is invisible on the light theme.) */
+    button:not(:disabled), [role="button"], select, summary, a[href], label:has(> input[type="checkbox"]) { cursor: pointer; }
+    [class*="hover:bg-white/"]:not(:disabled):hover { background-color: var(--wash-2) !important; }
+    .fs-btn:not(:disabled):not(.solid):hover { background: var(--ink); color: var(--paper); }
+    .fs-btn:not(:disabled):active { transform: translateY(1px); }
+    /* idle toggles / tickers carry a dotted underline so they read as clickable without hovering (phones) */
+    .fs-toggle button:not(.on) { text-decoration: underline dotted var(--ink-3); text-underline-offset: 6px; text-decoration-thickness: 1px; }
+    .fs-toggle button:not(.on):hover { text-decoration: none; box-shadow: inset 0 -2px 0 var(--rule); }
+    .fs-ticker.cursor-pointer:not(.on) .fs-ticker-name { text-decoration: underline dotted var(--ink-3); text-underline-offset: 5px; }
+    .nav-tab:not([aria-current]):hover { color: var(--ink) !important; box-shadow: inset 0 -3px 0 var(--rule); }
+    button.underline:not(:disabled):hover, a.underline:hover { color: var(--accent) !important; text-decoration-thickness: 2px; }
+    .fs-ticker.cursor-pointer { transition: background-color 150ms var(--ease-out); }
+    .fs-ticker.cursor-pointer:hover { background-color: var(--wash); }
+    .fs-ticker.cursor-pointer:not(.on):hover .fs-ticker-name { color: var(--ink); box-shadow: inset 0 -2px 0 var(--rule); }
+    .click-card { transition: background-color 150ms var(--ease-out), box-shadow 150ms var(--ease-out); }
+    .click-card:hover { background-color: var(--wash); box-shadow: inset 0 0 0 1px var(--rule); }
+
     /* The one accent: current action */
     .fs-action { background: var(--accent); color: var(--accent-ink); padding: 14px 18px; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
     .fs-action .fs-lbl { color: var(--accent-sub); }

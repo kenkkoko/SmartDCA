@@ -21,7 +21,7 @@ export const textTool: Tool = {
   label: "文字",
   group: "text",
   create: 1,
-  defaults: { color: "#e6e9ef", textColor: "#e6e9ef", fontSize: 14 },
+  defaults: { color: "auto", textColor: "auto", fontSize: 14 },
   caps: { text: true, line: false },
   render(c) {
     const p = c.points[0]!;
@@ -78,7 +78,7 @@ function mark(direction: "up" | "down"): Tool {
     label: direction === "up" ? "向上箭頭" : "向下箭頭",
     group: "text",
     create: 1,
-    defaults: { color: direction === "up" ? "#00d68f" : "#ff5b6e", textColor: "#e6e9ef" },
+    defaults: { color: direction === "up" ? "#00d68f" : "#ff5b6e", textColor: "auto" },
     caps: { text: true, line: false },
     render(c) {
       const p = c.points[0]!;

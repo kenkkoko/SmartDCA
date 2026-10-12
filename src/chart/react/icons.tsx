@@ -71,6 +71,8 @@ const ICONS: Record<string, ReactNode> = {
   extendRight: svg(<><path d="M2 10h16M14 6l4 4-4 4" /></>),
   middle: svg(<><path d="M2 5h16M2 15h16" /><path d="M2 10h16" strokeDasharray="2 2" /></>),
   stats: svg(<><path d="M3 17V9M8 17V4M13 17v-6M18 17V7" /></>),
+  layers: svg(<><path d="M10 2.5l8 4-8 4-8-4z" /><path d="M2 10.5l8 4 8-4" /><path d="M2 14l8 4 8-4" /></>),
+  grip: svg(<><circle cx="7.5" cy="5" r="1" fill="currentColor" /><circle cx="12.5" cy="5" r="1" fill="currentColor" /><circle cx="7.5" cy="10" r="1" fill="currentColor" /><circle cx="12.5" cy="10" r="1" fill="currentColor" /><circle cx="7.5" cy="15" r="1" fill="currentColor" /><circle cx="12.5" cy="15" r="1" fill="currentColor" /></>),
   more: svg(<><circle cx="4" cy="10" r="1" fill="currentColor" /><circle cx="10" cy="10" r="1" fill="currentColor" /><circle cx="16" cy="10" r="1" fill="currentColor" /></>),
 };
 

@@ -99,8 +99,11 @@ export type DrawingStyle = {
   fib?: FibSettings;
 };
 
+/** "auto" colours follow the chart theme: white-ish on dark, black-ish on light. */
+export const AUTO_COLOR = "auto";
+
 export const DEFAULT_STYLE: DrawingStyle = {
-  color: "#2962ff",
+  color: AUTO_COLOR,
   width: 1,
   lineStyle: "solid",
   fillOpacity: 0.2,
@@ -108,7 +111,7 @@ export const DEFAULT_STYLE: DrawingStyle = {
   extendRight: false,
   middleLine: false,
   stats: false,
-  textColor: "#e6e9ef",
+  textColor: AUTO_COLOR,
   fontSize: 13,
   rows: 366,
   valueArea: 70,

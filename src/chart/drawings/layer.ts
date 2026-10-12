@@ -13,11 +13,11 @@ import type { Chart, ChartPrimitive, InteractionHandler, Pane, PointerInfo, Prim
 import { formatTimeLabel } from "../engine/time-scale";
 import type { Surface } from "../engine/surface";
 import type { Point } from "../engine/types";
-import { dist, snapAngle, textOn } from "./geometry";
+import { dist, readable, snapAngle, textOn } from "./geometry";
 import type { Tool, ToolContext } from "./tool";
 import { roundRect } from "./tool";
 import { getTool } from "./tools";
-import { DEFAULT_STYLE, newId, type Anchor, type Drawing, type DrawingStyle } from "./types";
+import { AUTO_COLOR, DEFAULT_STYLE, newId, type Anchor, type Drawing, type DrawingStyle } from "./types";
 
 type Creating = {
   tool: Tool;
@@ -190,6 +190,17 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     this.notify(true);
   }
 
+  /** Move a drawing to paint position `index` (0 = bottom), one undo step. */
+  moveTo(id: string, index: number): void {
+    const from = this.items.findIndex((d) => d.id === id);
+    const to = Math.max(0, Math.min(this.items.length - 1, index));
+    if (from < 0 || from === to) return;
+    this.checkpoint();
+    const [item] = this.items.splice(from, 1);
+    this.items.splice(to, 0, item!);
+    this.notify(true);
+  }
+
   /** Paint order: later items paint on top. */
   bringToFront(id: string): void {
     const i = this.items.findIndex((d) => d.id === id);
@@ -253,8 +264,18 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     return this.chart.panes.find((p) => p.id === item.paneId) ?? this.chart.mainPane;
   }
 
-  private context(item: Drawing, c: PrimitiveContext | null = null): ToolContext {
+  /** The drawing as painted: "auto" colours resolved for the current theme. */
+  private themed(item: Drawing): Drawing {
+    const t = this.chart.theme;
+    const color = item.style.color === AUTO_COLOR ? t.drawing : readable(item.style.color, t.background);
+    const textColor = item.style.textColor === AUTO_COLOR ? t.drawing : item.style.textColor;
+    if (color === item.style.color && textColor === item.style.textColor) return item;
+    return { ...item, style: { ...item.style, color, textColor } };
+  }
+
+  private context(raw: Drawing, c: PrimitiveContext | null = null): ToolContext {
     const chart = this.chart;
+    const item = this.themed(raw);
     const pane = this.paneOf(item);
     const rect = { x: 0, y: pane.rect.y, width: chart.plotWidth, height: pane.rect.height };
     return {
@@ -265,7 +286,7 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
       item,
       points: item.anchors.map((a) => ({ x: chart.timeToX(a.time), y: chart.priceToY(pane, a.price) })),
       theme: chart.theme,
-      selected: item.id === this.selectedId,
+      selected: raw.id === this.selectedId,
       bars: chart.bars(),
       toX: (time) => chart.timeToX(time),
       toY: (price) => chart.priceToY(pane, price),
@@ -339,7 +360,7 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
         tool.render(ctx);
         // while placing, show the raw points (derived handles need all anchors)
         const handles = creating ? ctx.points.slice(0, this.creating!.placed + 1) : item.id === this.selectedId ? this.handlesOf(ctx, tool) : [];
-        for (const h of handles) drawHandle(c, h, item.style.color);
+        for (const h of handles) drawHandle(c, h, ctx.item.style.color);
       } catch {
         // a half-placed drawing may not have enough points yet
       }
@@ -353,6 +374,7 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     const tool = getTool(item.type);
     if (!tool) return;
     const ctx = this.context(item, c);
+    const tagColor = ctx.item.style.color;
     const tags = tool.axisTags?.(ctx) ?? { prices: item.anchors.map((a) => a.price), times: item.anchors.map((a) => a.time) };
     const s = c.surface;
     const t = c.theme;
@@ -362,8 +384,8 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
     for (const price of tags.prices) {
       const y = ctx.toY(price);
       if (y < ctx.rect.y || y > ctx.rect.y + ctx.rect.height) continue;
-      roundRect(s, axisX + 1, y - h / 2, this.chart.width - axisX - 2, h, 2, item.style.color);
-      s.text(ctx.fmt(price), axisX + 8, y, textOn(item.style.color), font);
+      roundRect(s, axisX + 1, y - h / 2, this.chart.width - axisX - 2, h, 2, tagColor);
+      s.text(ctx.fmt(price), axisX + 8, y, textOn(tagColor), font);
     }
     const timeTop = this.chart.plotBottom;
     for (const time of tags.times) {
@@ -371,8 +393,8 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
       if (x < 0 || x > axisX) continue;
       const text = formatTimeLabel(time);
       const w = s.measure(text, font) + 14;
-      roundRect(s, x - w / 2, timeTop + 2, w, h, 2, item.style.color);
-      s.text(text, x, timeTop + 2 + h / 2, textOn(item.style.color), font, "center");
+      roundRect(s, x - w / 2, timeTop + 2, w, h, 2, tagColor);
+      s.text(text, x, timeTop + 2 + h / 2, textOn(tagColor), font, "center");
     }
   }
 
