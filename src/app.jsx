@@ -4995,7 +4995,7 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
 
             // ─── Layout ───
             return (
-                <div className="fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+                <div className="chart-no-select fixed inset-0 z-[110] flex flex-col" style={{ background: 'var(--bg)', height: '100dvh', paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
                     {/* Top bar */}
                     <div className="shrink-0 flex flex-col lg:flex-row lg:items-center gap-2 px-3 md:px-4 pt-3 pb-2" style={{ borderBottom: '1px solid var(--line)' }}>
                         {/* Row 1: title + search + status (+ reset/help on small screens). 電腦版和下一列併成同一列 */}

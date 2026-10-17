@@ -122,7 +122,7 @@ export function DrawingChart({ onReady, storageKey, options, className, style, t
   return (
     // root keeps the caller's positioning (the chart page passes "absolute inset-0");
     // phone panels are absolutely positioned against it
-    <div className={`flex min-h-0 ${className?.includes("absolute") || className?.includes("fixed") ? "" : "relative"} ${className ?? ""}`} style={{ ...themeVars(theme), background: theme.background, ...style }}>
+    <div className={`chart-no-select flex min-h-0 ${className?.includes("absolute") || className?.includes("fixed") ? "" : "relative"} ${className ?? ""}`} style={{ ...themeVars(theme), background: theme.background, ...style }}>
       {toolbar && layer && !phone ? (
         <DrawingToolbar
           layer={layer}

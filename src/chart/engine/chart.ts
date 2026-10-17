@@ -127,7 +127,7 @@ export class Chart {
       ...options,
     };
     this.root = document.createElement("div");
-    this.root.style.cssText = "position:relative;width:100%;height:100%;overflow:hidden;touch-action:none;user-select:none;outline:none;";
+    this.root.style.cssText = "position:relative;width:100%;height:100%;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;outline:none;";
     this.root.tabIndex = 0; // keyboard shortcuts for drawings
     const baseCanvas = document.createElement("canvas");
     const overlayCanvas = document.createElement("canvas");
@@ -765,6 +765,10 @@ export class Chart {
     target.addEventListener("wheel", this.onWheel, { passive: false });
     target.addEventListener("dblclick", this.onDblClick);
     target.addEventListener("contextmenu", (e) => e.preventDefault());
+    // phones: a long press must draw / move the crosshair, not select text or
+    // open the browser's callout (pointer events still arrive)
+    target.addEventListener("touchstart", (e) => e.cancelable && e.preventDefault(), { passive: false });
+    target.addEventListener("selectstart", (e) => e.preventDefault());
   }
 
   private onPointerDown = (event: PointerEvent) => {
