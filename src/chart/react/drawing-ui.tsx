@@ -370,6 +370,21 @@ export function PropertiesBar({ layer, onOpenDialog }: { layer: DrawingLayer; on
           <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 7l4-4 4 4-4 4z" fill="currentColor" fillOpacity=".5" stroke="currentColor" /></svg>
         </ColorButton>
       ) : null}
+      {caps.axisLabel !== false && !["text", "brush", "volume"].includes(tool.group) ? (
+        <button
+          className={btn(!!st.axisLabel)}
+          title={st.axisLabel ? "價格標籤：一直顯示在右側價格軸（點一下改成只在選取時顯示）" : "價格標籤：只在選取時顯示（點一下改成一直顯示在右側價格軸）"}
+          aria-pressed={!!st.axisLabel}
+          data-testid="toggle-axis-label"
+          onClick={() => set((d) => void (d.style.axisLabel = !d.style.axisLabel))}
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
+            <path d="M2.5 9h6" strokeDasharray="2 1.5" />
+            <path d="M9 5.5h5.5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H9L7 9z" />
+            <path d="M10.6 9h3" />
+          </svg>
+        </button>
+      ) : null}
       {caps.text ? (
         <>
           <ColorButton title="文字顏色" allowAuto color={st.textColor} onChange={(c) => c && set((d) => void (d.style.textColor = c))}>
@@ -755,17 +770,37 @@ export function VolumeSettingsDialog({ layer, item, onClose }: { layer: DrawingL
   );
 }
 
-type TextDraft = { text: string; fontSize: number };
+type TextDraft = { text: string; fontSize: number; textV: "top" | "middle" | "bottom"; textH: "left" | "center" | "right"; textBold: boolean };
 
 export function TextDialog({ layer, item, onClose }: { layer: DrawingLayer; item: Drawing; onClose: () => void }) {
   const { draft, setDraft, commit, revert } = useDraft<TextDraft>(
     layer,
     item,
-    (d) => ({ text: d.text ?? "", fontSize: d.style.fontSize }),
+    (d) => ({ text: d.text ?? "", fontSize: d.style.fontSize, textV: d.style.textV ?? "top", textH: d.style.textH ?? "center", textBold: !!d.style.textBold }),
     (d, v) => {
       d.text = v.text;
       d.style.fontSize = v.fontSize;
+      d.style.textBold = v.textBold;
+      // placement only means something for lines (text / callout tools ignore it)
+      if (onLine) {
+        d.style.textV = v.textV;
+        d.style.textH = v.textH;
+      }
     },
+  );
+  const onLine = getTool(item.type)?.group === "lines";
+  const seg = <T extends string>(value: T, options: [T, string][], onPick: (v: T) => void) => (
+    <div className="flex overflow-hidden rounded-md ring-1 ring-inset ring-[var(--c-line)]">
+      {options.map(([v, label]) => (
+        <button
+          key={v}
+          className={`h-7 cursor-pointer px-2.5 text-xs ${value === v ? "bg-[var(--c-accent-soft)] font-semibold text-[var(--c-accent)]" : "text-[var(--c-text)] hover:bg-[var(--c-hover)]"}`}
+          onClick={() => onPick(v)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
   return (
     <Dialog
@@ -790,7 +825,22 @@ export function TextDialog({ layer, item, onClose }: { layer: DrawingLayer; item
       <div className="mt-3 flex items-center gap-2 text-sm">
         字級
         <Select value={draft.fontSize} options={[10, 11, 12, 13, 14, 16, 20, 24, 28, 32].map((v) => ({ value: v, label: `${v}` }))} onChange={(v) => setDraft((d) => ({ ...d, fontSize: v }))} />
+        <button
+          className={`ml-1 h-7 w-7 cursor-pointer rounded-md text-sm font-bold ring-1 ring-inset ${draft.textBold ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)] ring-[var(--c-accent)]" : "text-[var(--c-text)] ring-[var(--c-line)] hover:bg-[var(--c-hover)]"}`}
+          title="粗體"
+          onClick={() => setDraft((d) => ({ ...d, textBold: !d.textBold }))}
+        >
+          B
+        </button>
       </div>
+      {onLine ? (
+        <div className="mt-3 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-sm" data-testid="text-placement">
+          <span>位置</span>
+          {seg(draft.textV, [["top", "線上方"], ["middle", "線上"], ["bottom", "線下方"]], (v) => setDraft((d) => ({ ...d, textV: v })))}
+          <span>對齊</span>
+          {seg(draft.textH, [["left", "靠左"], ["center", "置中"], ["right", "靠右"]], (v) => setDraft((d) => ({ ...d, textH: v })))}
+        </div>
+      ) : null}
     </Dialog>
   );
 }

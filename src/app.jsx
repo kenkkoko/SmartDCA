@@ -6,6 +6,7 @@ import { TechnicalChartView } from './chart/smartdca/TechnicalChartView';
 import { DARK_THEME, LIGHT_THEME } from './chart/engine/types';
 import { PanelHeader, panelIconBtn } from './chart/react/SideBar';
 import { AiPanel } from './chart/smartdca/AiPanel';
+import { startChartSync, onSyncedKeys } from './chart/sync';
 
         const { useState, useEffect, useMemo, useRef } = React;
 
@@ -3375,6 +3376,14 @@ import { AiPanel } from './chart/smartdca/AiPanel';
             useEffect(() => {
                 try { localStorage.setItem(key, JSON.stringify(v)); } catch {}
             }, [key, v]);
+            // 別台裝置改了這個值(圖表跨裝置同步):重新讀進來
+            useEffect(() => onSyncedKeys((keys) => {
+                if (!keys.includes(key)) return;
+                try {
+                    const raw = localStorage.getItem(key);
+                    setV(raw !== null ? JSON.parse(raw) : defaultValue);
+                } catch {}
+            }), [key]);
             return [v, setV];
         };
 
@@ -5054,7 +5063,11 @@ import { AiPanel } from './chart/smartdca/AiPanel';
                                     render: (close) => (
                                         <ChartWatchlist
                                             current={{ symbol, type }}
-                                            onPick={(it) => pickSymbol({ symbol: it.symbol, type: it.type })}
+                                            onPick={(it) => {
+                                                pickSymbol({ symbol: it.symbol, type: it.type });
+                                                // 手機上清單是全螢幕:選好就回到圖表
+                                                if (window.matchMedia?.('(max-width: 639px)').matches) close();
+                                            }}
                                             isPremium={isPremium}
                                             upColor={UP_C}
                                             downColor={DOWN_C}
@@ -8454,6 +8467,11 @@ const isBull = price2 < price1 && dif2 > dif1;
 
             // User State
             const [user, setUser] = useState(null);
+            // 圖表資料(畫線、圖表設定、觀察清單、指標開關)跨裝置同步:登入正式帳號時啟動
+            useEffect(() => {
+                if (!supabase || !user || user.is_anonymous) return;
+                return startChartSync(supabase, user.id);
+            }, [user?.id]);
             const [isPremium, setIsPremium] = useState(false);
             const [isAdmin, setIsAdmin] = useState(false);
             const [watchlist, setWatchlist] = useState([]);

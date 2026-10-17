@@ -35,6 +35,8 @@ export type ToolCaps = {
   /** Line width/style controls (default true). */
   line?: boolean;
   dialog?: "fib" | "volume";
+  /** Offer the "always show price labels" toggle (default: tools with price anchors). */
+  axisLabel?: boolean;
 };
 
 export type Tool = {
@@ -79,6 +81,48 @@ export function fill(c: ToolContext, polygon: Point[], color?: string, opacity?:
   const fillColor = color ?? c.item.style.fillColor;
   if (!fillColor) return;
   c.s.fillPolygon(polygon.map((p) => ({ x: p.x, y: p.y })), withAlpha(fillColor, opacity ?? c.item.style.fillOpacity));
+}
+
+/**
+ * Text note along the segment a→b (TradingView line text): left / center /
+ * right along the line, above / on / below it, rotated with the line and
+ * kept upright. Returns nothing; hit testing stays on the line itself.
+ */
+export function lineText(c: ToolContext, a: Point, b: Point): void {
+  const text = c.item.text;
+  if (!text) return;
+  const st = c.item.style;
+  const h = st.textH ?? "center";
+  const v = st.textV ?? "top";
+  // keep the text reading left → right
+  let p = a;
+  let q = b;
+  if (q.x < p.x || (q.x === p.x && q.y < p.y)) [p, q] = [q, p];
+  let angle = Math.atan2(q.y - p.y, q.x - p.x);
+  if (angle > Math.PI / 2) angle -= Math.PI;
+  if (angle < -Math.PI / 2) angle += Math.PI;
+  const len = Math.hypot(q.x - p.x, q.y - p.y);
+  const size = st.fontSize;
+  const font = { size, family: c.theme.fontFamily, weight: st.textBold ? "600" : "normal" };
+  const lines = text.split("\n");
+  const lineH = size * 1.3;
+  const width = Math.max(...lines.map((l) => c.s.measure(l, font)));
+  const gap = 4 + st.width / 2;
+  // offset along the line (from p) and across it
+  const along = h === "left" ? 4 : h === "right" ? Math.max(4, len - width - 4) : len / 2 - width / 2;
+  const height = lineH * lines.length;
+  const across = v === "top" ? -gap - height : v === "bottom" ? gap : -height / 2;
+  const ctx = c.s.ctx;
+  ctx.save();
+  ctx.translate(p.x * c.s.hpr, p.y * c.s.vpr);
+  ctx.rotate(angle);
+  if (v === "middle") {
+    // cut the line under the text so it stays readable
+    ctx.fillStyle = c.theme.background;
+    ctx.fillRect((along - 4) * c.s.hpr, (across - 1) * c.s.vpr, (width + 8) * c.s.hpr, (height + 2) * c.s.vpr);
+  }
+  lines.forEach((line, i) => c.s.text(line, along, across + lineH * (i + 0.5), st.textColor, font, "left", "middle"));
+  ctx.restore();
 }
 
 /** Text with an optional rounded background box; returns its bounds. */

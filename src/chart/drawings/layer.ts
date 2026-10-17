@@ -508,8 +508,17 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
   }
 
   drawOverAxes(c: PrimitiveContext): void {
-    const item = this.creating?.item ?? this.selected;
-    if (!item || item.hidden) return;
+    const active = this.creating?.item ?? this.selected;
+    // drawings with "價格標籤" on keep their prices on the axis (TradingView);
+    // the selected / in-progress one also tags its times, and paints on top
+    for (const item of this.items) {
+      if (item.hidden || item === active || !item.style.axisLabel) continue;
+      this.drawTags(c, item, false);
+    }
+    if (active && !active.hidden) this.drawTags(c, active, true);
+  }
+
+  private drawTags(c: PrimitiveContext, item: Drawing, withTimes: boolean): void {
     const tool = getTool(item.type);
     if (!tool) return;
     const ctx = this.context(item, c);
@@ -526,6 +535,7 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
       roundRect(s, axisX + 1, y - h / 2, this.chart.width - axisX - 2, h, 2, tagColor);
       s.text(ctx.fmt(price), axisX + 8, y, textOn(tagColor), font);
     }
+    if (!withTimes) return;
     const timeTop = this.chart.plotBottom;
     for (const time of tags.times) {
       const x = ctx.toX(time);
@@ -845,6 +855,7 @@ function pickStyle(style: DrawingStyle): Partial<DrawingStyle> {
   const picked: Partial<DrawingStyle> = { color, width, lineStyle, fillColor, fillOpacity, textColor, fontSize };
   // volume profile: the next one keeps its colours
   if (vp) picked.vp = { ...vp };
+  for (const key of ["axisLabel", "textV", "textH", "textBold"] as const) if (style[key] !== undefined) (picked as Record<string, unknown>)[key] = style[key];
   return picked;
 }
 

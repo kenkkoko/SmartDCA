@@ -39,8 +39,24 @@ function write(key: string, value: string | null): void {
   }
 }
 
-export function useSidePanel(panels: SidePanel[], fallback: string | null): [string | null, (id: string | null) => void] {
+/** True below 640px: toolbars become floating buttons, panels open full screen. */
+export function usePhone(): boolean {
+  const query = "(max-width: 639px)";
+  const [phone, setPhone] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia?.(query);
+    if (!mq) return;
+    const on = () => setPhone(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return phone;
+}
+
+export function useSidePanel(panels: SidePanel[], fallback: string | null, phone = false): [string | null, (id: string | null) => void] {
   const [active, setActive] = useState<string | null>(() => {
+    // a full-screen panel must not pop up by itself on a phone
+    if (phone) return null;
     const saved = read(ACTIVE_PREF);
     if (saved === "none") return null;
     if (saved && panels.some((p) => p.id === saved)) return saved;
@@ -48,12 +64,12 @@ export function useSidePanel(panels: SidePanel[], fallback: string | null): [str
   });
   const set = (id: string | null) => {
     setActive(id);
-    write(ACTIVE_PREF, id ?? "none");
+    if (!phone) write(ACTIVE_PREF, id ?? "none");
   };
   return [active && panels.some((p) => p.id === active) ? active : null, set];
 }
 
-export function SideBar({ panels, active, onSelect }: { panels: SidePanel[]; active: string | null; onSelect: (id: string | null) => void }) {
+export function SideBar({ panels, active, onSelect, phone = false }: { panels: SidePanel[]; active: string | null; onSelect: (id: string | null) => void; phone?: boolean }) {
   const [width, setWidth] = useState(() => {
     const v = Number(read(WIDTH_PREF));
     return v >= MIN_W && v <= MAX_W ? v : 340;
@@ -83,6 +99,14 @@ export function SideBar({ panels, active, onSelect }: { panels: SidePanel[]; act
   }, []);
 
   const panel = panels.find((p) => p.id === active);
+  if (phone) {
+    // full screen over the chart; the buttons live in the chart's floating menu
+    return panel ? (
+      <aside className="absolute inset-0 z-50 flex min-h-0 flex-col bg-[var(--c-panel)] text-[var(--c-text)]" data-testid={`side-${panel.id}`}>
+        {panel.render(() => onSelect(null))}
+      </aside>
+    ) : null;
+  }
   return (
     <>
       {panel ? (

@@ -10,7 +10,7 @@ import { DARK_THEME, type Theme } from "../engine/types";
 import { btn, DrawingToolbar, FibSettingsDialog, PropertiesBar, TextDialog, VolumeSettingsDialog } from "./drawing-ui";
 import { Icon } from "./icons";
 import { LayersPanel, type FixedLayer } from "./LayersPanel";
-import { SideBar, useSidePanel, type SidePanel } from "./SideBar";
+import { SideBar, usePhone, useSidePanel, type SidePanel } from "./SideBar";
 import { TradingChart } from "./TradingChart";
 
 /** CSS variables the toolbar / panels / dialogs are styled with. */
@@ -68,7 +68,18 @@ export function DrawingChart({ onReady, storageKey, options, className, style, t
       render: (close) => (layer ? <LayersPanel layer={layer} onClose={close} fixed={fixedLayers} /> : null),
     },
   ];
-  const [sidePanel, setSidePanel] = useSidePanel(panels, defaultSidePanel);
+  const phone = usePhone();
+  const [sidePanel, setSidePanel] = useSidePanel(panels, defaultSidePanel, phone);
+  // phone: the drawing toolbar and the panel buttons are floating, opened on demand
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!phone || !layer) return;
+    // picking a tool closes the toolbar so the chart is free to draw on
+    return layer.subscribe(() => {
+      if (layer.activeTool) setToolsOpen(false);
+    });
+  }, [phone, layer]);
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const ready = useRef(onReady);
@@ -109,8 +120,10 @@ export function DrawingChart({ onReady, storageKey, options, className, style, t
   }, [layer]);
 
   return (
-    <div className={`flex min-h-0 ${className ?? ""}`} style={{ ...themeVars(theme), background: theme.background, ...style }}>
-      {toolbar && layer ? (
+    // root keeps the caller's positioning (the chart page passes "absolute inset-0");
+    // phone panels are absolutely positioned against it
+    <div className={`flex min-h-0 ${className?.includes("absolute") || className?.includes("fixed") ? "" : "relative"} ${className ?? ""}`} style={{ ...themeVars(theme), background: theme.background, ...style }}>
+      {toolbar && layer && !phone ? (
         <DrawingToolbar
           layer={layer}
           footer={panels
@@ -133,8 +146,55 @@ export function DrawingChart({ onReady, storageKey, options, className, style, t
         <TradingChart className="h-full w-full" options={options} onReady={handleReady} />
         {children}
         {layer ? <PropertiesBar layer={layer} onOpenDialog={(kind, d) => setDialog({ kind, id: d.id })} /> : null}
+        {phone && layer ? (
+          <>
+            {toolbar && toolsOpen ? (
+              <div className="absolute inset-y-0 left-0 z-40 shadow-2xl" data-testid="phone-tools">
+                <DrawingToolbar layer={layer} />
+              </div>
+            ) : null}
+            {toolbar ? (
+              <button
+                className={`absolute bottom-9 left-2 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-[var(--c-line)] shadow-lg ${toolsOpen || layer.activeTool ? "bg-[var(--c-accent)] text-[var(--c-accent-text)]" : "bg-[var(--c-panel)] text-[var(--c-text)]"}`}
+                title={toolsOpen ? "收起畫線工具" : "畫線工具"}
+                data-testid="phone-tools-toggle"
+                onClick={() => setToolsOpen(!toolsOpen)}
+              >
+                <Icon name="trend_line" />
+              </button>
+            ) : null}
+            {panels.length ? (
+              <div className="absolute bottom-9 right-[72px] z-40 flex flex-col items-end gap-1.5">
+                {menuOpen
+                  ? panels.map((p) => (
+                      <button
+                        key={p.id}
+                        className="flex h-9 items-center gap-2 rounded-full border border-[var(--c-line)] bg-[var(--c-panel)] pl-3 pr-2 text-[12.5px] text-[var(--c-text)] shadow-lg"
+                        data-testid={`toggle-${p.id}`}
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setSidePanel(p.id);
+                        }}
+                      >
+                        {p.title.replace(/（.*）/, "")}
+                        {p.icon}
+                      </button>
+                    ))
+                  : null}
+                <button
+                  className={`flex h-10 w-10 items-center justify-center rounded-full border border-[var(--c-line)] shadow-lg ${menuOpen ? "bg-[var(--c-accent)] text-[var(--c-accent-text)]" : "bg-[var(--c-panel)] text-[var(--c-text)]"}`}
+                  title="觀察清單、圖層、圖表設定…"
+                  data-testid="phone-menu"
+                  onClick={() => setMenuOpen(!menuOpen)}
+                >
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M3 5h12M3 9h12M3 13h12" /></svg>
+                </button>
+              </div>
+            ) : null}
+          </>
+        ) : null}
       </div>
-      <SideBar panels={panels} active={sidePanel} onSelect={setSidePanel} />
+      <SideBar panels={panels} active={sidePanel} onSelect={setSidePanel} phone={phone} />
       {layer && item && dialog?.kind === "fib" && getTool(item.type)?.caps?.dialog === "fib" ? <FibSettingsDialog layer={layer} item={item} onClose={close} /> : null}
       {layer && item && dialog?.kind === "volume" ? <VolumeSettingsDialog layer={layer} item={item} onClose={close} /> : null}
       {layer && item && dialog?.kind === "text" ? <TextDialog layer={layer} item={item} onClose={close} /> : null}

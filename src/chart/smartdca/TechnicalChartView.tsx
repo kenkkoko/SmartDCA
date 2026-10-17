@@ -59,6 +59,7 @@ import { DrawingChart } from "../react/DrawingChart";
 import type { SidePanel } from "../react/SideBar";
 import { applyAppearance, loadAppearance, saveAppearance, type Appearance } from "./appearance";
 import { AppearancePanel } from "./AppearancePanel";
+import { onSyncedKeys } from "../sync";
 
 export const EMA_FAST = 20;
 export const EMA_SLOW = 55;
@@ -186,6 +187,8 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     saveAppearance(mode, a);
   };
   const theme = useMemo(() => applyAppearance(baseTheme, appearance), [baseTheme, appearance]);
+  // 圖表設定 changed on another device
+  useEffect(() => onSyncedKeys((keys) => keys.includes("smartdca.chart.appearance") && setAppearanceState(loadAppearance(mode))), [mode]);
   const UP = theme.up;
   const DOWN = theme.down;
   const [chart, setChart] = useState<Chart | null>(null);

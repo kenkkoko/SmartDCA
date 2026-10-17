@@ -1,5 +1,5 @@
 import { angleDeg, distToSegment, extendSegment, ray } from "../geometry";
-import { HIT, arrowHead, label, pctChange, stroke, type Tool, type ToolContext } from "../tool";
+import { HIT, arrowHead, label, lineText, pctChange, stroke, type Tool, type ToolContext } from "../tool";
 import type { Point } from "../../engine/types";
 
 function hitLine(p: Point, a: Point, b: Point): number | null {
@@ -33,10 +33,8 @@ export const trendLine: Tool = {
       const b = c.points[1]!;
       label(c, statsText(c), b.x + 8, b.y, { bg: "rgba(20,24,32,0.85)", size: 11 });
     }
-    if (c.item.text) {
-      const [a, b] = c.points as [Point, Point];
-      label(c, c.item.text, (a.x + b.x) / 2, (a.y + b.y) / 2 - 10, { align: "center", baseline: "bottom" });
-    }
+    const [a, b] = c.points as [Point, Point];
+    lineText(c, a, b);
   },
   hit(c, p) {
     const [a, b] = segment(c);
@@ -49,9 +47,11 @@ export const rayTool: Tool = {
   label: "射線",
   group: "lines",
   create: 2,
+  caps: { text: true },
   render(c) {
     const [a, b] = c.points as [Point, Point];
     stroke(c, ray(a, b, c.rect));
+    lineText(c, a, b);
   },
   hit(c, p) {
     const [a, b] = c.points as [Point, Point];
@@ -65,9 +65,11 @@ export const extendedLine: Tool = {
   label: "延伸線",
   group: "lines",
   create: 2,
+  caps: { text: true },
   render(c) {
     const [a, b] = c.points as [Point, Point];
     stroke(c, extendSegment(a, b, true, true, c.rect));
+    lineText(c, a, b);
   },
   hit(c, p) {
     const [a, b] = c.points as [Point, Point];
@@ -82,10 +84,12 @@ export const horizontalLine: Tool = {
   group: "lines",
   create: 1,
   caps: { text: true },
+  // TradingView: a horizontal line shows its price on the axis
+  defaults: { axisLabel: true, textH: "right" },
   render(c) {
     const y = c.points[0]!.y;
     stroke(c, [{ x: c.rect.x, y }, { x: c.rect.x + c.rect.width, y }]);
-    if (c.item.text) label(c, c.item.text, c.rect.x + c.rect.width - 8, y - 4, { align: "right", baseline: "bottom" });
+    lineText(c, { x: c.rect.x + 4, y }, { x: c.rect.x + c.rect.width - 4, y });
   },
   hit(c, p) {
     const d = Math.abs(p.y - c.points[0]!.y);
@@ -99,9 +103,12 @@ export const horizontalRay: Tool = {
   label: "水平射線",
   group: "lines",
   create: 1,
+  caps: { text: true },
+  defaults: { axisLabel: true, textH: "left" },
   render(c) {
     const a = c.points[0]!;
     stroke(c, [a, { x: c.rect.x + c.rect.width, y: a.y }]);
+    lineText(c, a, { x: c.rect.x + c.rect.width - 4, y: a.y });
   },
   hit(c, p) {
     const a = c.points[0]!;
@@ -115,9 +122,11 @@ export const verticalLine: Tool = {
   label: "垂直線",
   group: "lines",
   create: 1,
+  caps: { text: true, axisLabel: false },
   render(c) {
     const x = c.points[0]!.x;
     stroke(c, [{ x, y: c.rect.y }, { x, y: c.rect.y + c.rect.height }]);
+    lineText(c, { x, y: c.rect.y + c.rect.height - 4 }, { x, y: c.rect.y + 4 });
   },
   hit(c, p) {
     const d = Math.abs(p.x - c.points[0]!.x);
@@ -148,10 +157,11 @@ export const infoLine: Tool = {
   label: "資訊線",
   group: "lines",
   create: 2,
-  caps: { extend: true },
+  caps: { extend: true, text: true },
   render(c) {
     const seg = segment(c);
     stroke(c, seg);
+    lineText(c, c.points[0]!, c.points[1]!);
     const b = c.points[1]!;
     label(c, statsText(c), b.x + 8, b.y, { bg: "rgba(20,24,32,0.85)", size: 11 });
   },
@@ -198,7 +208,7 @@ export const arrowLine: Tool = {
     const [a, b] = c.points as [Point, Point];
     stroke(c, [a, b]);
     arrowHead(c, a, b);
-    if (c.item.text) label(c, c.item.text, a.x, a.y + 8, { align: "center", baseline: "top" });
+    lineText(c, a, b);
   },
   hit(c, p) {
     const [a, b] = c.points as [Point, Point];

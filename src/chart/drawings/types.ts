@@ -99,6 +99,12 @@ export type DrawingStyle = {
   fib?: FibSettings;
   /** Volume profile colours (missing = defaults). */
   vp?: VpColors;
+  /** Keep the anchors' price labels on the price axis even when not selected. */
+  axisLabel?: boolean;
+  /** Where line text sits: above / on / below the line, and along it. */
+  textV?: "top" | "middle" | "bottom";
+  textH?: "left" | "center" | "right";
+  textBold?: boolean;
 };
 
 /** Volume profile colours. up / down undefined = the chart's up / down colours. */

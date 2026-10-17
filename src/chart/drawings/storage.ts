@@ -1,6 +1,7 @@
 // localStorage persistence: drawings per symbol, Fibonacci template and the
 // last style used per tool. Every access is guarded (private mode, quota).
 
+import { onSyncedKeys } from "../sync";
 import { getFibDefaults, setFibDefaults } from "./tools/fibonacci";
 import type { DrawingLayer } from "./layer";
 import type { Drawing, DrawingGroup, DrawingStyle, FibSettings } from "./types";
@@ -86,6 +87,15 @@ export function persistLayer(layer: DrawingLayer, symbol: string): () => void {
       write("drawingPrefs", JSON.parse(next));
     }
   });
+  // drawings / styles changed on another device (cross-device sync)
+  const offSync = onSyncedKeys((keys) => {
+    if (keys.includes(PREFIX + `drawings.${symbol}`) && !timer) {
+      const next = loadLayerState(symbol);
+      layer.setItems(next.items, next.groups);
+    }
+    if (keys.includes(PREFIX + "toolStyles")) layer.toolStyles = read<Record<string, Partial<DrawingStyle>>>("toolStyles") ?? {};
+    if (keys.includes(PREFIX + "fibDefaults")) loadFibTemplate();
+  });
   return () => {
     if (timer) {
       clearTimeout(timer);
@@ -94,5 +104,6 @@ export function persistLayer(layer: DrawingLayer, symbol: string): () => void {
     }
     offItems();
     offState();
+    offSync();
   };
 }
