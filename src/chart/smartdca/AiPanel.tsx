@@ -42,6 +42,9 @@ type Run = {
   placed?: number | null;
 };
 
+const STALL_MESSAGE =
+  "本機 AI 橋接沒有回應。如果你點過橋接的黑色視窗，它可能停在「選取」模式：在那個視窗按 Esc，或把它關掉再按「啟動本機 AI」重開。（重新下載安裝新版橋接後就不會再發生）";
+
 /** Folder in the layers panel that holds the AI's marks (one per symbol). */
 const AI_GROUP = "ai-marks";
 
@@ -266,6 +269,28 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
     const snapshot = bars;
     setRun({ text: "", state: "running", meta, thinking: false, marks });
     let full = "";
+    // watchdog: a frozen bridge (e.g. its console window stuck in "select" mode)
+    // never answers; don't leave the panel waiting forever
+    let last = Date.now();
+    let stalled = false;
+    let checked = false;
+    const watch = setInterval(async () => {
+      const quiet = Date.now() - last;
+      if (quiet > 20000 && !checked) {
+        checked = true;
+        try {
+          const res = await fetch(`http://127.0.0.1:${settings.port}/health`, { signal: AbortSignal.timeout(4000) });
+          if (!res.ok) throw new Error(String(res.status));
+        } catch {
+          stalled = true;
+          ac.abort();
+        }
+      }
+      if (quiet > 120000) {
+        stalled = true;
+        ac.abort();
+      }
+    }, 5000);
     try {
       await streamAnalysis(
         settings.port,
@@ -277,6 +302,8 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
           prompt,
         },
         (e) => {
+          last = Date.now();
+          checked = false;
           if (e.type === "text") full += e.text;
           setRun((r) => {
             if (!r) return r;
@@ -301,8 +328,11 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
         setRun((r) => (r ? { ...r, placed: drawings.length } : r));
       }
     } catch (e) {
-      if (ac.signal.aborted) setRun((r) => (r ? { ...r, state: "done", error: "已停止" } : r));
+      if (stalled) setRun((r) => (r ? { ...r, state: "error", error: STALL_MESSAGE } : r));
+      else if (ac.signal.aborted) setRun((r) => (r ? { ...r, state: "done", error: "已停止" } : r));
       else setRun((r) => (r ? { ...r, state: "error", error: e instanceof Error ? e.message : String(e) } : r));
+    } finally {
+      clearInterval(watch);
     }
   };
 

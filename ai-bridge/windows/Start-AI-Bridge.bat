@@ -44,6 +44,10 @@ if not exist "node_modules\@anthropic-ai\claude-agent-sdk" (
   )
 )
 
-rem a minimised window that keeps the bridge running; it pauses on errors
-start "Smart DCA AI Bridge - close this window to stop" /min cmd /c "node server.mjs || pause"
+rem A minimised window keeps the bridge running. Its output goes to bridge.log,
+rem never to the window: clicking inside a console window puts it in
+rem "select" mode, which freezes any program that prints to it.
+if exist bridge.log for %%A in (bridge.log) do if %%~zA GTR 1000000 del bridge.log
+start "Smart DCA AI Bridge - close this window to stop" /min cmd /c "node server.mjs >> bridge.log 2>&1"
+echo Smart DCA AI bridge started. Log: %CD%\bridge.log
 endlocal
