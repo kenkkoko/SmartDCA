@@ -250,12 +250,26 @@ function analyzeCodex({ model, effort, system, prompt }, emit, signal) {
   });
 }
 
+// Ollama reads only num_ctx tokens (default 2048–4096) and silently drops the
+// start of a longer conversation, i.e. the system prompt and most of the chart
+// data. Size the window to the prompt (~1 token per 2 characters for this
+// mix of Chinese and numbers, plus room for the answer).
+export function ollamaContext(system, prompt) {
+  const need = Math.ceil((system.length + prompt.length) / 2) + 4096;
+  return Math.min(32768, Math.max(8192, Math.ceil(need / 1024) * 1024));
+}
+
 async function analyzeOllama({ model, system, prompt }, emit, signal) {
   const res = await fetch(`${OLLAMA}/api/chat`, {
     method: "POST",
     signal,
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ model, stream: true, messages: [{ role: "system", content: system }, { role: "user", content: prompt }] }),
+    body: JSON.stringify({
+      model,
+      stream: true,
+      messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+      options: { num_ctx: ollamaContext(system, prompt), temperature: 0.2 },
+    }),
   });
   if (!res.ok || !res.body) throw new Error(`Ollama 回應 ${res.status}`);
   const decoder = new TextDecoder();
