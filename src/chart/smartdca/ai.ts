@@ -5,7 +5,7 @@ import { getTool } from "../drawings/tools";
 import { DEFAULT_STYLE, newId, type Drawing } from "../drawings/types";
 import type { Bar } from "../engine/types";
 import { crosses, ema, macd, rsi, sma, type Num } from "../indicators";
-import { aggregate, anchoredVwap, fibFrom, impulseViolations, lastBreak, profileSummary, structureLabels, swings, volumeEvents, type Pivot } from "./features";
+import { aggregate, anchoredVwap, fibFrom, impulseViolations, keyLevels, lastBreak, profileSummary, structureLabels, swings, volumeEvents, type Pivot } from "./features";
 
 // ---------------------------------------------------------------------------
 // bridge client
@@ -102,14 +102,15 @@ export async function streamAnalysis(
 // ---------------------------------------------------------------------------
 
 export const SYSTEM_PROMPT = [
-  "你是專業、謹慎的技術分析師，用「由大到小」的流程解讀使用者的圖表：先看大週期背景，再看中期結構與型態，最後看區間細節與關鍵價位。",
+  "你是專業、謹慎的技術分析師，用「由大到小」的流程解讀使用者的圖表：先找出週線 / 月線級別最重要的支撐阻力，再看大週期背景，再看中期結構與型態，最後看區間細節與關鍵價位。",
   "方法依據道氏理論、威科夫（吸籌 / 派發）、艾略特波浪、K 線型態、成交量分布（VPVR）、斐波那契與錨定 VWAP。",
   "只根據使用者提供的資料分析，不要編造資料裡沒有的數字或新聞。資料中「程式計算」的擺動點、成交量分布、斐波那契與 VWAP 是精確值，價位請直接引用，不要自己重算。",
   "判斷要說出依據（哪幾根 K、哪個擺動點、量是幾倍），沒有足夠證據就說「尚不明確」，不要硬套型態或硬數浪。",
   "用繁體中文（台灣用語）回答，使用 Markdown：## 小標題、條列、**粗體**。價格要寫出具體數字。",
   "結構：",
   "## 結論（3 句以內）",
-  "## 大週期背景（週線 / 月線：牛市或熊市、高低點結構、是否有吸籌或派發區間）",
+  "## 週月線關鍵支撐阻力（先找出最重要的幾條：起點、轉折次數、是否互換過，目前價格在它們之間的哪裡）",
+  "## 大週期背景（以上述關鍵價位為基礎，判斷牛市或熊市、高低點結構、是否有吸籌或派發區間）",
   "## 結構轉變與波浪（是否突破週線前高 / 跌破前低造成結構改變；從轉變點起走了幾浪、現在在哪一浪）",
   "## 型態與籌碼分布（目前的型態；VPVR 是 P / b / D 型或雙分布、POC 與價值區代表什麼）",
   "## 吸籌 / 派發特徵（區間內的量價與 K 線：SC、AR、ST、Spring、SOS、LPS，或 BC、UTAD、SOW、LPSY；只標有證據的）",
@@ -171,13 +172,40 @@ function featureLines(input: AnalysisInput, date: (t: number) => string): string
   const out: string[] = [];
   const pivotRow = (p: Pivot, tag: string) => `- ${date(p.time)} ${p.kind === "H" ? "高點" : "低點"} ${fmt(p.price)}${tag ? `（${tag}）` : ""}`;
 
-  // 1. big-picture background from weekly / monthly bars (merged from the loaded bars)
-  const daySpan = (bars[bars.length - 1]!.time - bars[0]!.time) / 86400;
+  // 1. big-picture background from weekly / monthly bars (merged from the loaded
+  //    bars up to the end of the range): key levels first, then structure
+  const upto = bars.slice(0, to + 1);
+  const daySpan = (upto[upto.length - 1]!.time - upto[0]!.time) / 86400;
   const tf = input.timeframe;
-  if ((tf === "1d" || tf === "1wk") && daySpan > 400) {
-    const weekly = tf === "1wk" ? bars : aggregate(bars, "week");
-    const monthly = aggregate(bars, "month");
+  if (daySpan > 400) {
+    const weekly = tf === "1mo" ? [] : tf === "1wk" ? upto : aggregate(upto, "week");
+    const monthly = tf === "1mo" ? upto : aggregate(upto, "month");
     const wDate = (t: number) => new Date(t * 1000).toISOString().slice(0, 10);
+    const close = upto[upto.length - 1]!.close;
+    // a weekly / monthly bar carries its first day: move each level's start to
+    // the actual bar of that high / low so the ray begins where the level did
+    const levels = keyLevels(weekly, monthly).map((l) => {
+      let best = -1;
+      for (let i = 0; i < upto.length; i++) {
+        const b = upto[i]!;
+        if (b.time < l.originTime) continue;
+        if (b.time > l.originTime + 32 * 86400) break;
+        const v = l.originKind === "H" ? b.high : b.low;
+        if (best < 0 || Math.abs(v - l.price) < Math.abs((l.originKind === "H" ? upto[best]!.high : upto[best]!.low) - l.price)) best = i;
+      }
+      return best < 0 ? l : { ...l, originTime: upto[best]!.time, lastTime: Math.max(l.lastTime, upto[best]!.time) };
+    });
+    if (levels.length) {
+      out.push("");
+      out.push(`## 週線 / 月線關鍵支撐阻力（程式計算，由高到低；目前收盤 ${fmt(close)}）`);
+      for (const l of levels) {
+        const role = l.price > close ? "阻力" : "支撐";
+        const dist = ((l.price / close - 1) * 100).toFixed(1);
+        out.push(
+          `- ${fmt(l.price)}：目前為${role}（距收盤 ${Number(dist) > 0 ? "+" : ""}${dist}%）；起點 ${wDate(l.originTime)} 的${l.originKind === "H" ? "高點" : "低點"}，${l.monthly ? "月線級" : "週線級"}，轉折 ${l.touches} 次${l.flipped ? "，支撐阻力互換過" : ""}，最近一次 ${wDate(l.lastTime)}`,
+        );
+      }
+    }
     for (const [name, set, target] of [
       ["月線", monthly, 10],
       ["週線", weekly, 14],
@@ -370,6 +398,7 @@ export const MARKS_PROMPT = [
   "格式固定為（開頭一定要是 ```chart-marks，內容是 JSON 陣列，最多 15 個）：",
   "```chart-marks",
   "[",
+  '  {"type":"level","price":69000,"from":"2021-11-08","label":"週線前高"},',
   '  {"type":"support","price":58200,"label":"前波低點支撐"},',
   '  {"type":"resistance","price":73800,"label":"歷史高點壓力"},',
   '  {"type":"trend","from":["2024-08-05",49000],"to":["2024-11-04",66800],"label":"上升趨勢線"},',
@@ -385,7 +414,8 @@ export const MARKS_PROMPT = [
   '  {"type":"event","name":"Spring","date":"2024-08-05","price":49000}',
   "]",
   "```",
-  "type 只能是 support / resistance / trend / zone / buy / sell / note / fib / vpvr / vwap / wave / event。",
+  "type 只能是 level / support / resistance / trend / zone / buy / sell / note / fib / vpvr / vwap / wave / event。",
+  "level：週線 / 月線級的關鍵支撐阻力，畫成水平射線，from 是這條價位的起點（最早轉折的那根 K 的日期，資料裡有列出），一定要把重要的關鍵價位都用 level 畫出來；support / resistance 只用在較次要的價位。",
   "fib：from 是擺動起點、to 是終點（例如上漲段從低點到高點），用資料中程式算好的擺動高低點，畫你認為最重要的一段。",
   "vpvr：成交量分布，from / to 用重要高低點的日期（例如吸籌區間的起訖，或結構轉變點到現在）。vwap：從重要高點或低點的日期起算。",
   "wave：推動浪 6 個點（0~5）或修正浪 4 個點（0、A、B、C），每個點都要是擺動高低點；程式會檢查波浪規則。",
@@ -428,6 +458,7 @@ export function extractMarks(text: string): RawMark[] | null {
 
 export const MARK_COLORS = { up: "#22c55e", down: "#ef4444", zone: "#2962ff", note: "#f59e0b" };
 const TYPE_LABEL: Record<string, string> = {
+  level: "關鍵價位",
   support: "支撐",
   resistance: "壓力",
   trend: "趨勢線",
@@ -528,7 +559,13 @@ export function marksToDrawings(marks: RawMark[], bars: Bar[]): Drawing[] {
   for (const m of marks.slice(0, 15)) {
     const kind = String(m.type ?? "").toLowerCase();
     const label = text(m);
-    if (kind === "support" || kind === "resistance") {
+    if (kind === "level") {
+      const p = price(m.price);
+      const t = m.from == null ? null : time(m.from);
+      if (p == null) continue;
+      const color = p > bars[bars.length - 1]!.close ? MARK_COLORS.down : MARK_COLORS.up;
+      out.push(make("horizontal_ray", [{ time: t ?? bars[0]!.time, price: p }], { color, width: 2, lineStyle: "solid", textColor: color }, label || TYPE_LABEL.level!, kind));
+    } else if (kind === "support" || kind === "resistance") {
       const p = price(m.price);
       if (p == null) continue;
       const color = kind === "support" ? MARK_COLORS.up : MARK_COLORS.down;

@@ -251,3 +251,73 @@ export function impulseViolations(p: number[]): string[] {
   if (s(p[3]!) <= s(p[1]!)) out.push("3 浪沒有超過 1 浪終點");
   return out;
 }
+
+export type KeyLevel = {
+  price: number;
+  /** Where the level started (the first swing point at this price). */
+  originTime: number;
+  originKind: "H" | "L";
+  /** Swing points (weekly + monthly, several degrees) that turned at this price. */
+  touches: number;
+  /** It has been both a high and a low: support / resistance flipped. */
+  flipped: boolean;
+  lastTime: number;
+  monthly: boolean;
+};
+
+/**
+ * Major support / resistance from weekly and monthly bars: swing points of
+ * several sizes are clustered by price (within `tol`); a cluster scores for
+ * each turn, double for monthly turns. The level is drawn from its first turn.
+ */
+export function keyLevels(weekly: Bar[], monthly: Bar[], tol = 0.03, perSide = 4): KeyLevel[] {
+  type P = Pivot & { w: number; m: boolean };
+  const pts: P[] = [];
+  const add = (set: Bar[], target: number, w: number, m: boolean) => {
+    if (set.length < 8) return;
+    for (const p of swings(set, target).pivots) pts.push({ ...p, w, m });
+  };
+  add(monthly, 10, 3, true);
+  add(monthly, 20, 2, true);
+  add(weekly, 16, 2, false);
+  add(weekly, 40, 1, false);
+  if (!pts.length) return [];
+  // the running swing (last pivot) is not a level yet
+  const lastT = Math.max(weekly[weekly.length - 1]?.time ?? 0, monthly[monthly.length - 1]?.time ?? 0);
+  pts.sort((a, b) => a.price - b.price);
+  const clusters: P[][] = [];
+  for (const p of pts) {
+    const c = clusters[clusters.length - 1];
+    if (c && p.price <= c[0]!.price * (1 + tol * 2)) c.push(p);
+    else clusters.push([p]);
+  }
+  const levels = clusters.map((c) => {
+    // the same turn seen at several sizes counts once (by time, ~a month apart)
+    const turns: P[] = [];
+    for (const p of [...c].sort((a, b) => b.w - a.w)) if (turns.every((q) => Math.abs(q.time - p.time) > 25 * 86400)) turns.push(p);
+    const origin = [...turns].sort((a, b) => a.time - b.time)[0]!;
+    const score = turns.reduce((s, p) => s + p.w, 0);
+    return {
+      level: {
+        price: origin.price,
+        originTime: origin.time,
+        originKind: origin.kind,
+        touches: turns.length,
+        flipped: turns.some((p) => p.kind === "H") && turns.some((p) => p.kind === "L"),
+        lastTime: Math.max(...turns.map((p) => p.time)),
+        monthly: turns.some((p) => p.m),
+      } satisfies KeyLevel,
+      score: score + (turns.some((p) => p.kind === "H") && turns.some((p) => p.kind === "L") ? 2 : 0),
+      onlyRunning: turns.length === 1 && Math.abs(origin.time - lastT) < 40 * 86400,
+    };
+  });
+  // the strongest few on each side of the price; far-away levels count less
+  const close = (weekly[weekly.length - 1] ?? monthly[monthly.length - 1])!.close;
+  const ranked = levels
+    .filter((l) => !l.onlyRunning)
+    .map((l) => ({ ...l, rank: l.score - 4 * Math.abs(Math.log(l.level.price / close)) }))
+    .sort((a, b) => b.rank - a.rank);
+  const above = ranked.filter((l) => l.level.price > close).slice(0, perSide);
+  const below = ranked.filter((l) => l.level.price <= close).slice(0, perSide);
+  return [...above, ...below].map((l) => l.level).sort((a, b) => b.price - a.price);
+}

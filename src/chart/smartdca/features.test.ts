@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Bar } from "../engine/types";
 import { buildPrompt, marksToDrawings } from "./ai";
-import { aggregate, fibFrom, impulseViolations, profileSummary, structureLabels, swings, zigzag } from "./features";
+import { aggregate, fibFrom, keyLevels, impulseViolations, profileSummary, structureLabels, swings, zigzag } from "./features";
 
 /** Daily bars through the given closes (high/low 1% around, volume optional). */
 function series(closes: number[], vol: (i: number) => number = () => 100): Bar[] {
@@ -48,6 +48,20 @@ describe("analysis features", () => {
     expect(impulseViolations([100, 150, 120, 200, 145, 220])).toContain("4 浪進入 1 浪價格區");
   });
 
+  it("finds weekly / monthly key levels and where they started", () => {
+    // a ceiling near 200 hit three times, a floor near 100 twice, then a breakout
+    const closes = path([150, 150], [150, 200], [200, 120], [120, 199], [199, 101], [101, 201], [201, 100], [100, 260], [260, 230]).flatMap((c) => [c, c, c, c, c, c, c]);
+    const days = series(closes);
+    const lv = keyLevels(aggregate(days, "week"), aggregate(days, "month"));
+    const near = (x: number) => lv.find((l) => Math.abs(l.price / x - 1) < 0.04);
+    const top = near(200)!;
+    expect(top).toBeTruthy();
+    expect(top.touches).toBeGreaterThanOrEqual(3);
+    expect(top.originKind).toBe("H");
+    expect(top.originTime).toBeLessThan(days[20 * 7 * 2]!.time); // starts at the first top
+    expect(near(100)).toBeTruthy();
+  });
+
   it("merges days into weeks and months", () => {
     const bars = series(Array.from({ length: 70 }, (_, i) => 100 + i));
     expect(aggregate(bars, "week").length).toBe(10);
@@ -58,7 +72,7 @@ describe("analysis features", () => {
     const closes = path([100, 100], [100, 60], [60, 70], [70, 62], [62, 120], [120, 95], [95, 160], [160, 130], [130, 175], [175, 150], [150, 190], [190, 140], [140, 210], [210, 170], [170, 230], [230, 200], [230, 260], [260, 220], [220, 280], [280, 240], [240, 300], [300, 250], [250, 320]);
     const bars = series(closes, (i) => (i % 37 === 0 ? 900 : 100));
     const p = buildPrompt({ symbol: "BTC", market: "crypto", timeframe: "1d", bars, from: 0, to: bars.length - 1 });
-    for (const s of ["大週期背景：週線", "擺動高低點", "斐波那契", "成交量分布 VPVR", "錨定 VWAP", "量價異常"]) expect(p).toContain(s);
+    for (const s of ["週線 / 月線關鍵支撐阻力", "大週期背景：週線", "擺動高低點", "斐波那契", "成交量分布 VPVR", "錨定 VWAP", "量價異常"]) expect(p).toContain(s);
   });
 
   it("draws fib, VPVR, VWAP, waves and Wyckoff events from the AI's marks", () => {
@@ -67,6 +81,7 @@ describe("analysis features", () => {
     const wave = [[d(19), 100], [d(39), 150], [d(59), 120], [d(79), 180], [d(99), 160], [d(119), 210]];
     const out = marksToDrawings(
       [
+        { type: "level", price: 150, from: d(39) },
         { type: "fib", from: [d(59), 118], to: [d(119), 211] },
         { type: "vpvr", from: d(39), to: d(79) },
         { type: "vwap", date: d(59) },
@@ -75,7 +90,9 @@ describe("analysis features", () => {
       ],
       bars,
     );
-    expect(out.map((x) => x.type)).toEqual(["fib_retracement", "volume_profile", "anchored_vwap", "elliott_impulse", "text"]);
+    expect(out.map((x) => x.type)).toEqual(["horizontal_ray", "fib_retracement", "volume_profile", "anchored_vwap", "elliott_impulse", "text"]);
+    expect(out[0]!.anchors[0]!.time).toBe(bars[39]!.time);
+    out.shift();
     expect(out[0]!.anchors[1]!.price).toBeCloseTo(bars[119]!.high); // snapped to the swing high
     expect(out[0]!.style.fib).toBeTruthy();
     expect(out[4]!.text).toBe("Spring");
