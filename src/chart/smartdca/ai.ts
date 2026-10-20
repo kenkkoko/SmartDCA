@@ -5,6 +5,7 @@ import { getTool } from "../drawings/tools";
 import { DEFAULT_STYLE, newId, type Drawing } from "../drawings/types";
 import type { Bar } from "../engine/types";
 import { crosses, ema, macd, rsi, sma, type Num } from "../indicators";
+import { aggregate, anchoredVwap, fibFrom, impulseViolations, lastBreak, profileSummary, structureLabels, swings, volumeEvents, type Pivot } from "./features";
 
 // ---------------------------------------------------------------------------
 // bridge client
@@ -101,17 +102,19 @@ export async function streamAnalysis(
 // ---------------------------------------------------------------------------
 
 export const SYSTEM_PROMPT = [
-  "你是專業、謹慎的技術分析師，替一個定期定額（DCA）投資工具 Smart DCA 的使用者解讀圖表。",
-  "只根據使用者提供的 K 線、成交量與指標數據分析，不要編造資料裡沒有的數字或新聞。",
+  "你是專業、謹慎的技術分析師，用「由大到小」的流程解讀使用者的圖表：先看大週期背景，再看中期結構與型態，最後看區間細節與關鍵價位。",
+  "方法依據道氏理論、威科夫（吸籌 / 派發）、艾略特波浪、K 線型態、成交量分布（VPVR）、斐波那契與錨定 VWAP。",
+  "只根據使用者提供的資料分析，不要編造資料裡沒有的數字或新聞。資料中「程式計算」的擺動點、成交量分布、斐波那契與 VWAP 是精確值，價位請直接引用，不要自己重算。",
+  "判斷要說出依據（哪幾根 K、哪個擺動點、量是幾倍），沒有足夠證據就說「尚不明確」，不要硬套型態或硬數浪。",
   "用繁體中文（台灣用語）回答，使用 Markdown：## 小標題、條列、**粗體**。價格要寫出具體數字。",
   "結構：",
   "## 結論（3 句以內）",
-  "## 趨勢與結構（高低點、型態、趨勢強弱）",
-  "## 關鍵價位（支撐 / 壓力，附價格與理由）",
-  "## 指標解讀（均線、RSI、MACD，指出背離或交叉）",
-  "## 量能",
-  "## 風險與接下來的觀察重點（什麼情況代表判斷錯誤）",
-  "## 對定期定額的含義（加碼 / 照常 / 放慢，說明理由）",
+  "## 大週期背景（週線 / 月線：牛市或熊市、高低點結構、是否有吸籌或派發區間）",
+  "## 結構轉變與波浪（是否突破週線前高 / 跌破前低造成結構改變；從轉變點起走了幾浪、現在在哪一浪）",
+  "## 型態與籌碼分布（目前的型態；VPVR 是 P / b / D 型或雙分布、POC 與價值區代表什麼）",
+  "## 吸籌 / 派發特徵（區間內的量價與 K 線：SC、AR、ST、Spring、SOS、LPS，或 BC、UTAD、SOW、LPSY；只標有證據的）",
+  "## 關鍵價位（斐波那契、POC / VAH / VAL、錨定 VWAP、前高前低；多個工具重疊的價位優先，附理由）",
+  "## 情境與失效條件（偏多與偏空兩種劇本，各自要看到什麼、什麼價位代表判斷錯誤）",
   "最後一行加上：「以上為技術面分析，不構成投資建議。」",
 ].join("\n");
 
@@ -159,6 +162,101 @@ export type AnalysisInput = {
   extras?: string[];
   question?: string;
 };
+
+const UNIT_NAME: Record<string, string> = { "15m": "15 分", "1h": "1 小時", "4h": "4 小時", "1d": "日", "1wk": "週", "1mo": "月" };
+
+/** Program-computed structure the model should quote instead of re-deriving. */
+function featureLines(input: AnalysisInput, date: (t: number) => string): string[] {
+  const { bars, from, to } = input;
+  const out: string[] = [];
+  const pivotRow = (p: Pivot, tag: string) => `- ${date(p.time)} ${p.kind === "H" ? "高點" : "低點"} ${fmt(p.price)}${tag ? `（${tag}）` : ""}`;
+
+  // 1. big-picture background from weekly / monthly bars (merged from the loaded bars)
+  const daySpan = (bars[bars.length - 1]!.time - bars[0]!.time) / 86400;
+  const tf = input.timeframe;
+  if ((tf === "1d" || tf === "1wk") && daySpan > 400) {
+    const weekly = tf === "1wk" ? bars : aggregate(bars, "week");
+    const monthly = aggregate(bars, "month");
+    const wDate = (t: number) => new Date(t * 1000).toISOString().slice(0, 10);
+    for (const [name, set, target] of [
+      ["月線", monthly, 10],
+      ["週線", weekly, 14],
+    ] as const) {
+      if (set.length < 12) continue;
+      const { pivots, pct } = swings(set, target);
+      const tags = structureLabels(pivots);
+      out.push("");
+      out.push(`## 大週期背景：${name}擺動高低點（程式計算，擺動幅度 ≥ ${(pct * 100).toFixed(0)}%）`);
+      pivots.forEach((p, k) => out.push(`- ${wDate(p.time)} ${p.kind === "H" ? "高點" : "低點"} ${fmt(p.price)}（${tags[k]}）`));
+      const brk = lastBreak(set, pivots);
+      if (brk) out.push(`- 最近一次結構突破：${wDate(set[brk.index]!.time)} 收盤${brk.dir === "up" ? "突破" : "跌破"} ${wDate(brk.level.time)} 的${brk.level.kind === "H" ? "高點" : "低點"} ${fmt(brk.level.price)}`);
+      const last = set[set.length - 1]!.close;
+      const ma = sma(set.map((b) => b.close), name === "週線" ? 50 : 20);
+      const m = ma[set.length - 1];
+      if (m) out.push(`- 收盤 ${fmt(last)}，${name === "週線" ? "50 週" : "20 月"}均線 ${fmt(m)}（${last >= m ? "之上" : "之下"}）`);
+    }
+  }
+
+  // 2. swing points of the selected range on this timeframe
+  const { pivots, pct } = swings(bars, Math.min(24, Math.max(8, Math.round((to - from) / 12))), from, to);
+  const tags = structureLabels(pivots);
+  out.push("");
+  out.push(`## ${UNIT_NAME[tf] ?? ""}線擺動高低點（程式計算，幅度 ≥ ${(pct * 100).toFixed(1)}%；畫波浪、斐波那契、VPVR 時請用這些點）`);
+  pivots.forEach((p, k) => out.push(pivotRow(p, tags[k]!)));
+  const brk = lastBreak(bars, pivots);
+  if (brk && brk.index >= from) out.push(`- 結構突破：${date(bars[brk.index]!.time)} 收盤${brk.dir === "up" ? "突破" : "跌破"}前${brk.level.kind === "H" ? "高" : "低"} ${fmt(brk.level.price)}`);
+
+  // 3. Fibonacci of the largest swing in the range
+  let best: [Pivot, Pivot] | null = null;
+  for (let k = 1; k < pivots.length; k++) {
+    const a = pivots[k - 1]!;
+    const b = pivots[k]!;
+    if (!best || Math.abs(Math.log(b.price / a.price)) > Math.abs(Math.log(best[1].price / best[0].price))) best = [a, b];
+  }
+  if (best) {
+    const [a, b] = best;
+    out.push("");
+    out.push(`## 斐波那契（程式計算：範圍內最大的一段擺動 ${date(a.time)} ${fmt(a.price)} → ${date(b.time)} ${fmt(b.price)}）`);
+    out.push(`- ${fibFrom(a.price, b.price).map((l) => `${l.ratio} = ${fmt(l.price)}`).join("、")}`);
+  }
+
+  // 4. volume profile of the range, and of the latest swing
+  const vp = profileSummary(bars, from, to);
+  if (vp) {
+    out.push("");
+    out.push("## 成交量分布 VPVR（程式計算，分析範圍）");
+    out.push(`- 形狀：${vp.shape}${vp.shape === "P" ? "（量集中在上方）" : vp.shape === "b" ? "（量集中在下方）" : vp.shape === "D" ? "（量集中在中段）" : "（兩個成交密集區）"}`);
+    out.push(`- POC ${fmt(vp.poc)}，價值區 VAL ${fmt(vp.val)} ~ VAH ${fmt(vp.vah)}，範圍 ${fmt(vp.low)} ~ ${fmt(vp.high)}`);
+    if (vp.hvn.length > 1) out.push(`- 成交密集區（HVN）：${vp.hvn.map((v) => fmt(v)).join("、")}`);
+    if (vp.lvn.length) out.push(`- 成交稀薄區（LVN）：${vp.lvn.map((v) => fmt(v)).join("、")}`);
+  }
+  const lastPv = pivots[pivots.length - 2];
+  if (lastPv && to - lastPv.index >= 10) {
+    const v2 = profileSummary(bars, lastPv.index, to);
+    if (v2) out.push(`- 從 ${date(lastPv.time)} ${lastPv.kind === "H" ? "高點" : "低點"}到現在：${v2.shape} 型，POC ${fmt(v2.poc)}，VAL ${fmt(v2.val)} ~ VAH ${fmt(v2.vah)}`);
+  }
+
+  // 5. anchored VWAP from the important highs / lows
+  const hiP = pivots.filter((p) => p.kind === "H").sort((x, y) => y.price - x.price)[0];
+  const loP = pivots.filter((p) => p.kind === "L").sort((x, y) => x.price - y.price)[0];
+  const recent = pivots.slice(-3, -1);
+  const vw = [...new Map([hiP, loP, ...recent].filter((p): p is Pivot => !!p).map((p) => [p.index, p])).values()];
+  const vwRows = vw.map((p) => ({ p, v: anchoredVwap(bars, p.index, to) })).filter((r) => r.v != null);
+  if (vwRows.length) {
+    out.push("");
+    out.push(`## 錨定 VWAP（程式計算，到 ${date(bars[to]!.time)} 的值；收盤 ${fmt(bars[to]!.close)}）`);
+    for (const { p, v } of vwRows) out.push(`- 從 ${date(p.time)} ${p.kind === "H" ? "高點" : "低點"} ${fmt(p.price)} 起算：${fmt(v)}（收盤在${bars[to]!.close >= v! ? "之上" : "之下"}）`);
+  }
+
+  // 6. bars worth checking for Wyckoff events
+  const ev = volumeEvents(bars, pivots, from, to);
+  if (ev.length) {
+    out.push("");
+    out.push("## 量價異常 K 棒（程式篩選的候選，是否為威科夫事件由你判斷）");
+    for (const e of ev) out.push(`- ${date(bars[e.index]!.time)} 收 ${fmt(bars[e.index]!.close)}：${e.text}`);
+  }
+  return out;
+}
 
 export function buildPrompt(input: AnalysisInput): string {
   const { bars, from, to } = input;
@@ -224,6 +322,7 @@ export function buildPrompt(input: AnalysisInput): string {
     lines.push("## 範圍內的訊號事件");
     for (const e of events.slice(-25)) lines.push(`- ${e}`);
   }
+  lines.push(...featureLines(input, date));
   if (input.extras?.length) {
     lines.push("");
     lines.push("## 其他資料");
@@ -268,7 +367,7 @@ export const MARKS_FENCE = "```chart-marks";
 export const MARKS_PROMPT = [
   "",
   "【在圖上標記】分析完後，在回答的最後附上一段程式碼區塊，把你提到的關鍵價位與結構畫到使用者的圖表上。",
-  "格式固定為（開頭一定要是 ```chart-marks，內容是 JSON 陣列，最多 10 個，只標最重要的）：",
+  "格式固定為（開頭一定要是 ```chart-marks，內容是 JSON 陣列，最多 15 個）：",
   "```chart-marks",
   "[",
   '  {"type":"support","price":58200,"label":"前波低點支撐"},',
@@ -277,10 +376,21 @@ export const MARKS_PROMPT = [
   '  {"type":"zone","from":"2024-03-14","to":"2024-10-14","top":73800,"bottom":56500,"label":"盤整區"},',
   '  {"type":"buy","date":"2024-08-05","price":49000,"label":"恐慌低點"},',
   '  {"type":"sell","date":"2024-03-14","price":73800,"label":"量價背離"},',
-  '  {"type":"note","date":"2024-12-17","price":108000,"text":"RSI 頂背離"}',
+  '  {"type":"note","date":"2024-12-17","price":108000,"text":"RSI 頂背離"},',
+  '  {"type":"fib","from":["2024-08-05",49000],"to":["2025-01-20",109500],"label":"主升段回撤"},',
+  '  {"type":"vpvr","from":"2024-03-14","to":"2024-10-14","label":"盤整區籌碼"},',
+  '  {"type":"vwap","date":"2024-08-05","label":"恐慌低點 VWAP"},',
+  '  {"type":"wave","points":[["2024-08-05",49000],["2024-08-25",65000],["2024-09-06",52500],["2024-12-17",108000],["2025-01-13",89200],["2025-01-20",109500]],"label":"推動浪"},',
+  '  {"type":"wave","points":[["2025-01-20",109500],["2025-04-07",74500],["2025-05-22",111900],["2025-06-22",98200]],"label":"修正浪"},',
+  '  {"type":"event","name":"Spring","date":"2024-08-05","price":49000}',
   "]",
   "```",
-  "type 只能是 support / resistance / trend / zone / buy / sell / note。日期照資料裡的寫法（YYYY-MM-DD，盤中週期是 YYYY-MM-DD HH:MM，UTC）且必須是資料裡有的時間，價格用資料中的實際數字。",
+  "type 只能是 support / resistance / trend / zone / buy / sell / note / fib / vpvr / vwap / wave / event。",
+  "fib：from 是擺動起點、to 是終點（例如上漲段從低點到高點），用資料中程式算好的擺動高低點，畫你認為最重要的一段。",
+  "vpvr：成交量分布，from / to 用重要高低點的日期（例如吸籌區間的起訖，或結構轉變點到現在）。vwap：從重要高點或低點的日期起算。",
+  "wave：推動浪 6 個點（0~5）或修正浪 4 個點（0、A、B、C），每個點都要是擺動高低點；程式會檢查波浪規則。",
+  "event：威科夫事件（SC、AR、ST、Spring、UT、SOS、LPS、BC、UTAD、SOW、LPSY 等），name 用英文縮寫，標在那根 K 的高點或低點。",
+  "總數最多 15 個，只標最重要的。日期照資料裡的寫法（YYYY-MM-DD，盤中週期是 YYYY-MM-DD HH:MM，UTC）且必須是資料裡有的時間，價格用資料中的實際數字。",
   "label 要短（10 字以內）。這段區塊之後不要再寫任何文字；前面的分析內文裡不要提到這段區塊。",
 ].join("\n");
 
@@ -317,7 +427,21 @@ export function extractMarks(text: string): RawMark[] | null {
 }
 
 export const MARK_COLORS = { up: "#22c55e", down: "#ef4444", zone: "#2962ff", note: "#f59e0b" };
-const TYPE_LABEL: Record<string, string> = { support: "支撐", resistance: "壓力", trend: "趨勢線", zone: "區間", buy: "買點", sell: "賣點", note: "註解" };
+const TYPE_LABEL: Record<string, string> = {
+  support: "支撐",
+  resistance: "壓力",
+  trend: "趨勢線",
+  zone: "區間",
+  buy: "買點",
+  sell: "賣點",
+  note: "註解",
+  fib: "斐波那契",
+  vpvr: "成交量分布",
+  vwap: "錨定 VWAP",
+  wave: "波浪",
+  event: "威科夫事件",
+};
+const BULL_EVENTS = /^(SC|PS|AR|ST|SPRING|TEST|SOS|LPS|JAC|BU|BUEC|SHAKEOUT)$/i;
 
 /**
  * Turn the AI's marks into drawings on the price pane. Dates snap to the
@@ -377,7 +501,31 @@ export function marksToDrawings(marks: RawMark[], bars: Bar[]): Drawing[] {
   });
 
   const out: Drawing[] = [];
-  for (const m of marks.slice(0, 12)) {
+  const indexAt = (t: number) => {
+    let a = 0;
+    let b = bars.length - 1;
+    while (a < b) {
+      const m = (a + b) >> 1;
+      if (bars[m]!.time < t) a = m + 1;
+      else b = m;
+    }
+    return a;
+  };
+  /** Swing points: alternating lows / highs (direction from the first leg), snapped to that bar's low / high. */
+  const swingPoints = (raw: unknown[]): ({ time: number; price: number } | null)[] => {
+    const pts = raw.map(point);
+    const [a, b] = pts;
+    if (!a || !b) return pts;
+    const upFirst = b.price > a.price;
+    return pts.map((q, k) => {
+      if (!q) return null;
+      const bar = bars[indexAt(q.time)]!;
+      const high = (k % 2 === 1) === upFirst;
+      return { time: q.time, price: high ? bar.high : bar.low };
+    });
+  };
+
+  for (const m of marks.slice(0, 15)) {
     const kind = String(m.type ?? "").toLowerCase();
     const label = text(m);
     if (kind === "support" || kind === "resistance") {
@@ -408,6 +556,46 @@ export function marksToDrawings(marks: RawMark[], bars: Bar[]): Drawing[] {
       const p = price(m.price);
       if (t == null || p == null || !label) continue;
       out.push(make("text", [{ time: t, price: p }], { textColor: MARK_COLORS.note, fontSize: 13 }, label, kind));
+    } else if (kind === "fib") {
+      const [a, b] = swingPoints([m.from, m.to]);
+      if (!a || !b || a.time === b.time || a.price === b.price) continue;
+      const d = make("fib_retracement", [a, b], {}, label, kind);
+      getTool("fib_retracement")?.init?.(d);
+      out.push(d);
+    } else if (kind === "vpvr") {
+      const a = time(m.from);
+      const b = m.to == null ? lastTime : time(m.to);
+      if (a == null || b == null || a === b) continue;
+      const [i, j] = [indexAt(Math.min(a, b)), indexAt(Math.max(a, b))];
+      const seg = bars.slice(i, j + 1);
+      const top = Math.max(...seg.map((x) => x.high));
+      const bottom = Math.min(...seg.map((x) => x.low));
+      out.push(make("volume_profile", [{ time: bars[i]!.time, price: top }, { time: bars[j]!.time, price: bottom }], {}, label, kind));
+    } else if (kind === "vwap") {
+      const t = time(m.date ?? m.from);
+      if (t == null) continue;
+      const bar = bars[indexAt(t)]!;
+      out.push(make("anchored_vwap", [{ time: t, price: bar.low }], {}, label, kind));
+    } else if (kind === "wave") {
+      const pts = Array.isArray(m.points) ? swingPoints(m.points) : [];
+      if (pts.some((q) => !q) || (pts.length !== 6 && pts.length !== 4)) continue;
+      const anchors = pts as { time: number; price: number }[];
+      if (anchors.some((q, k) => k > 0 && q.time <= anchors[k - 1]!.time)) continue;
+      const impulse = anchors.length === 6;
+      const broken = impulse ? impulseViolations(anchors.map((q) => q.price)) : [];
+      const color = broken.length ? MARK_COLORS.note : MARK_COLORS.zone;
+      out.push(make(impulse ? "elliott_impulse" : "elliott_correction", anchors, { color, width: 2 }, label, kind));
+      if (broken.length) {
+        const endPt = anchors[anchors.length - 1]!;
+        out.push(make("text", [endPt], { textColor: MARK_COLORS.note, fontSize: 12 }, `⚠ 波浪規則：${broken.join("、")}`, "note"));
+      }
+    } else if (kind === "event") {
+      const t = time(m.date);
+      const name = String(m.name ?? m.label ?? "").trim().slice(0, 12);
+      if (t == null || !name) continue;
+      const bar = bars[indexAt(t)]!;
+      const bull = BULL_EVENTS.test(name);
+      out.push(make("text", [{ time: t, price: bull ? bar.low : bar.high }], { textColor: bull ? MARK_COLORS.up : MARK_COLORS.down, fontSize: 12, textBold: true }, name, kind));
     }
   }
   return out;
