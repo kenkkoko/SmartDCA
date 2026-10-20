@@ -674,3 +674,62 @@ export function marksToDrawings(marks: RawMark[], bars: Bar[]): Drawing[] {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// books (RAG): the local book index (rag.mjs serve) returns passages for the
+// methods this chart calls for; the AI must cite them as [書n]
+// ---------------------------------------------------------------------------
+
+export const BOOKS_PORT = 8766;
+export type BookPassage = { query: string; source: string; section?: string; text: string; score: number };
+
+/** What to look up in the books, from the methods the analysis needs and what the chart shows. */
+export function bookQueries(prompt: string): string[] {
+  const q = [
+    "道氏理論 主要趨勢 牛市 熊市 的判斷",
+    "威科夫 吸籌 階段 的特徵與量價",
+    "威科夫 派發 階段 的特徵與量價",
+    "艾略特波浪 推動浪 的規則",
+    "支撐 阻力 互換 的意義",
+    "斐波那契 回撤 比例 的用法",
+  ];
+  if (/跌破前低 .* 後收回/.test(prompt)) q.push("威科夫 Spring 彈簧 跌破支撐後收回");
+  if (/突破前高 .* 後收回/.test(prompt)) q.push("威科夫 UTAD 上衝回落 假突破");
+  if (/爆量長K/.test(prompt)) q.push("威科夫 賣出高潮 買入高潮 爆量");
+  if (/價漲量縮|賣壓減輕/.test(prompt)) q.push("價格與成交量 背離");
+  if (/無需求|無供給/.test(prompt)) q.push("無需求 無供給 窄幅 K 線 縮量");
+  const shape = prompt.match(/- 形狀：(P|b|D|雙分布)/)?.[1];
+  if (shape) q.push(`成交量分布 ${shape === "雙分布" ? "雙分布" : `${shape} 型`} 籌碼 的意義`);
+  const candles = [...new Set([...prompt.matchAll(/(錘子線|上吊線|流星線|倒錘子|看漲吞噬|看跌吞噬|晨星|夜星|貫穿線|烏雲蓋頂)/g)].map((m) => m[1]!))];
+  for (const c of candles.slice(0, 2)) q.push(`K 線 ${c} 的意義與確認`);
+  return q.slice(0, 12);
+}
+
+/** Passages from the local book service; [] when it is not running. */
+export async function fetchBooks(queries: string[], signal?: AbortSignal): Promise<BookPassage[]> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${BOOKS_PORT}/search`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ queries, k: 2 }),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
+    });
+    if (!res.ok) return [];
+    return ((await res.json()) as { results?: BookPassage[] }).results ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export function booksSection(books: BookPassage[]): string {
+  if (!books.length) return "";
+  const lines = ["", "## 書中的方法（從使用者的書籍資料庫檢索；判斷時引用並標 [書n]）"];
+  books.forEach((b, k) => lines.push(`[書${k + 1}] 《${b.source}》${b.section ? `· ${b.section}` : ""}（查詢：${b.query}）\n${b.text.replace(/\s+/g, " ").trim()}`));
+  return lines.join("\n");
+}
+
+export const BOOKS_RULE = [
+  "",
+  "【書籍依據】資料最後附有「書中的方法」段落。判斷趨勢、威科夫事件、波浪、K 線型態時，若有對應的書中規則，就在那句後面標 [書n]，說明這個判斷符合書上哪條規則。",
+  "書的段落可能是簡體或英文：一律用繁體中文轉述重點，不要長段照抄。書上沒有提到的判斷，照常分析但不要標 [書n]。",
+].join("\n");

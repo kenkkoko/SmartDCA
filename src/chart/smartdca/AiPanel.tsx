@@ -10,7 +10,12 @@ import type { Chart, ChartPrimitive } from "../engine/chart";
 import type { Bar } from "../engine/types";
 import { PanelHeader, panelIconBtn } from "../react/SideBar";
 import {
+  bookQueries,
+  BOOKS_RULE,
+  booksSection,
   buildPrompt,
+  fetchBooks,
+  type BookPassage,
   extractMarks,
   fetchProviders,
   MARKS_PROMPT,
@@ -40,6 +45,8 @@ type Run = {
   marks: boolean;
   /** Drawings placed from the answer (null = not yet / none found). */
   placed?: number | null;
+  /** Book passages sent with the prompt (RAG); null = book service not running. */
+  books?: BookPassage[] | null;
 };
 
 const STALL_MESSAGE =
@@ -263,11 +270,17 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
             .filter((d) => !d.hidden && d.anchors.some((a) => a.time >= bars[indices.from]!.time && a.time <= bars[indices.to]!.time))
             .map((d) => ({ label: d.name || getTool(d.type)?.label || d.type, drawing: d }))
         : [];
-    const prompt = buildPrompt({ symbol, market, timeframe, bars, from: indices.from, to: indices.to, drawings, extras, question });
+    const basePrompt = buildPrompt({ symbol, market, timeframe, bars, from: indices.from, to: indices.to, drawings, extras, question });
     const meta = `${provider.name} · ${model?.name ?? (settings.model || "預設模型")}${efforts.includes(settings.effort) ? ` · 努力 ${EFFORT_LABEL[settings.effort] ?? settings.effort}` : ""} · ${rangeLabel}`;
     const marks = settings.drawMarks && !!layer;
     const snapshot = bars;
-    setRun({ text: "", state: "running", meta, thinking: false, marks });
+    setRun({ text: "", state: "running", meta, thinking: false, marks, books: undefined });
+    // look the methods up in the user's books first (rag.mjs serve); skipped when it is not running
+    const books = await fetchBooks(bookQueries(basePrompt), ac.signal);
+    if (ac.signal.aborted) return;
+    setRun((r) => (r ? { ...r, books: books.length ? books : null } : r));
+    const prompt = books.length ? `${basePrompt}\n${booksSection(books)}` : basePrompt;
+    const system = (marks ? SYSTEM_PROMPT + MARKS_PROMPT : SYSTEM_PROMPT) + (books.length ? BOOKS_RULE : "");
     let full = "";
     // watchdog: a frozen bridge (e.g. its console window stuck in "select" mode)
     // never answers; don't leave the panel waiting forever
@@ -298,7 +311,7 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
           provider: provider.id,
           model: settings.model,
           effort: efforts.includes(settings.effort) ? settings.effort : "",
-          system: marks ? SYSTEM_PROMPT + MARKS_PROMPT : SYSTEM_PROMPT,
+          system,
           prompt,
         },
         (e) => {
@@ -641,7 +654,7 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
                 {run.text ? <Markdown text={stripMarks(run.text)} /> : null}
                 {run.state === "running" ? (
                   <p className="mt-2 animate-pulse text-[11.5px] text-[var(--c-muted)]">
-                    {run.thinking ? "AI 思考中…" : run.text.includes("```chart-marks") ? "在圖上標記中…" : run.text ? "撰寫中…" : "傳送資料給 AI…"}
+                    {run.books === undefined ? "查詢書籍資料庫…" : run.thinking ? "AI 思考中…" : run.text.includes("```chart-marks") ? "在圖上標記中…" : run.text ? "撰寫中…" : "傳送資料給 AI…"}
                   </p>
                 ) : null}
                 {run.marks && run.placed != null ? (
@@ -655,6 +668,21 @@ export function AiPanel({ chart, layer, bars, symbol, market, timeframe, extras,
                   ) : run.placed === 0 ? (
                     <p className="mt-2 text-[11px] text-[var(--c-muted)]">這次 AI 沒有給出可畫在圖上的標記。</p>
                   ) : null
+                ) : null}
+                {run.books?.length ? (
+                  <details className="mt-2 rounded-md bg-[var(--c-raised)] px-2 py-1.5 text-[11px] text-[var(--c-muted)]" data-testid="ai-books">
+                    <summary className="cursor-pointer">參考書籍 {run.books.length} 段（[書n] 的出處）</summary>
+                    <ol className="mt-1 list-decimal space-y-1 pl-4">
+                      {run.books.map((b, k) => (
+                        <li key={k} title={b.text}>
+                          [書{k + 1}] 《{b.source}》{b.section ? ` · ${b.section}` : ""}
+                          <span className="opacity-70">（{b.query}，相似度 {b.score.toFixed(2)}）</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                ) : run.books === null && run.state !== "running" ? (
+                  <p className="mt-2 text-[10.5px] text-[var(--c-muted)]">未使用書籍資料庫（要讓分析引用你的書，先在電腦上執行 node rag.mjs serve）</p>
                 ) : null}
                 {run.error ? <p className="mt-2 text-[11.5px] text-[var(--c-danger)]">{run.error}</p> : null}
                 {run.state === "done" && !run.error ? (

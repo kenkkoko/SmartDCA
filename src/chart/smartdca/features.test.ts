@@ -121,3 +121,15 @@ describe("analysis features", () => {
     expect(out[1]!.text).toContain("2 浪跌破 1 浪起點");
   });
 });
+
+describe("book lookup", () => {
+  it("asks the books about what the chart shows", async () => {
+    const { bookQueries, booksSection } = await import("./ai");
+    const q = bookQueries("- 2024-08-05 收 49000：跌破前低 52000 後收回（量 3.1 倍）\n- 形狀：P（量集中在上方）\n- 2024-08-06（近期）錘子線，收 50000");
+    expect(q.some((s) => s.includes("Spring"))).toBe(true);
+    expect(q.some((s) => s.includes("P 型"))).toBe(true);
+    expect(q.some((s) => s.includes("錘子線"))).toBe(true);
+    expect(booksSection([{ query: "x", source: "威科夫 2.0", section: "第 3 章", text: "Spring 是…", score: 0.6 }])).toContain("[書1] 《威科夫 2.0》· 第 3 章");
+    expect(booksSection([])).toBe("");
+  });
+});
