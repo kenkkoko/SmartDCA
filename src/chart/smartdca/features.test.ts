@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Bar } from "../engine/types";
 import { buildPrompt, marksToDrawings } from "./ai";
-import { aggregate, fibFrom, keyLevels, impulseViolations, profileSummary, structureLabels, swings, zigzag } from "./features";
+import { aggregate, candlePatterns, fibFrom, keyLevels, volumePriceNotes, impulseViolations, profileSummary, structureLabels, swings, zigzag } from "./features";
 
 /** Daily bars through the given closes (high/low 1% around, volume optional). */
 function series(closes: number[], vol: (i: number) => number = () => 100): Bar[] {
@@ -62,6 +62,21 @@ describe("analysis features", () => {
     expect(near(100)).toBeTruthy();
   });
 
+  it("recognises candlestick patterns", () => {
+    const bar = (o: number, h: number, l: number, c: number, i: number): Bar => ({ time: i * 86400, open: o, high: h, low: l, close: c, volume: 1 });
+    const down = [110, 108, 106, 104, 102].map((c, i) => bar(c + 1, c + 2, c - 1, c, i));
+    expect(candlePatterns([...down, bar(100, 100.5, 94, 100.3, 5)], 5)).toContain("錘子線");
+    expect(candlePatterns([...down, bar(102, 102.5, 99, 99.5, 5), bar(99, 104, 98.8, 103.5, 6)], 6)).toContain("看漲吞噬");
+    expect(candlePatterns([...down, bar(100, 103, 97, 100.1, 5)], 5)).toContain("十字星");
+  });
+
+  it("notes a new high on lighter volume", () => {
+    const closes = path([100, 100], [100, 150], [150, 120], [120, 170]);
+    const bars = series(closes, (i) => (i < 40 ? 300 : i < 60 ? 150 : 100));
+    const notes = volumePriceNotes(bars, zigzag(bars, 0.1), 0, bars.length - 1);
+    expect(notes.some((n) => n.includes("價漲量縮"))).toBe(true);
+  });
+
   it("merges days into weeks and months", () => {
     const bars = series(Array.from({ length: 70 }, (_, i) => 100 + i));
     expect(aggregate(bars, "week").length).toBe(10);
@@ -72,7 +87,7 @@ describe("analysis features", () => {
     const closes = path([100, 100], [100, 60], [60, 70], [70, 62], [62, 120], [120, 95], [95, 160], [160, 130], [130, 175], [175, 150], [150, 190], [190, 140], [140, 210], [210, 170], [170, 230], [230, 200], [230, 260], [260, 220], [220, 280], [280, 240], [240, 300], [300, 250], [250, 320]);
     const bars = series(closes, (i) => (i % 37 === 0 ? 900 : 100));
     const p = buildPrompt({ symbol: "BTC", market: "crypto", timeframe: "1d", bars, from: 0, to: bars.length - 1 });
-    for (const s of ["週線 / 月線關鍵支撐阻力", "大週期背景：週線", "擺動高低點", "斐波那契", "成交量分布 VPVR", "錨定 VWAP", "量價異常"]) expect(p).toContain(s);
+    for (const s of ["量價分析", "週線 / 月線關鍵支撐阻力", "大週期背景：週線", "擺動高低點", "斐波那契", "成交量分布 VPVR", "錨定 VWAP", "量價異常"]) expect(p).toContain(s);
   });
 
   it("draws fib, VPVR, VWAP, waves and Wyckoff events from the AI's marks", () => {

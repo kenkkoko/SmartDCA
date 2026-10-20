@@ -5,7 +5,7 @@ import { getTool } from "../drawings/tools";
 import { DEFAULT_STYLE, newId, type Drawing } from "../drawings/types";
 import type { Bar } from "../engine/types";
 import { crosses, ema, macd, rsi, sma, type Num } from "../indicators";
-import { aggregate, anchoredVwap, fibFrom, impulseViolations, keyLevels, lastBreak, profileSummary, structureLabels, swings, volumeEvents, type Pivot } from "./features";
+import { aggregate, anchoredVwap, candlePatterns, fibFrom, legs, volumePriceNotes, impulseViolations, keyLevels, lastBreak, profileSummary, structureLabels, swings, volumeEvents, type Pivot } from "./features";
 
 // ---------------------------------------------------------------------------
 // bridge client
@@ -113,7 +113,9 @@ export const SYSTEM_PROMPT = [
   "## 大週期背景（以上述關鍵價位為基礎，判斷牛市或熊市、高低點結構、是否有吸籌或派發區間）",
   "## 結構轉變與波浪（是否突破週線前高 / 跌破前低造成結構改變；從轉變點起走了幾浪、現在在哪一浪）",
   "## 型態與籌碼分布（目前的型態；VPVR 是 P / b / D 型或雙分布、POC 與價值區代表什麼）",
-  "## 吸籌 / 派發特徵（區間內的量價與 K 線：SC、AR、ST、Spring、SOS、LPS，或 BC、UTAD、SOW、LPSY；只標有證據的）",
+  "## 吸籌 / 派發特徵（威科夫事件：SC、AR、ST、Spring、SOS、LPS，或 BC、UTAD、SOW、LPSY；只標有證據的。每個事件都要寫出量價與 K 線依據，分成兩小段：）",
+  "### 量價分析（漲跌段的量能對比、價量背離、努力與結果是否一致、量能萎縮或放大、無需求 / 無供給）",
+  "### K 線型態（關鍵高低點與近期的 K 線型態，例如錘子線、吞噬、晨星，配合量能判斷可靠度）",
   "## 關鍵價位（斐波那契、POC / VAH / VAL、錨定 VWAP、前高前低；多個工具重疊的價位優先，附理由）",
   "## 情境與失效條件（偏多與偏空兩種劇本，各自要看到什麼、什麼價位代表判斷錯誤）",
   "最後一行加上：「以上為技術面分析，不構成投資建議。」",
@@ -281,7 +283,42 @@ function featureLines(input: AnalysisInput, date: (t: number) => string): string
   if (ev.length) {
     out.push("");
     out.push("## 量價異常 K 棒（程式篩選的候選，是否為威科夫事件由你判斷）");
-    for (const e of ev) out.push(`- ${date(bars[e.index]!.time)} 收 ${fmt(bars[e.index]!.close)}：${e.text}`);
+    for (const e of ev) {
+      const cp = candlePatterns(bars, e.index);
+      out.push(`- ${date(bars[e.index]!.time)} 收 ${fmt(bars[e.index]!.close)}：${e.text}${cp.length ? `；K 線：${cp.join("、")}` : ""}`);
+    }
+  }
+
+  // 7. volume-price: each swing leg, then divergences / effort vs result / no demand
+  const lg = legs(bars, pivots, from, to);
+  if (lg.length && bars.some((b) => (b.volume ?? 0) > 0)) {
+    out.push("");
+    out.push("## 量價分析（程式計算；量、振幅是相對於整個範圍平均的倍數）");
+    for (const l of lg.slice(-10))
+      out.push(`- ${date(l.from.time)} → ${date(l.to.time)} ${l.change >= 0 ? "上漲" : "下跌"} ${(l.change * 100).toFixed(1)}%，${l.bars} 根，均量 ${l.volRatio.toFixed(2)} 倍，平均振幅 ${l.spreadRatio.toFixed(2)} 倍`);
+    for (const n of volumePriceNotes(bars, pivots, from, to)) out.push(`- ${n}`);
+  }
+
+  // 8. candlestick patterns at the swing points and in the latest bars
+  const v20 = sma(bars.map((x) => x.volume ?? 0), 20);
+  const seen = new Set<number>();
+  const cpRows: { i: number; row: string }[] = [];
+  const addCp = (i: number, where: string) => {
+    if (i < from || i > to || seen.has(i)) return;
+    // an inside bar on its own is noise away from a swing point
+    const cp = candlePatterns(bars, i).filter((n) => where !== "近期" || n !== "孕線（內包）");
+    if (!cp.length) return;
+    seen.add(i);
+    const b = bars[i]!;
+    const v = v20[i - 1];
+    cpRows.push({ i, row: `- ${date(b.time)}（${where}）${cp.join("、")}，收 ${fmt(b.close)}${v ? `，量 ${((b.volume ?? 0) / v).toFixed(1)} 倍` : ""}` });
+  };
+  for (const p of pivots) for (const d of [0, 1, 2]) addCp(p.index + d, `${p.kind === "H" ? "高點" : "低點"} ${fmt(p.price)} 附近`);
+  for (let i = Math.max(from, to - 14); i <= to; i++) addCp(i, "近期");
+  if (cpRows.length) {
+    out.push("");
+    out.push("## K 線型態（程式辨識，出現在擺動點附近與最近 15 根）");
+    out.push(...cpRows.sort((a, b) => a.i - b.i).slice(-20).map((r) => r.row));
   }
   return out;
 }

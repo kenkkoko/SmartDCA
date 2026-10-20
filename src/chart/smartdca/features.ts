@@ -321,3 +321,113 @@ export function keyLevels(weekly: Bar[], monthly: Bar[], tol = 0.03, perSide = 4
   const below = ranked.filter((l) => l.level.price <= close).slice(0, perSide);
   return [...above, ...below].map((l) => l.level).sort((a, b) => b.price - a.price);
 }
+
+// ---------------------------------------------------------------------------
+// volume-price analysis and candlestick patterns
+// ---------------------------------------------------------------------------
+
+/** Candlestick patterns completed on bar i (needs a few bars before it). */
+export function candlePatterns(bars: Bar[], i: number): string[] {
+  const b = bars[i];
+  const p = bars[i - 1];
+  const q = bars[i - 2];
+  if (!b || !p) return [];
+  const body = (x: Bar) => Math.abs(x.close - x.open);
+  const span = (x: Bar) => x.high - x.low || 1e-12;
+  const upper = (x: Bar) => x.high - Math.max(x.open, x.close);
+  const lower = (x: Bar) => Math.min(x.open, x.close) - x.low;
+  const bull = (x: Bar) => x.close > x.open;
+  const bear = (x: Bar) => x.close < x.open;
+  // recent direction: close vs 5 bars ago
+  const back = bars[i - 5];
+  const fell = back ? p.close < back.close : false;
+  const rose = back ? p.close > back.close : false;
+  const out: string[] = [];
+  if (lower(b) >= Math.max(body(b) * 2, span(b) * 0.6) && upper(b) <= span(b) * 0.15) out.push(fell ? "錘子線" : "上吊線");
+  else if (upper(b) >= Math.max(body(b) * 2, span(b) * 0.6) && lower(b) <= span(b) * 0.15) out.push(rose ? "流星線" : "倒錘子");
+  else if (body(b) <= span(b) * 0.1) out.push("十字星");
+  if (bull(b) && bear(p) && b.close >= p.open && b.open <= p.close && body(b) > body(p)) out.push("看漲吞噬");
+  if (bear(b) && bull(p) && b.close <= p.open && b.open >= p.close && body(b) > body(p)) out.push("看跌吞噬");
+  if (b.high < p.high && b.low > p.low) out.push("孕線（內包）");
+  if (q && bear(q) && body(p) <= span(p) * 0.3 && bull(b) && b.close > (q.open + q.close) / 2 && fell) out.push("晨星");
+  if (q && bull(q) && body(p) <= span(p) * 0.3 && bear(b) && b.close < (q.open + q.close) / 2 && rose) out.push("夜星");
+  if (bear(p) && bull(b) && b.open < p.low && b.close > (p.open + p.close) / 2 && b.close < p.open) out.push("貫穿線");
+  if (bull(p) && bear(b) && b.open > p.high && b.close < (p.open + p.close) / 2 && b.close > p.open) out.push("烏雲蓋頂");
+  return out;
+}
+
+export type Leg = { from: Pivot; to: Pivot; bars: number; change: number; volRatio: number; spreadRatio: number };
+
+/** Each swing leg: how far it went, how many bars, average volume / spread vs the whole range. */
+export function legs(bars: Bar[], pivots: Pivot[], from: number, to: number): Leg[] {
+  let vSum = 0;
+  let sSum = 0;
+  for (let i = from; i <= to; i++) {
+    vSum += bars[i]!.volume ?? 0;
+    sSum += bars[i]!.high - bars[i]!.low;
+  }
+  const n = to - from + 1;
+  const vAvg = vSum / n;
+  const sAvg = sSum / n;
+  const out: Leg[] = [];
+  for (let k = 1; k < pivots.length; k++) {
+    const a = pivots[k - 1]!;
+    const b = pivots[k]!;
+    let v = 0;
+    let s = 0;
+    for (let i = a.index + 1; i <= b.index; i++) {
+      v += bars[i]!.volume ?? 0;
+      s += bars[i]!.high - bars[i]!.low;
+    }
+    const m = Math.max(1, b.index - a.index);
+    out.push({ from: a, to: b, bars: m, change: b.price / a.price - 1, volRatio: vAvg ? v / m / vAvg : 0, spreadRatio: sAvg ? s / m / sAvg : 0 });
+  }
+  return out;
+}
+
+/**
+ * Volume-price notes a Wyckoff reader looks for: divergence at new highs /
+ * lows, effort vs result, no demand / no supply bars near the end.
+ */
+export function volumePriceNotes(bars: Bar[], pivots: Pivot[], from: number, to: number): string[] {
+  const ls = legs(bars, pivots, from, to);
+  const out: string[] = [];
+  const day = (t: number) => new Date(t * 1000).toISOString().slice(0, 10);
+  // divergence: a new extreme reached on a lighter leg than the previous push
+  for (let k = 2; k < ls.length; k++) {
+    const cur = ls[k]!;
+    const prev = ls[k - 2]!;
+    if (cur.to.kind === "H" && cur.to.price > prev.to.price && cur.volRatio < prev.volRatio * 0.8)
+      out.push(`${day(cur.to.time)} 創新高 ${fmtP(cur.to.price)}，但這段上漲均量 ${cur.volRatio.toFixed(2)} 倍，低於前一段的 ${prev.volRatio.toFixed(2)} 倍（價漲量縮）`);
+    if (cur.to.kind === "L" && cur.to.price < prev.to.price && cur.volRatio < prev.volRatio * 0.8)
+      out.push(`${day(cur.to.time)} 創新低 ${fmtP(cur.to.price)}，但這段下跌均量 ${cur.volRatio.toFixed(2)} 倍，低於前一段的 ${prev.volRatio.toFixed(2)} 倍（賣壓減輕）`);
+    // effort vs result: heavy volume, small move
+    if (cur.volRatio > 1.3 && Math.abs(cur.change) < Math.abs(prev.change) * 0.5)
+      out.push(`${day(cur.from.time)} ~ ${day(cur.to.time)} 量大（${cur.volRatio.toFixed(2)} 倍）但幅度小（${(cur.change * 100).toFixed(1)}%），努力與結果不一致`);
+  }
+  // up legs vs down legs over the range
+  const up = ls.filter((l) => l.change > 0);
+  const dn = ls.filter((l) => l.change < 0);
+  const avg = (xs: Leg[]) => xs.reduce((s, l) => s + l.volRatio * l.bars, 0) / Math.max(1, xs.reduce((s, l) => s + l.bars, 0));
+  if (up.length && dn.length) out.push(`範圍內上漲段平均量 ${avg(up).toFixed(2)} 倍、下跌段 ${avg(dn).toFixed(2)} 倍（${avg(up) > avg(dn) * 1.15 ? "漲時量大，需求較強" : avg(dn) > avg(up) * 1.15 ? "跌時量大，供給較強" : "差不多"}）`);
+  // volume trend: first half vs second half of the range
+  const half = Math.floor((from + to) / 2);
+  const mean = (a: number, b: number) => {
+    let s = 0;
+    for (let i = a; i <= b; i++) s += bars[i]!.volume ?? 0;
+    return s / Math.max(1, b - a + 1);
+  };
+  const v1 = mean(from, half);
+  const v2 = mean(half + 1, to);
+  if (v1 > 0) out.push(`範圍後半段均量是前半段的 ${(v2 / v1).toFixed(2)} 倍（${v2 < v1 * 0.8 ? "量能萎縮" : v2 > v1 * 1.25 ? "量能放大" : "持平"}）`);
+  // no demand / no supply in the last bars: narrow up / down bar on volume lower than the two before
+  for (let i = Math.max(from + 2, to - 9); i <= to; i++) {
+    const b = bars[i]!;
+    const v = b.volume ?? 0;
+    const narrow = b.high - b.low < Math.min(bars[i - 1]!.high - bars[i - 1]!.low, bars[i - 2]!.high - bars[i - 2]!.low);
+    if (!narrow || !(v < (bars[i - 1]!.volume ?? 0) && v < (bars[i - 2]!.volume ?? 0))) continue;
+    if (b.close > bars[i - 1]!.close) out.push(`${day(b.time)} 窄幅上漲、量比前兩根小（可能是無需求 No Demand）`);
+    else if (b.close < bars[i - 1]!.close) out.push(`${day(b.time)} 窄幅下跌、量比前兩根小（可能是無供給 No Supply）`);
+  }
+  return out;
+}
