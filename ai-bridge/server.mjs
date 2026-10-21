@@ -21,7 +21,9 @@ const VERSION = "1.0.0";
 const PORT = Number(process.env.SMARTDCA_AI_PORT || 8765);
 const ALLOWED = [
   /^https:\/\/dca\.hellokai07\.com$/,
-  /^https:\/\/([a-z0-9-]+\.)?smartdca[a-z0-9-]*\.pages\.dev$/,
+  // only this project's own Pages site and its preview builds (<hash>.smartdca.pages.dev);
+  // a pattern like smartdca*.pages.dev would let anyone's Pages project named smartdca-xxx in
+  /^https:\/\/([a-z0-9-]+\.)?smartdca\.pages\.dev$/,
   /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
   ...(process.env.SMARTDCA_AI_ORIGINS || "")
     .split(",")
