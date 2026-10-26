@@ -1821,10 +1821,8 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                         .catch(e => console.error("Indices Fetch Error:", e));
 
                     // 4. 獲取新聞
-                    const rssUrl = 'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664';
-                    fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`)
-                        .then(r => r.json())
-                        .then(d => { if (d.status === 'ok') setStockNews(d.items); })
+                    fetchNewsFrom(NEWS_SOURCES.us())
+                        .then(setStockNews)
                         .catch(e => console.error("News Error:", e));
 
                 } catch (e) {
@@ -2109,9 +2107,10 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
             );
         };
 
-        // --- Google News RSS ---
-        // rss2json 已抓不到 Google News(約 7 秒後回 500),改走自家 CORS proxy + DOMParser,
-        // 失敗才退回 rss2json。回傳 [{ title, link, pubDate, thumbnail }]
+        // --- 新聞 RSS ---
+        // 都走自家 CORS proxy(cors.hellokai07.com)+ DOMParser。
+        // 2026-10:Google News 開始擋 Cloudflare 的連線(proxy 回 503)、rss2json 也停用(403),
+        // 所以每個市場都準備幾個來源,依序嘗試,第一個有結果的就用。回傳 [{ title, link, pubDate, thumbnail }]
         const fetchWithTimeout = async (url, ms) => {
             const ctrl = new AbortController();
             const timer = setTimeout(() => ctrl.abort(), ms);
@@ -2121,32 +2120,57 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                 clearTimeout(timer);
             }
         };
-        const fetchGoogleNews = async (query, limit = 6) => {
-            const rssUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(query) + '&hl=zh-TW&gl=TW&ceid=TW:zh-Hant';
-            try {
-                const res = await fetchWithTimeout('https://cors.hellokai07.com/?' + encodeURIComponent(rssUrl), 8000);
-                if (res.ok) {
-                    const doc = new DOMParser().parseFromString(await res.text(), 'text/xml');
-                    const items = [...doc.querySelectorAll('item')].slice(0, limit).map(item => ({
-                        title: item.querySelector('title')?.textContent || '',
-                        link: item.querySelector('link')?.textContent || '',
-                        pubDate: item.querySelector('pubDate')?.textContent || '',
-                        thumbnail: '',
-                    }));
-                    if (items.length) return items;
+        const fetchRss = async (rssUrl, limit = 6) => {
+            const res = await fetchWithTimeout('https://cors.hellokai07.com/?' + encodeURIComponent(rssUrl), 8000);
+            if (!res.ok) throw new Error(`新聞來源回應 ${res.status}`);
+            const doc = new DOMParser().parseFromString(await res.text(), 'text/xml');
+            const items = [...doc.querySelectorAll('item')].slice(0, limit).map(item => {
+                const media = item.getElementsByTagName('media:content')[0] || item.getElementsByTagName('media:thumbnail')[0] || item.querySelector('enclosure');
+                const img = media?.getAttribute('url') || '';
+                return {
+                    title: (item.querySelector('title')?.textContent || '').trim(),
+                    link: (item.querySelector('link')?.textContent || '').trim(),
+                    pubDate: item.querySelector('pubDate')?.textContent || '',
+                    thumbnail: /\.(jpe?g|png|webp|gif)(\?|$)/i.test(img) || media?.getAttribute('medium') === 'image' ? img : '',
+                };
+            }).filter(n => n.title && n.link);
+            if (!items.length) throw new Error('新聞來源沒有內容');
+            return items;
+        };
+        const googleNewsUrl = (query) => 'https://news.google.com/rss/search?q=' + encodeURIComponent(query) + '&hl=zh-TW&gl=TW&ceid=TW:zh-Hant';
+        /** 依序嘗試多個 RSS 來源,回傳第一個成功的結果 */
+        const fetchNewsFrom = async (urls, limit = 6) => {
+            let lastErr = null;
+            for (const url of urls) {
+                try {
+                    return await fetchRss(url, limit);
+                } catch (e) {
+                    lastErr = e;
+                    console.warn('News source failed:', url, e?.message || e);
                 }
-            } catch (e) {
-                console.warn('Google News via proxy failed:', e);
             }
-            const res = await fetchWithTimeout(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`, 8000);
-            const json = await res.json();
-            if (json.status !== 'ok' || !Array.isArray(json.items)) throw new Error(json.message || '新聞來源暫時無法使用');
-            return json.items.slice(0, limit).map(item => ({
-                title: item.title || '',
-                link: item.link || '',
-                pubDate: item.pubDate || '',
-                thumbnail: item.thumbnail || item.enclosure?.link || '',
-            }));
+            throw lastErr || new Error('新聞來源暫時無法使用');
+        };
+        const NEWS_SOURCES = {
+            // 美股:CNBC 財經頭條 → Yahoo Finance 大盤新聞
+            us: () => [
+                'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664',
+                'https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC,%5EIXIC&region=US&lang=en-US',
+            ],
+            // 台股:Google News(個股)→ Yahoo 股市個股新聞(上市 .TW / 上櫃 .TWO)→ Yahoo 台股大盤
+            tw: (symbol) => [
+                googleNewsUrl(`${symbol} 股票新聞`),
+                `https://tw.stock.yahoo.com/rss?s=${encodeURIComponent(symbol)}.TW`,
+                `https://tw.stock.yahoo.com/rss?s=${encodeURIComponent(symbol)}.TWO`,
+                'https://tw.stock.yahoo.com/rss?category=tw-market',
+            ],
+            // 加密:Google News → 動區動趨 → 鏈新聞 → Cointelegraph(英文)
+            crypto: () => [
+                googleNewsUrl('加密貨幣'),
+                'https://www.blocktempo.com/feed/',
+                'https://abmedia.io/feed',
+                'https://cointelegraph.com/rss',
+            ],
         };
 
         // --- RSI 計算與分類工具 ---
@@ -2368,7 +2392,7 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
             const fetchNews = async () => {
                 setNewsLoading(true);
                 try {
-                    setNews(await fetchGoogleNews(`${selectedSymbol} 股票新聞`));
+                    setNews(await fetchNewsFrom(NEWS_SOURCES.tw(selectedSymbol)));
                 } catch (e) {
                     console.warn('TW news fetch error:', e);
                     setNews([]);
@@ -2727,7 +2751,7 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
             const fetchNews = async () => {
                 setNewsLoading(true);
                 try {
-                    setNewsData(await fetchGoogleNews('加密貨幣'));
+                    setNewsData(await fetchNewsFrom(NEWS_SOURCES.crypto()));
                 } catch (e) {
                     setNewsError(e.message);
                 } finally {
