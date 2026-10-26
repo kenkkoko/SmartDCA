@@ -308,6 +308,18 @@ if (process.env.SMARTDCA_AI_TEST) {
 // HTTP
 // ---------------------------------------------------------------------------
 
+// Turn the providers' own errors into what the user has to do. Each provider
+// fails on its own: an expired Claude login says nothing about Ollama.
+export function friendlyError(provider, msg) {
+  if (provider === "claude" && /OAuth|authenticat|log ?in|401|invalid api key|credential/i.test(msg))
+    return `Claude Code 的登入過期了（${msg}）。請在電腦上開終端機執行 claude，輸入 /login 重新登入，完成後回到這裡再按一次分析（不用重開橋接）。`;
+  if (provider === "claude" && /rate limit|usage limit|429|quota/i.test(msg))
+    return `Claude 的用量額度暫時用完了（${msg}）。請稍後再試，或改用其他模型。`;
+  if (provider === "codex" && /login|auth|401/i.test(msg)) return `Codex 的登入過期了（${msg}）。請在終端機執行 codex login 重新登入。`;
+  if (provider === "ollama" && /ECONNREFUSED|fetch failed/i.test(msg)) return "連不到 Ollama：請確認 Ollama 有在執行（工作列的羊駝圖示）。";
+  return msg;
+}
+
 function cors(req, res) {
   const origin = req.headers.origin;
   if (!origin) return true; // curl / same machine tools
@@ -364,7 +376,7 @@ const server = createServer(async (req, res) => {
         await runner({ model: body.model, effort: body.effort, system: String(body.system || ""), prompt: body.prompt }, emit, ac.signal);
         emit({ type: "done", ms: Date.now() - started });
       } catch (e) {
-        if (!ac.signal.aborted) emit({ type: "error", message: String(e?.message || e) });
+        if (!ac.signal.aborted) emit({ type: "error", message: friendlyError(body.provider, String(e?.message || e)) });
       }
       return res.end();
     }
