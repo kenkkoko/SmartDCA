@@ -131,6 +131,18 @@ describe("PriceScale", () => {
     expect(p.yToPrice(60)).toBeCloseTo(top, 4);
   });
 
+  it("symmetric range puts zero mid-band for signed values", () => {
+    const p = new PriceScale("linear");
+    p.height = 500;
+    p.margins = { top: 0.8, bottom: 0 };
+    p.setSymmetricRange(-50, 200);
+    expect(p.min).toBe(-200);
+    expect(p.max).toBe(200);
+    expect(p.priceToY(0)).toBeCloseTo(450, 6); // middle of the bottom fifth
+    expect(p.priceToY(200)).toBeCloseTo(400, 6); // band top
+    expect(p.priceToY(-200)).toBeCloseTo(500, 6); // band bottom = pane bottom
+  });
+
   it("linear ticks use nice steps", () => {
     const p = new PriceScale("linear");
     p.height = 500;

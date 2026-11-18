@@ -4666,6 +4666,9 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
             const [showVolume, setShowVolume] = useLocalState('tech2-show-volume', true);
             const [showFearSignal, setShowFearSignal] = useLocalState('tech2-show-fear', false);
             const [showETF, setShowETF] = useLocalState('tech2-show-etf', false);
+            // ETF 流量顯示方式:'separate' 分離(自己一個窗格)| 'overlay' 疊加(價格窗格底部的成交量區)
+            const [etfModeRaw, setEtfMode] = useLocalState('tech2-etf-mode', 'separate');
+            const etfMode = etfModeRaw === 'overlay' ? 'overlay' : 'separate';
             const [timeframeRaw, setTimeframe] = useLocalState('tech-timeframe', '1d'); // 15m | 1h | 4h | 1d | 1wk | 1mo
             const timeframe = CHART_TF[timeframeRaw] ? timeframeRaw : '1d';
             const tf = chartTf(timeframe);
@@ -5065,7 +5068,19 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                             ) : null}
                             <EyeToggle label="成交量" checked={showVolume} onChange={setShowVolume} color="#64748b" />
                             {etfSymbol && (
-                                <EyeToggle label="ETF 流量" checked={showETF} onChange={setShowETF} color="#22c55e" />
+                                <div className="flex items-center gap-1 shrink-0">
+                                    <EyeToggle label="ETF 流量" checked={showETF} onChange={setShowETF} color="#22c55e" />
+                                    {showETF && (
+                                        <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }} title="ETF 流量顯示方式" data-testid="etf-mode">
+                                            {[['separate', '分離', '獨立窗格'], ['overlay', '疊加', '疊在價格圖底部的成交量區']].map(([key, label, tip]) => (
+                                                <button key={key} onClick={() => setEtfMode(key)} title={tip} aria-pressed={etfMode === key}
+                                                    className={`px-2 h-6 rounded-md text-[11px] font-bold shrink-0 ${etfMode === key ? 'pill-grad' : 'hover:bg-[var(--wash-2)] cursor-pointer'}`}
+                                                    style={etfMode === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
+                                                    data-testid={`etf-mode-${key}`}>{label}</button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             )}
                             <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
                             <EyeToggle label="MACD" checked={showMACD} onChange={setShowMACD} color="#fbbf24" />
@@ -5125,6 +5140,7 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                                 showMA200={showMA200 && !isCryptoType}
                                 realizedPrice={realizedPrice}
                                 etfFlows={etfFlows}
+                                etfMode={etfMode}
                                 showRSI={showRSI}
                                 showMACD={showMACD}
                                 showVolume={showVolume}
