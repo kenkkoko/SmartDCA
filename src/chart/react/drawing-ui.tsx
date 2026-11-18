@@ -451,10 +451,10 @@ function VpToolbarColors({ vp, onChange }: { vp: Partial<VpColors> | undefined; 
   const c = mergeVpColors(vp);
   return (
     <>
-      <ColorButton title="上漲量顏色" color={c.up || VP_UP_FALLBACK} onChange={(v) => v && onChange({ up: v })}>
+      <ColorButton title="上漲量顏色與透明度" color={c.up || VP_UP_FALLBACK} opacity={c.upOpacity ?? 1} onChange={(v) => v && onChange({ up: v })} onOpacity={(o) => onChange({ upOpacity: o })}>
         <span className="text-[10px] text-[var(--c-muted)]">漲</span>
       </ColorButton>
-      <ColorButton title="下跌量顏色" color={c.down || VP_DOWN_FALLBACK} onChange={(v) => v && onChange({ down: v })}>
+      <ColorButton title="下跌量顏色與透明度" color={c.down || VP_DOWN_FALLBACK} opacity={c.downOpacity ?? 1} onChange={(v) => v && onChange({ down: v })} onOpacity={(o) => onChange({ downOpacity: o })}>
         <span className="text-[10px] text-[var(--c-muted)]">跌</span>
       </ColorButton>
       <ColorButton title="POC 線顏色" color={c.poc} onChange={(v) => v && onChange({ poc: v })}>
