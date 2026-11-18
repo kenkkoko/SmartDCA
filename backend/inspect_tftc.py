@@ -2,23 +2,12 @@
 import json
 import requests
 
-r = requests.get("https://www.tftc.io/bitcoin-etf-flows/data.json", timeout=60)
-print("status", r.status_code, "bytes", len(r.content))
-d = r.json()
-
-def show(x, depth=0, key="root"):
-    pad = "  " * depth
-    if isinstance(x, dict):
-        print(f"{pad}{key}: dict keys={list(x.keys())[:30]}")
-        if depth < 3:
-            for k in list(x.keys())[:8]:
-                show(x[k], depth + 1, k)
-    elif isinstance(x, list):
-        print(f"{pad}{key}: list len={len(x)}")
-        if x and depth < 3:
-            show(x[0], depth + 1, f"{key}[0]")
-            print(f"{pad}  {key}[-1] = {json.dumps(x[-1])[:400]}")
-    else:
-        print(f"{pad}{key}: {type(x).__name__} = {str(x)[:120]}")
-
-show(d)
+d = requests.get("https://www.tftc.io/bitcoin-etf-flows/data.json", timeout=60).json()
+for k in ("units", "totalDefinition", "updatedThrough"):
+    print(k, "=", json.dumps(d.get(k))[:500])
+days = d["days"]
+print("days type", type(days).__name__, "len", len(days))
+items = list(days.items())[:2] if isinstance(days, dict) else days[:2]
+print("first", json.dumps(items)[:800])
+last = list(days.items())[-1] if isinstance(days, dict) else days[-1]
+print("last", json.dumps(last)[:800])
