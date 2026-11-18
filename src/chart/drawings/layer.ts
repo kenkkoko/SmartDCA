@@ -559,6 +559,8 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
       anchors: [anchor],
       style: { ...DEFAULT_STYLE, ...tool.defaults, ...this.toolStyles[tool.type] },
     };
+    // nested settings are copied so drawings never share them
+    if (item.style.vp) item.style.vp = { ...item.style.vp };
     tool.init?.(item);
     return item;
   }
