@@ -2,6 +2,7 @@
 import type { Chart, Pane } from "../engine/chart";
 import type { Surface } from "../engine/surface";
 import type { Bar, LineStyle, Point, Rect, Theme } from "../engine/types";
+import { contrastRatio, MIN_TEXT_CONTRAST, readableTextColor } from "./color";
 import { withAlpha } from "./geometry";
 import type { Anchor, Drawing, DrawingStyle } from "./types";
 
@@ -24,7 +25,35 @@ export type ToolContext = {
   fromX(x: number): number;
   fromY(y: number): number;
   fmt(price: number): string;
+  /** The stored colour / text colour is "auto" (item.style holds the resolved value). */
+  autoColor?: boolean;
+  autoTextColor?: boolean;
 };
+
+/**
+ * Text colour for a label on `bg`. A text colour the user set explicitly is
+ * kept as long as it stays legible there; otherwise (or when it is "auto")
+ * light or dark text is picked from the background's luminance. Without a
+ * box the text sits on the chart background.
+ */
+export function labelTextColor(c: ToolContext, bg?: string): string {
+  const under = c.theme.background;
+  const surface = bg ?? under;
+  const own = c.item.style.textColor;
+  if (!c.autoTextColor) {
+    const contrast = contrastRatio(own, surface, under);
+    if (contrast === null || contrast >= MIN_TEXT_CONTRAST) return own;
+  } else if (!bg) {
+    // "auto" already resolves to the theme's readable drawing colour
+    return own;
+  }
+  return readableTextColor(surface, under);
+}
+
+/** The drawing's colour, or `fallback` while it is left on "auto". */
+export function colorOr(c: ToolContext, fallback: string): string {
+  return c.autoColor ? fallback : c.item.style.color;
+}
 
 export type ToolCaps = {
   fill?: boolean;
@@ -144,9 +173,11 @@ export function label(
   const baseline = opts.baseline ?? "middle";
   const left = align === "center" ? x - width / 2 : align === "right" ? x - width : x;
   const top = baseline === "top" ? y : baseline === "bottom" ? y - height : y - height / 2;
+  // no explicit colour: auto-contrast against the box (or the chart)
+  const color = opts.color ?? labelTextColor(c, opts.bg);
   if (opts.bg) roundRect(c.s, left - pad, top - pad, width + pad * 2, height + pad * 2, 3, opts.bg);
   lines.forEach((line, i) =>
-    c.s.text(line, left, top + lineH * (i + 0.5), opts.color ?? c.item.style.textColor, font, "left", "middle"),
+    c.s.text(line, left, top + lineH * (i + 0.5), color, font, "left", "middle"),
   );
   return { x: left - pad, y: top - pad, width: width + pad * 2, height: height + pad * 2 };
 }

@@ -432,6 +432,8 @@ export class DrawingLayer implements ChartPrimitive, InteractionHandler {
       fromX: (x) => chart.xToTime(x),
       fromY: (y) => chart.yToPrice(pane, y),
       fmt: (price) => chart.formatPrice(pane, price),
+      autoColor: raw.style.color === AUTO_COLOR,
+      autoTextColor: raw.style.textColor === AUTO_COLOR,
     };
   }
 

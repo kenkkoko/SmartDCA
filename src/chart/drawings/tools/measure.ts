@@ -1,6 +1,6 @@
 import type { Point } from "../../engine/types";
 import { distToPolyline, insidePolygon } from "../geometry";
-import { HIT, arrowHead, fill, label, pctChange, stroke, type Tool, type ToolContext } from "../tool";
+import { HIT, arrowHead, colorOr, fill, label, pctChange, stroke, type Tool, type ToolContext } from "../tool";
 import type { Anchor } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -39,8 +39,8 @@ function position(kind: "long" | "short"): Tool {
       const risk = Math.abs(entry.price - stop.price);
       const mid = (x0 + x1) / 2;
       const tUp = t.y < e.y;
-      label(c, `目標 ${c.fmt(target.price)} (${pctChange(entry.price, target.price)})`, mid, t.y + (tUp ? -4 : 4), { align: "center", baseline: tUp ? "bottom" : "top", bg: c.theme.up, color: "#06281c", size: 11 });
-      label(c, `停損 ${c.fmt(stop.price)} (${pctChange(entry.price, stop.price)})`, mid, s.y + (tUp ? 4 : -4), { align: "center", baseline: tUp ? "top" : "bottom", bg: c.theme.down, color: "#2d0a10", size: 11 });
+      label(c, `目標 ${c.fmt(target.price)} (${pctChange(entry.price, target.price)})`, mid, t.y + (tUp ? -4 : 4), { align: "center", baseline: tUp ? "bottom" : "top", bg: c.theme.up, size: 11 });
+      label(c, `停損 ${c.fmt(stop.price)} (${pctChange(entry.price, stop.price)})`, mid, s.y + (tUp ? 4 : -4), { align: "center", baseline: tUp ? "top" : "bottom", bg: c.theme.down, size: 11 });
       label(c, `風報比 ${risk ? (reward / risk).toFixed(2) : "∞"}`, mid, e.y, { align: "center", bg: "rgba(20,24,32,0.9)", size: 11 });
     },
     hit(c, p) {
@@ -111,12 +111,13 @@ export const priceRange: Tool = {
     const [a, b] = c.points as [Point, Point];
     const [pa, pb] = c.item.anchors as [Anchor, Anchor];
     const up = pb.price >= pa.price;
-    const color = up ? c.theme.up : c.theme.down;
+    // "auto" keeps the green-up / red-down colouring; a picked colour wins
+    const color = colorOr(c, up ? c.theme.up : c.theme.down);
     fill(c, rangeBox(c), color, 0.15);
     const x = (a.x + b.x) / 2;
     stroke(c, [{ x, y: a.y }, { x, y: b.y }], color, 1);
     arrowHead(c, { x, y: a.y }, { x, y: b.y }, color, 8);
-    label(c, `${c.fmt(pb.price - pa.price)} (${pctChange(pa.price, pb.price)})`, x, b.y + (up ? -6 : 6), { align: "center", baseline: up ? "bottom" : "top", bg: color, color: "#0b0e14", size: 11 });
+    label(c, `${c.fmt(pb.price - pa.price)} (${pctChange(pa.price, pb.price)})`, x, b.y + (up ? -6 : 6), { align: "center", baseline: up ? "bottom" : "top", bg: color, size: 11 });
   },
   hit: hitBox,
 };
@@ -129,11 +130,12 @@ export const dateRange: Tool = {
   caps: { line: false },
   render(c) {
     const [a, b] = c.points as [Point, Point];
-    fill(c, rangeBox(c), "#2962ff", 0.15);
+    const color = colorOr(c, "#2962ff");
+    fill(c, rangeBox(c), color, 0.15);
     const y = (a.y + b.y) / 2;
-    stroke(c, [{ x: a.x, y }, { x: b.x, y }], "#2962ff", 1);
-    arrowHead(c, { x: a.x, y }, { x: b.x, y }, "#2962ff", 8);
-    label(c, `${barsBetween(c)} 根 · ${duration(c)}`, (a.x + b.x) / 2, Math.max(a.y, b.y) + 6, { align: "center", baseline: "top", bg: "#2962ff", color: "#ffffff", size: 11 });
+    stroke(c, [{ x: a.x, y }, { x: b.x, y }], color, 1);
+    arrowHead(c, { x: a.x, y }, { x: b.x, y }, color, 8);
+    label(c, `${barsBetween(c)} 根 · ${duration(c)}`, (a.x + b.x) / 2, Math.max(a.y, b.y) + 6, { align: "center", baseline: "top", bg: color, size: 11 });
   },
   hit: hitBox,
 };
@@ -148,7 +150,8 @@ export const datePriceRange: Tool = {
     const [a, b] = c.points as [Point, Point];
     const [pa, pb] = c.item.anchors as [Anchor, Anchor];
     const up = pb.price >= pa.price;
-    const color = up ? c.theme.up : c.theme.down;
+    // "auto" keeps the green-up / red-down colouring; a picked colour wins
+    const color = colorOr(c, up ? c.theme.up : c.theme.down);
     fill(c, rangeBox(c), color, 0.15);
     const x = (a.x + b.x) / 2;
     const y = (a.y + b.y) / 2;
@@ -156,7 +159,7 @@ export const datePriceRange: Tool = {
     stroke(c, [{ x: a.x, y }, { x: b.x, y }], color, 1);
     arrowHead(c, { x, y: a.y }, { x, y: b.y }, color, 8);
     arrowHead(c, { x: a.x, y }, { x: b.x, y }, color, 8);
-    label(c, `${c.fmt(pb.price - pa.price)} (${pctChange(pa.price, pb.price)})\n${barsBetween(c)} 根 · ${duration(c)}`, x, Math.max(a.y, b.y) + 6, { align: "center", baseline: "top", bg: color, color: "#0b0e14", size: 11 });
+    label(c, `${c.fmt(pb.price - pa.price)} (${pctChange(pa.price, pb.price)})\n${barsBetween(c)} 根 · ${duration(c)}`, x, Math.max(a.y, b.y) + 6, { align: "center", baseline: "top", bg: color, size: 11 });
   },
   hit: hitBox,
 };
