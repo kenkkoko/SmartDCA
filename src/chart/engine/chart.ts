@@ -115,6 +115,8 @@ export class Chart {
   private dprQuery: MediaQueryList | null = null;
   private disposed = false;
   private mainSeries: CandleSeries | null = null;
+  /** Private hidden scales of overlay series that set `band`. */
+  private bandScales = new WeakMap<AnySeries, PriceScale>();
   private paneSeq = 0;
 
   constructor(container: HTMLElement, options: Partial<ChartOptions> = {}) {
@@ -331,6 +333,24 @@ export class Chart {
     return this.mainSeries?.data ?? [];
   }
 
+  /**
+   * The scale a series is drawn on: the pane's price axis, its shared overlay
+   * (volume) scale, or a private band scale for overlay series with `band`.
+   */
+  scaleOf(pane: Pane, series: AnySeries): PriceScale {
+    const o = series.options;
+    if (o.scale !== "overlay") return pane.price;
+    if (!o.band) return pane.overlay;
+    let scale = this.bandScales.get(series);
+    if (!scale) {
+      scale = new PriceScale("linear");
+      this.bandScales.set(series, scale);
+    }
+    scale.margins = { top: clamp(o.band.top, 0, 1), bottom: clamp(o.band.bottom, 0, 1) };
+    scale.height = pane.rect.height;
+    return scale;
+  }
+
   /** Price-axis label text for a pane (same precision as the axis). */
   formatPrice(pane: Pane, price: number): string {
     return pane.price.format(price);
@@ -508,13 +528,22 @@ export class Chart {
         let max = -Infinity;
         for (const s of pane.series) {
           if (!s.options.visible || !s.options.autoscale) continue;
-          if ((s.options.scale === "overlay") !== overlay) continue;
+          if ((s.options.scale === "overlay") !== overlay || s.options.band) continue;
           const r = s.range(from, to);
           if (!r) continue;
           min = Math.min(min, r.min);
           max = Math.max(max, r.max);
         }
         if (min <= max) scale.setAutoRange(overlay ? Math.min(0, min) : min, max);
+      }
+      // banded overlay series: each fits its own private scale
+      for (const s of pane.series) {
+        if (!s.options.visible || s.options.scale !== "overlay" || !s.options.band) continue;
+        const scale = this.scaleOf(pane, s);
+        const r = s.range(from, to);
+        if (!r) continue;
+        if (s.options.band.symmetric) scale.setSymmetricRange(r.min, r.max);
+        else scale.setAutoRange(Math.min(0, r.min), r.max);
       }
     }
   }
@@ -557,10 +586,9 @@ export class Chart {
       for (const tick of ticksByPane[i]!) s.hLine(0, plotRight, r.y + tick.y, t.grid);
       // series
       const env = { surface: s, time: this.time, price: pane.price, top: r.y, theme: t };
-      const overlayEnv = { ...env, price: pane.overlay };
       // overlay series (volume) paint first, underneath the price series
       for (const series of pane.series)
-        if (series.options.visible && series.options.scale === "overlay") series.draw(overlayEnv, from, to);
+        if (series.options.visible && series.options.scale === "overlay") series.draw({ ...env, price: this.scaleOf(pane, series) }, from, to);
       for (const series of pane.series)
         if (series.options.visible && series.options.scale !== "overlay") series.draw(env, from, to);
       // reference lines

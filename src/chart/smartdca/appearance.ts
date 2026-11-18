@@ -19,7 +19,18 @@ export type Appearance = {
   labelText?: string;
   /** Axis tick labels. */
   axisText?: string;
+  /** Volume bar opacity, 0.1–1; undefined = VOLUME_OPACITY_DEFAULT. */
+  volumeOpacity?: number;
 };
+
+export const VOLUME_OPACITY_DEFAULT = 0.35;
+
+/** The volume bars' alpha, clamped to 0.1–1 (bad stored values fall back to the default). */
+export function volumeOpacity(a: Appearance): number {
+  const v = a.volumeOpacity;
+  if (typeof v !== "number" || !Number.isFinite(v)) return VOLUME_OPACITY_DEFAULT;
+  return Math.min(1, Math.max(0.1, v));
+}
 
 type Stored = { dark?: Appearance; light?: Appearance };
 

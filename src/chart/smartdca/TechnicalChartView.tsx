@@ -57,7 +57,7 @@ import { crosses, ema, macd, rsi, sma, type Num } from "../indicators";
 import type { DrawingLayer } from "../drawings/layer";
 import { DrawingChart } from "../react/DrawingChart";
 import type { SidePanel } from "../react/SideBar";
-import { applyAppearance, loadAppearance, saveAppearance, type Appearance } from "./appearance";
+import { applyAppearance, loadAppearance, saveAppearance, volumeOpacity, type Appearance } from "./appearance";
 import { AppearancePanel } from "./AppearancePanel";
 import { onSyncedKeys } from "../sync";
 
@@ -88,6 +88,12 @@ export type TechnicalChartViewProps = {
    * billions), same length as `candles`. Shown in its own pane when set.
    */
   etfFlows?: { net: Num[]; cum: Num[] } | null;
+  /**
+   * "separate" (default): ETF flows in their own pane. "overlay": slim bars in
+   * the volume band at the bottom of the price pane, on their own hidden scale
+   * with the zero line mid-band (inflow up, outflow down).
+   */
+  etfMode?: "separate" | "overlay";
   showRSI: boolean;
   showMACD: boolean;
   /** Volume bars at the bottom of the price pane. */
@@ -138,18 +144,25 @@ function indexOfTime(bars: Bar[], time: number): number {
   return -1;
 }
 
-/** Pane titles with the hovered (or last) values, painted top-left of each sub pane. */
+type LegendRow = { label: string; color: string; values: Num[] };
+
+/** Where the ETF overlay sits in the price pane: the volume band (bottom fifth). */
+const ETF_BAND = { top: 0.8, bottom: 0, symmetric: true };
+
+/**
+ * Pane titles with the hovered (or last) values, painted top-left of each sub
+ * pane; `bandEntries` paint at a fraction of a pane's height instead (the ETF
+ * overlay's label at the top of the price pane's volume band).
+ */
 class PaneLegend implements ChartPrimitive {
   zIndex = 50;
-  entries = new Map<string, { label: string; color: string; values: Num[] }[]>();
+  entries = new Map<string, LegendRow[]>();
+  bandEntries = new Map<string, { top: number; rows: LegendRow[] }>();
   index: number | null = null;
   draw({ surface, chart, theme }: Parameters<ChartPrimitive["draw"]>[0]): void {
-    for (const pane of chart.panes) {
-      const rows = this.entries.get(pane.id);
-      if (!rows) continue;
+    const font = { size: 11, family: theme.fontFamily };
+    const paint = (rows: LegendRow[], y: number) => {
       let x = 8;
-      const y = pane.rect.y + 12;
-      const font = { size: 11, family: theme.fontFamily };
       for (const row of rows) {
         const i = this.index ?? row.values.length - 1;
         const v = row.values[Math.max(0, Math.min(row.values.length - 1, i))] ?? null;
@@ -157,6 +170,12 @@ class PaneLegend implements ChartPrimitive {
         surface.text(text, x, y, row.color, font);
         x += surface.measure(text, font) + 12;
       }
+    };
+    for (const pane of chart.panes) {
+      const rows = this.entries.get(pane.id);
+      if (rows) paint(rows, pane.rect.y + 12);
+      const band = this.bandEntries.get(pane.id);
+      if (band) paint(band.rows, pane.rect.y + pane.rect.height * band.top + 12);
     }
   }
 }
@@ -196,6 +215,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   useEffect(() => onSyncedKeys((keys) => keys.includes("smartdca.chart.appearance") && setAppearanceState(loadAppearance(mode))), [mode]);
   const UP = theme.up;
   const DOWN = theme.down;
+  const volAlpha = volumeOpacity(appearance);
   const [chart, setChart] = useState<Chart | null>(null);
   const refs = useRef<{
     candles: CandleSeries | null;
@@ -308,7 +328,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     list.splice(list.indexOf(r.volume), 1);
     list.unshift(r.volume);
     r.volume.setData(
-      bars.map((b) => ({ time: b.time, value: b.volume ?? 0, color: withAlpha(b.close >= b.open ? UP : DOWN, 0.35) })),
+      bars.map((b) => ({ time: b.time, value: b.volume ?? 0, color: withAlpha(b.close >= b.open ? UP : DOWN, volAlpha) })),
     );
     // 20-bar volume moving average on the same overlay scale
     const vols = bars.map((b) => b.volume ?? 0);
@@ -317,7 +337,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     list.splice(list.indexOf(r.volumeMa), 1);
     list.splice(1, 0, r.volumeMa);
     chart.invalidate();
-  }, [chart, props.candles, props.showVolume, UP, DOWN]);
+  }, [chart, props.candles, props.showVolume, UP, DOWN, volAlpha]);
 
   // main-pane overlays + candle markers
   useEffect(() => {
@@ -362,16 +382,26 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   // heights must survive live ticks), values filled in by the effect below
   const hasBars = props.candles.length > 0;
   const hasEtf = !!props.etfFlows;
+  const etfOverlay = props.etfMode === "overlay";
   useEffect(() => {
     if (!chart) return;
     const r = refs.current;
     for (const p of r.panes) chart.removePane(p.id);
+    // the overlay ETF series lives in the main pane, which stays
+    if (r.etf && r.etf.pane === chart.mainPane) chart.removeSeries(r.etf.hist);
     r.panes = [];
     r.rsi = null;
     r.macd = null;
     r.etf = null;
     r.legend.entries.clear();
+    r.legend.bandEntries.clear();
     if (!hasBars) return chart.invalidate();
+    if (hasEtf && etfOverlay) {
+      // slim bars on a private hidden scale in the volume band, zero line
+      // mid-band; overlay series paint under the candles, after the volume
+      const hist = chart.addHistogram(chart.mainPane, { scale: "overlay", band: ETF_BAND, widthRatio: 0.5, title: "ETF" });
+      r.etf = { hist, pane: chart.mainPane };
+    }
     if (props.showRSI) {
       const pane = chart.addPane({ weight: 1 / 3 });
       r.rsi = chart.addLine(pane, { color: "#a78bfa", lineWidth: 1.5, lastValueLabel: true, title: "RSI(14)" });
@@ -382,7 +412,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       ]);
       r.panes.push(pane);
     }
-    if (hasEtf) {
+    if (hasEtf && !etfOverlay) {
       const pane = chart.addPane({ weight: 1 / 4 });
       const hist = chart.addHistogram(pane, { lastValueLabel: true, title: "ETF" });
       r.etf = { hist, pane };
@@ -398,7 +428,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     }
     chart.invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chart, props.showRSI, props.showMACD, hasEtf, hasBars, dataKey, UP, DOWN, theme.border]);
+  }, [chart, props.showRSI, props.showMACD, hasEtf, etfOverlay, hasBars, dataKey, UP, DOWN, theme.border]);
 
   useEffect(() => {
     if (!chart) return;
@@ -428,12 +458,24 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     }
     if (r.etf && props.etfFlows) {
       const { net, cum } = props.etfFlows;
-      r.etf.hist.setData(points(bars, net, (i) => withAlpha(net[i]! >= 0 ? UP : DOWN, 0.8)));
-      r.legend.entries.set(r.etf.pane.id, [
-        { label: "ETF 淨流入（百萬美元）", color: theme.text, values: net },
-        { label: "累計（十億）", color: theme.text, values: cum },
-        { label: "資料：SoSoValue、TFTC", color: theme.text, values: [] },
-      ]);
+      const overlay = r.etf.pane === chart.mainPane;
+      // semi-transparent over the volume bars so both stay readable
+      const alpha = overlay ? 0.6 : 0.8;
+      r.etf.hist.setData(points(bars, net, (i) => withAlpha(net[i]! >= 0 ? UP : DOWN, alpha)));
+      if (overlay)
+        r.legend.bandEntries.set(r.etf.pane.id, {
+          top: ETF_BAND.top,
+          rows: [
+            { label: "ETF 淨流入（百萬美元）", color: theme.text, values: net },
+            { label: "累計（十億）", color: theme.text, values: cum },
+          ],
+        });
+      else
+        r.legend.entries.set(r.etf.pane.id, [
+          { label: "ETF 淨流入（百萬美元）", color: theme.text, values: net },
+          { label: "累計（十億）", color: theme.text, values: cum },
+          { label: "資料：SoSoValue、TFTC", color: theme.text, values: [] },
+        ]);
     }
     if (r.macd) {
       const pane = r.panes[r.panes.length - 1]!;
@@ -450,7 +492,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       ]);
     }
     chart.invalidate();
-  }, [chart, props.candles, props.etfFlows, props.showRSI, props.showMACD, hasEtf, hasBars, dataKey, UP, DOWN, theme.text, theme.border]);
+  }, [chart, props.candles, props.etfFlows, props.showRSI, props.showMACD, hasEtf, etfOverlay, hasBars, dataKey, UP, DOWN, theme.text, theme.border]);
 
   const appearancePanel: SidePanel = {
     id: "appearance",

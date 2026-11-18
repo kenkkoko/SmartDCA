@@ -78,6 +78,13 @@ export class PriceScale {
     this.max = hi;
   }
 
+  /** Fit a range centred on 0 (signed values: the zero line sits mid-height). */
+  setSymmetricRange(minPrice: number, maxPrice: number): void {
+    const m = Math.max(Math.abs(minPrice), Math.abs(maxPrice));
+    if (!Number.isFinite(m)) return;
+    this.setAutoRange(-m, m);
+  }
+
   /** Switching modes keeps the visible *prices*. */
   setMode(mode: PriceScaleMode): void {
     if (mode === this.mode) return;

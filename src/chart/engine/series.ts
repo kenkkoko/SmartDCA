@@ -39,7 +39,16 @@ export type CommonSeriesOptions = {
   title?: string;
   /** "overlay": own hidden scale at the bottom of the pane (volume). */
   scale?: "main" | "overlay";
+  /**
+   * With `scale: "overlay"`: a private hidden scale for this series alone,
+   * drawn into this band of the pane (fractions of the pane height from the
+   * top / bottom, like PriceScale margins). `symmetric` keeps 0 in the middle
+   * of the band so signed values (e.g. net flows) grow up and down from it.
+   */
+  band?: SeriesBand;
 };
+
+export type SeriesBand = { top: number; bottom: number; symmetric?: boolean };
 
 export type CandleOptions = CommonSeriesOptions & {
   upColor: string;
@@ -58,6 +67,8 @@ export type HistogramOptions = CommonSeriesOptions & {
   color: string;
   /** Baseline value the bars grow from. */
   base: number;
+  /** Bar width relative to the default (0–1], e.g. 0.5 for slim bars over another histogram. */
+  widthRatio?: number;
 };
 
 type DrawEnv = {
@@ -293,7 +304,8 @@ export class HistogramSeries extends Series<ValuePoint, HistogramOptions> {
   draw({ surface: s, time, price, top }: DrawEnv, from: number, to: number): void {
     const [a, b] = this.window(from, to);
     const spacingPx = time.barSpacing * s.hpr;
-    let w = Math.max(1, Math.floor(spacingPx * (time.barSpacing < 4 ? 1 : 0.8)));
+    const ratio = Math.min(1, Math.max(0.05, this.options.widthRatio ?? 1));
+    let w = Math.max(1, Math.floor(spacingPx * (time.barSpacing < 4 ? 1 : 0.8) * ratio));
     if (w > 2 && w % 2 !== Math.max(1, Math.floor(s.hpr)) % 2) w--;
     const half = Math.floor(w / 2);
     const base = s.by(top + price.priceToY(this.options.base));

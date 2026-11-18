@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { ColorButton } from "../react/drawing-ui";
 import { PanelHeader } from "../react/SideBar";
 import type { Theme } from "../engine/types";
-import type { Appearance } from "./appearance";
+import { volumeOpacity, type Appearance } from "./appearance";
 
 const PRESETS: { name: string; a: Appearance }[] = [
   { name: "預設", a: {} },
@@ -60,7 +60,8 @@ export function AppearancePanel({
             <button
               key={p.name}
               className="h-7 cursor-pointer rounded-md px-2.5 text-[12px] text-[var(--c-text)] ring-1 ring-inset ring-[var(--c-line)] hover:bg-[var(--c-hover)]"
-              onClick={() => onChange({ ...p.a })}
+              // presets are colour sets: keep the user's volume opacity
+              onClick={() => onChange(value.volumeOpacity !== undefined ? { ...p.a, volumeOpacity: value.volumeOpacity } : { ...p.a })}
             >
               {p.name}
             </button>
@@ -98,6 +99,26 @@ export function AppearancePanel({
         {section("價格標籤")}
         {row("標籤底色", <ColorButton color={value.labelBg ?? base.up} onChange={(c) => c && set({ labelBg: c })} title="現價標籤底色（預設跟最後一根 K 線同色）" />, "labelBg")}
         {row("標籤文字", <ColorButton color={value.labelText ?? "#ffffff"} onChange={(c) => c && set({ labelText: c })} title="現價標籤與倒數的文字顏色" />, "labelText")}
+        {section("成交量")}
+        {row(
+          "成交量透明度",
+          <div className="flex items-center gap-1.5">
+            <input
+              type="range"
+              min={10}
+              max={100}
+              step={5}
+              value={Math.round(volumeOpacity(value) * 100)}
+              onChange={(e) => set({ volumeOpacity: Number(e.target.value) / 100 })}
+              className="w-24 cursor-pointer accent-[var(--c-accent)]"
+              title="數值越低越透明"
+              aria-label="成交量透明度"
+              data-testid="appearance-volume-opacity"
+            />
+            <span className="w-9 text-right text-[11.5px] tabular-nums text-[var(--c-muted)]">{Math.round(volumeOpacity(value) * 100)}%</span>
+          </div>,
+          "volumeOpacity",
+        )}
         <p className="mt-1 text-[11px] leading-relaxed text-[var(--c-muted)]">成交量柱也會跟著漲跌顏色。深色和淺色主題各自記住一組設定。</p>
 
         <button
