@@ -4951,6 +4951,22 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                 return net.some(v => v != null) ? { net, cum } : null;
             }, [showETF, etfSymbol, tf.daily, candleData, etfRows]);
 
+            // ─── ETF「加總」模式:成交量 = 幣安成交量 + 美國現貨 ETF 當日成交額 ÷ 收盤價(換算成 BTC)───
+            // 週 / 月線把期間內每天的 ETF 成交額加總後,用該根 K 棒收盤價換算
+            const chartCandles = useMemo(() => {
+                if (!showETF || etfMode !== 'overlay' || !etfSymbol || !tf.daily || etfRows.length === 0) return candleData;
+                const day = (t) => new Date(t * 1000).toISOString().slice(0, 10);
+                let j = 0;
+                return candleData.map((bar, i) => {
+                    const start = day(bar.time);
+                    const end = i + 1 < candleData.length ? day(candleData[i + 1].time) : '9999-12-31';
+                    while (j < etfRows.length && etfRows[j].date < start) j++;
+                    let usd = 0;
+                    while (j < etfRows.length && etfRows[j].date < end) { usd += etfRows[j].value_traded || 0; j++; }
+                    return usd > 0 && bar.close > 0 ? { ...bar, volume: (bar.volume || 0) + usd / bar.close } : bar;
+                });
+            }, [showETF, etfMode, etfSymbol, tf.daily, etfRows, candleData]);
+
             // Esc 關閉 modal(圖表正在用 Esc 取消繪圖 / 選取時會 preventDefault,不關閉)
             useEffect(() => {
                 const onKey = (e) => {
@@ -5072,7 +5088,7 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                                     <EyeToggle label="ETF 流量" checked={showETF} onChange={setShowETF} color="#22c55e" />
                                     {showETF && (
                                         <div className="flex items-center gap-0.5 p-0.5 rounded-lg shrink-0" style={{ background: 'var(--wash)', border: '1px solid var(--line)' }} title="ETF 流量顯示方式" data-testid="etf-mode">
-                                            {[['separate', '分離', '獨立窗格'], ['overlay', '疊加', '疊在價格圖底部的成交量區']].map(([key, label, tip]) => (
+                                            {[['separate', '分離', 'ETF 淨流入顯示在獨立窗格'], ['overlay', '加總', '成交量 = 幣安成交量 + 美國現貨 ETF 成交額（換算成 BTC）']].map(([key, label, tip]) => (
                                                 <button key={key} onClick={() => setEtfMode(key)} title={tip} aria-pressed={etfMode === key}
                                                     className={`px-2 h-6 rounded-md text-[11px] font-bold shrink-0 ${etfMode === key ? 'pill-grad' : 'hover:bg-[var(--wash-2)] cursor-pointer'}`}
                                                     style={etfMode === key ? { color: 'var(--brand-ink)' } : { color: 'var(--text-2)' }}
@@ -5132,15 +5148,15 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                         <div className="flex-1 min-w-0 min-h-0 relative" style={{ minHeight: '280px' }}>
                             <TechnicalChartView
                                 className="absolute inset-0"
-                                candles={candleData}
+                                candles={chartCandles}
                                 dataKey={`${symbol}|${type}|${timeframe}|${loadVersion}`}
                                 fitBars={tf.daily ? undefined : 200}
                                 barCloseTime={barCloseTimeFor(candleData[candleData.length - 1], type, timeframe)}
                                 showEMA={showEMA}
                                 showMA200={showMA200 && !isCryptoType}
                                 realizedPrice={realizedPrice}
-                                etfFlows={etfFlows}
-                                etfMode={etfMode}
+                                etfFlows={etfMode === 'overlay' ? null : etfFlows}
+                                etfMode="separate"
                                 showRSI={showRSI}
                                 showMACD={showMACD}
                                 showVolume={showVolume}

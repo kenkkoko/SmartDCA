@@ -59,6 +59,48 @@ def backfill(db) -> None:
     print(f"backfill: {len(rows)} days ({rows[0]['date']} ~ {rows[-1]['date']}), cumulative {cum / 1e9:.2f}B USD")
 
 
+# US spot BTC ETFs. Daily dollar volume = shares traded x close, summed over the
+# funds (Yahoo Finance daily bars), so the whole history has the same source.
+ETF_TICKERS = ["IBIT", "FBTC", "GBTC", "BTC", "ARKB", "BITB", "HODL", "BRRR", "EZBC", "BTCO", "BTCW", "MSBT"]
+
+
+def dollar_volume(rng: str) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    for t in ETF_TICKERS:
+        try:
+            r = requests.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{t}",
+                params={"range": rng, "interval": "1d"},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=30,
+            )
+            r.raise_for_status()
+            res = r.json()["chart"]["result"][0]
+            q = res["indicators"]["quote"][0]
+            n = 0
+            for ts, vol, close in zip(res.get("timestamp") or [], q.get("volume") or [], q.get("close") or []):
+                if vol is None or close is None:
+                    continue
+                # Yahoo's daily bar timestamp is the US session open; the date part is the trading day
+                day = __import__("datetime").datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+                totals[day] = totals.get(day, 0.0) + vol * close
+                n += 1
+            print(f"  {t}: {n} days")
+        except Exception as e:  # a fund missing (delisted / new) must not stop the rest
+            print(f"  {t}: skipped ({e})")
+    return totals
+
+
+def update_value_traded(db, rng: str) -> None:
+    totals = dollar_volume(rng)
+    days = sorted(d for d in totals if d >= "2024-01-11")
+    rows = [{"symbol": "BTC", "date": d, "value_traded": totals[d]} for d in days]
+    for i in range(0, len(rows), 500):
+        db.table("etf_flows").upsert(rows[i:i + 500], on_conflict="symbol,date").execute()
+    if rows:
+        print(f"value traded: {len(rows)} days ({days[0]} ~ {days[-1]}), latest {rows[-1]['value_traded'] / 1e9:.2f}B USD")
+
+
 def main() -> int:
     limit = int(os.environ.get("ETF_LIMIT", "300"))
     db = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
@@ -85,6 +127,8 @@ def main() -> int:
         last = rows[-1]
         print(f"{symbol}: upserted {len(rows)} days ({rows[0]['date']} ~ {last['date']}); "
               f"latest net inflow {last['net_inflow'] / 1e6:+.1f}M USD")
+    # after SoSoValue, so its own value_traded is replaced by the one-source Yahoo series
+    update_value_traded(db, "5y" if os.environ.get("ETF_BACKFILL") == "true" else "1mo")
     return 0
 
 
