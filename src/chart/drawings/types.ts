@@ -122,6 +122,9 @@ export type VpColors = {
   /** Bar opacity inside / outside the value area. */
   inOpacity: number;
   outOpacity: number;
+  /** Extra opacity for up / down bars, multiplied with the above (missing = 1). */
+  upOpacity?: number;
+  downOpacity?: number;
   poc: string;
   /** VAH / VAL line colour (shared fallback for vah / val). */
   valueArea: string;
@@ -157,6 +160,8 @@ export type ResolvedVpColors = {
   vaDown: string;
   inOpacity: number;
   outOpacity: number;
+  upOpacity: number;
+  downOpacity: number;
   poc: string;
   vah: string;
   val: string;
@@ -193,6 +198,8 @@ export function resolveVpColors(vp: Partial<VpColors> | undefined, up: string, d
     vaDown: c.vaDown || downC,
     inOpacity: num(c.inOpacity, DEFAULT_VP_COLORS.inOpacity),
     outOpacity: num(c.outOpacity, DEFAULT_VP_COLORS.outOpacity),
+    upOpacity: num(c.upOpacity, 1),
+    downOpacity: num(c.downOpacity, 1),
     poc,
     vah,
     val,

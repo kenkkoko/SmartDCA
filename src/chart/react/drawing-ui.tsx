@@ -706,7 +706,7 @@ export function VolumeSettingsDialog({ layer, item, onClose }: { layer: DrawingL
     (d, v) => Object.assign(d.style, { ...v, vp: { ...v.vp } }),
   );
   const setVp = (patch: Partial<VpColors>) => setDraft((d) => ({ ...d, vp: { ...d.vp, ...patch } }));
-  const pct = (key: "inOpacity" | "outOpacity" | "lineOpacity") => {
+  const pct = (key: "inOpacity" | "outOpacity" | "lineOpacity" | "upOpacity" | "downOpacity") => {
     const v = draft.vp[key] ?? 1;
     return (
       <label className="flex items-center gap-2">
@@ -773,9 +773,15 @@ export function VolumeSettingsDialog({ layer, item, onClose }: { layer: DrawingL
           <span>上漲量</span>
           {follow("up", "跟 K 線同色")}
           <ColorButton color={upC} onChange={(c) => c && setVp({ up: c })} title="上漲量顏色" />
+          <span>上漲量透明度</span>
+          <span />
+          {pct("upOpacity")}
           <span>下跌量</span>
           {follow("down", "跟 K 線同色")}
           <ColorButton color={downC} onChange={(c) => c && setVp({ down: c })} title="下跌量顏色" />
+          <span>下跌量透明度</span>
+          <span />
+          {pct("downOpacity")}
           <span>價值區內上漲量</span>
           {follow("vaUp", "同上漲量")}
           <ColorButton color={vp.vaUp || upC} onChange={(c) => c && setVp({ vaUp: c })} title="價值區內上漲量顏色" />
@@ -809,7 +815,7 @@ export function VolumeSettingsDialog({ layer, item, onClose }: { layer: DrawingL
         </div>
         <button
           className="mt-3 cursor-pointer text-xs text-[var(--c-accent)] hover:underline"
-          onClick={() => setVp({ ...DEFAULT_VP_COLORS, up: undefined, down: undefined, vaUp: undefined, vaDown: undefined, vah: undefined, val: undefined, labels: undefined })}
+          onClick={() => setVp({ ...DEFAULT_VP_COLORS, up: undefined, down: undefined, vaUp: undefined, vaDown: undefined, vah: undefined, val: undefined, labels: undefined, upOpacity: undefined, downOpacity: undefined })}
         >
           恢復預設顏色
         </button>

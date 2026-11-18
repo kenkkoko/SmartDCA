@@ -135,3 +135,13 @@ describe("volume profile colours", () => {
     expect(bars).toContain(rgba(THEME_DOWN, DEFAULT_VP_COLORS.outOpacity));
   });
 });
+
+describe("VPVR up / down opacity", () => {
+  it("defaults to 1 and is clamped", async () => {
+    const { resolveVpColors } = await import("../types");
+    const r = resolveVpColors({ upOpacity: 0.3, downOpacity: 5 } as never, "#0f0", "#f00");
+    expect(r.upOpacity).toBe(0.3);
+    expect(r.downOpacity).toBe(1);
+    expect(resolveVpColors(undefined, "#0f0", "#f00").upOpacity).toBe(1);
+  });
+});

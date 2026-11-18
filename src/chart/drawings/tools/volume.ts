@@ -105,8 +105,8 @@ export const volumeProfile: Tool = {
       const wUp = (row.up / max) * width;
       const wDown = (row.down / max) * width;
       const op = inVA ? col.inOpacity : col.outOpacity;
-      if (wUp > 0) c.s.fillRect(x0, y0, wUp, h, withAlpha(inVA ? col.vaUp : col.up, op));
-      if (wDown > 0) c.s.fillRect(x0 + wUp, y0, wDown, h, withAlpha(inVA ? col.vaDown : col.down, op));
+      if (wUp > 0) c.s.fillRect(x0, y0, wUp, h, withAlpha(inVA ? col.vaUp : col.up, op * col.upOpacity));
+      if (wDown > 0) c.s.fillRect(x0 + wUp, y0, wDown, h, withAlpha(inVA ? col.vaDown : col.down, op * col.downOpacity));
     });
     const mid = (k: number) => c.toY((vp.rows[k]!.lo + vp.rows[k]!.hi) / 2);
     const line = (color: string) => (col.lineOpacity < 1 ? withAlpha(color, col.lineOpacity) : color);
