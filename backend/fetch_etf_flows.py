@@ -36,9 +36,34 @@ def num(v):
         return None
 
 
+TFTC = "https://www.tftc.io/bitcoin-etf-flows/data.json"
+
+
+def backfill(db) -> None:
+    """One-off: daily totals since the Jan 2024 launch from The Commoner Bitcoin ETF
+    Tracker by TFTC (CC BY 4.0, tftc.io/bitcoin-etf-flows). Existing rows (SoSoValue)
+    are kept; the cumulative total is a running sum of the daily flows."""
+    days = requests.get(TFTC, timeout=60).json()["days"]
+    days.sort(key=lambda d: d["date"])
+    cum = 0.0
+    rows = []
+    for d in days:
+        flow = num(d.get("netFlowUsd"))
+        if flow is None:
+            continue
+        cum += flow
+        rows.append({"symbol": "BTC", "date": d["date"], "net_inflow": flow,
+                     "net_assets": num(d.get("totalNetAssetsUsd")), "cum_net_inflow": cum})
+    for i in range(0, len(rows), 500):
+        db.table("etf_flows").upsert(rows[i:i + 500], on_conflict="symbol,date", ignore_duplicates=True).execute()
+    print(f"backfill: {len(rows)} days ({rows[0]['date']} ~ {rows[-1]['date']}), cumulative {cum / 1e9:.2f}B USD")
+
+
 def main() -> int:
     limit = int(os.environ.get("ETF_LIMIT", "300"))
     db = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+    if os.environ.get("ETF_BACKFILL") == "true":
+        backfill(db)
     for symbol in SYMBOLS:
         rows = [
             {

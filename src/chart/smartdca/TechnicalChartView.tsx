@@ -432,6 +432,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       r.legend.entries.set(r.etf.pane.id, [
         { label: "ETF 淨流入（百萬美元）", color: theme.text, values: net },
         { label: "累計（十億）", color: theme.text, values: cum },
+        { label: "資料：SoSoValue、TFTC", color: theme.text, values: [] },
       ]);
     }
     if (r.macd) {

@@ -10,8 +10,8 @@ on:
         description: 'How many latest days to fetch (max 300)'
         required: false
         default: '300'
-      inspect:
-        description: 'Print the TFTC history JSON structure instead'
+      backfill:
+        description: 'Also load the full history since Jan 2024 from TFTC (keeps existing rows)'
         required: false
         default: 'false'
 
@@ -34,8 +34,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ETF_LIMIT: ${{ github.event.inputs.limit || '30' }}
+          ETF_BACKFILL: ${{ github.event.inputs.backfill || 'false' }}
         run: python fetch_etf_flows.py
-        if: ${{ github.event.inputs.inspect != 'true' }}
-      - name: Inspect TFTC history
-        if: ${{ github.event.inputs.inspect == 'true' }}
-        run: python inspect_tftc.py
