@@ -8,7 +8,7 @@ import { saveFibTemplate } from "../drawings/storage";
 import type { Tool } from "../drawings/tool";
 import { getTool, TOOL_GROUPS } from "../drawings/tools";
 import { getFibDefaults } from "../drawings/tools/fibonacci";
-import { AUTO_COLOR, DEFAULT_VP_COLORS, defaultFibSettings, type Drawing, type FibSettings, type VpColors } from "../drawings/types";
+import { AUTO_COLOR, DEFAULT_VP_COLORS, defaultFibSettings, mergeVpColors, VP_DOWN_FALLBACK, VP_UP_FALLBACK, type Drawing, type FibSettings, type VpColors } from "../drawings/types";
 import type { LineStyle } from "../engine/types";
 import { Icon } from "./icons";
 
@@ -355,6 +355,8 @@ export function PropertiesBar({ layer, onOpenDialog }: { layer: DrawingLayer; on
             onChange={(s) => set((d) => void (d.style.lineStyle = s))}
           />
         </>
+      ) : caps.vpColors ? (
+        <VpToolbarColors vp={st.vp} onChange={(patch) => set((d) => void (d.style.vp = { ...mergeVpColors(d.style.vp), ...patch }))} />
       ) : (
         <ColorButton title="顏色" allowAuto color={st.color} onChange={(c) => c && set((d) => void (d.style.color = c))} />
       )}
@@ -441,6 +443,27 @@ export function PropertiesBar({ layer, onOpenDialog }: { layer: DrawingLayer; on
         <Icon name="trash" />
       </button>
     </div>
+  );
+}
+
+/** Quick volume profile colours in the floating bar (the rest live in the settings dialog). */
+function VpToolbarColors({ vp, onChange }: { vp: Partial<VpColors> | undefined; onChange: (patch: Partial<VpColors>) => void }) {
+  const c = mergeVpColors(vp);
+  return (
+    <>
+      <ColorButton title="上漲量顏色" color={c.up || VP_UP_FALLBACK} onChange={(v) => v && onChange({ up: v })}>
+        <span className="text-[10px] text-[var(--c-muted)]">漲</span>
+      </ColorButton>
+      <ColorButton title="下跌量顏色" color={c.down || VP_DOWN_FALLBACK} onChange={(v) => v && onChange({ down: v })}>
+        <span className="text-[10px] text-[var(--c-muted)]">跌</span>
+      </ColorButton>
+      <ColorButton title="POC 線顏色" color={c.poc} onChange={(v) => v && onChange({ poc: v })}>
+        <span className="text-[10px] text-[var(--c-muted)]">POC</span>
+      </ColorButton>
+      <ColorButton title="範圍背景" allowNone color={c.box || undefined} opacity={c.boxOpacity} onChange={(v) => onChange({ box: v ?? "" })} onOpacity={(o) => onChange({ boxOpacity: o })}>
+        <svg width="14" height="14" viewBox="0 0 14 14"><rect x="2" y="2" width="10" height="10" fill="currentColor" fillOpacity=".3" stroke="currentColor" /></svg>
+      </ColorButton>
+    </>
   );
 }
 
@@ -679,24 +702,31 @@ export function VolumeSettingsDialog({ layer, item, onClose }: { layer: DrawingL
   const { draft, setDraft, commit, revert } = useDraft<VolumeDraft>(
     layer,
     item,
-    (d) => ({ rows: d.style.rows, valueArea: d.style.valueArea, showPoc: d.style.showPoc, showValueArea: d.style.showValueArea, vp: { ...DEFAULT_VP_COLORS, ...d.style.vp } }),
+    (d) => ({ rows: d.style.rows, valueArea: d.style.valueArea, showPoc: d.style.showPoc, showValueArea: d.style.showValueArea, vp: mergeVpColors(d.style.vp) }),
     (d, v) => Object.assign(d.style, { ...v, vp: { ...v.vp } }),
   );
   const setVp = (patch: Partial<VpColors>) => setDraft((d) => ({ ...d, vp: { ...d.vp, ...patch } }));
-  const pct = (key: "inOpacity" | "outOpacity") => (
-    <label className="flex items-center gap-2">
-      <input type="range" min={0} max={100} value={Math.round(draft.vp[key] * 100)} onChange={(e) => setVp({ [key]: Number(e.target.value) / 100 })} className="w-28" />
-      <span className="w-9 text-right text-xs tabular-nums text-[var(--c-muted)]">{Math.round(draft.vp[key] * 100)}%</span>
-    </label>
-  );
-  const follow = (key: "up" | "down") =>
+  const pct = (key: "inOpacity" | "outOpacity" | "lineOpacity") => {
+    const v = draft.vp[key] ?? 1;
+    return (
+      <label className="flex items-center gap-2">
+        <input type="range" min={0} max={100} value={Math.round(v * 100)} onChange={(e) => setVp({ [key]: Number(e.target.value) / 100 })} className="w-28" aria-label={key} />
+        <span className="w-9 text-right text-xs tabular-nums text-[var(--c-muted)]">{Math.round(v * 100)}%</span>
+      </label>
+    );
+  };
+  /** "Follow" link for an optional colour: active (clickable) while a custom colour is set. */
+  const follow = (key: "up" | "down" | "vaUp" | "vaDown" | "labels", text: string) =>
     draft.vp[key] ? (
       <button className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] text-[var(--c-accent)] hover:underline" onClick={() => setVp({ [key]: undefined })}>
-        跟 K 線同色
+        {text}
       </button>
     ) : (
-      <span className="text-[11px] text-[var(--c-muted)]">跟 K 線同色</span>
+      <span className="text-[11px] text-[var(--c-muted)]">{text}</span>
     );
+  const vp = draft.vp;
+  const upC = vp.up || VP_UP_FALLBACK;
+  const downC = vp.down || VP_DOWN_FALLBACK;
   const num = (key: "rows" | "valueArea", min: number, max: number) => (
     <input
       type="number"
@@ -713,7 +743,7 @@ export function VolumeSettingsDialog({ layer, item, onClose }: { layer: DrawingL
   return (
     <Dialog
       title="固定範圍成交量分布 · 設定"
-      width={380}
+      width={420}
       onCancel={() => {
         revert();
         onClose();
@@ -741,11 +771,17 @@ export function VolumeSettingsDialog({ layer, item, onClose }: { layer: DrawingL
         <p className="mb-3 text-xs font-semibold text-[var(--c-muted)]">顏色</p>
         <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-3 gap-y-2 text-sm" data-testid="vp-colors">
           <span>上漲量</span>
-          {follow("up")}
-          <ColorButton color={draft.vp.up ?? "#089981"} onChange={(c) => setVp({ up: c })} title="上漲量顏色" />
+          {follow("up", "跟 K 線同色")}
+          <ColorButton color={upC} onChange={(c) => c && setVp({ up: c })} title="上漲量顏色" />
           <span>下跌量</span>
-          {follow("down")}
-          <ColorButton color={draft.vp.down ?? "#f23645"} onChange={(c) => setVp({ down: c })} title="下跌量顏色" />
+          {follow("down", "跟 K 線同色")}
+          <ColorButton color={downC} onChange={(c) => c && setVp({ down: c })} title="下跌量顏色" />
+          <span>價值區內上漲量</span>
+          {follow("vaUp", "同上漲量")}
+          <ColorButton color={vp.vaUp || upC} onChange={(c) => c && setVp({ vaUp: c })} title="價值區內上漲量顏色" />
+          <span>價值區內下跌量</span>
+          {follow("vaDown", "同下跌量")}
+          <ColorButton color={vp.vaDown || downC} onChange={(c) => c && setVp({ vaDown: c })} title="價值區內下跌量顏色" />
           <span>價值區內不透明度</span>
           <span />
           {pct("inOpacity")}
@@ -754,15 +790,27 @@ export function VolumeSettingsDialog({ layer, item, onClose }: { layer: DrawingL
           {pct("outOpacity")}
           <span>POC 線</span>
           <span />
-          <ColorButton color={draft.vp.poc} onChange={(c) => c && setVp({ poc: c })} title="POC 顏色" />
-          <span>VAH / VAL 線</span>
+          <ColorButton color={vp.poc} onChange={(c) => c && setVp({ poc: c })} title="POC 顏色" />
+          <span>VAH 線</span>
           <span />
-          <ColorButton color={draft.vp.valueArea} onChange={(c) => c && setVp({ valueArea: c })} title="價值區線顏色" />
+          <ColorButton color={vp.vah || vp.valueArea} onChange={(c) => c && setVp({ vah: c })} title="VAH 線顏色" />
+          <span>VAL 線</span>
+          <span />
+          <ColorButton color={vp.val || vp.valueArea} onChange={(c) => c && setVp({ val: c })} title="VAL 線顏色" />
+          <span>線條不透明度</span>
+          <span />
+          {pct("lineOpacity")}
+          <span>標籤文字（POC / VAH / VAL）</span>
+          {follow("labels", "跟線同色")}
+          <ColorButton color={vp.labels || vp.poc} onChange={(c) => c && setVp({ labels: c })} title="標籤文字顏色" />
           <span>範圍背景</span>
           <span />
-          <ColorButton color={draft.vp.box} onChange={(c) => setVp({ box: c })} opacity={draft.vp.boxOpacity} onOpacity={(o) => setVp({ boxOpacity: o })} allowNone title="範圍背景" />
+          <ColorButton color={vp.box || undefined} onChange={(c) => setVp({ box: c ?? "" })} opacity={vp.boxOpacity} onOpacity={(o) => setVp({ boxOpacity: o })} allowNone title="範圍背景" />
         </div>
-        <button className="mt-3 cursor-pointer text-xs text-[var(--c-accent)] hover:underline" onClick={() => setVp({ ...DEFAULT_VP_COLORS, up: undefined, down: undefined })}>
+        <button
+          className="mt-3 cursor-pointer text-xs text-[var(--c-accent)] hover:underline"
+          onClick={() => setVp({ ...DEFAULT_VP_COLORS, up: undefined, down: undefined, vaUp: undefined, vaDown: undefined, vah: undefined, val: undefined, labels: undefined })}
+        >
           恢復預設顏色
         </button>
       </div>

@@ -224,6 +224,21 @@ describe("editing and undo", () => {
     click(200, 120);
     expect(layer.items[1]!.style.color).toBe("#ff9800");
   });
+
+  it("new volume profiles keep the last volume profile's colours, including value-area / label fields", () => {
+    layer.removeAll();
+    layer.setActiveTool("volume_profile");
+    click(200, 300);
+    click(420, 160);
+    const vp = { inOpacity: 0.4, outOpacity: 0.1, poc: "#111111", valueArea: "#222222", vaUp: "#333333", vaDown: "#444444", vah: "#555555", val: "#666666", labels: "#777777", lineOpacity: 0.8, box: "", boxOpacity: 0 };
+    layer.update(layer.items[0]!.id, (d) => void (d.style.vp = { ...vp }));
+    layer.setActiveTool("volume_profile");
+    click(500, 300);
+    click(600, 160);
+    expect(layer.items[1]!.style.vp).toEqual(vp);
+    // a copy, not shared with the first drawing
+    expect(layer.items[1]!.style.vp).not.toBe(layer.items[0]!.style.vp);
+  });
 });
 
 describe("Fibonacci retracement", () => {

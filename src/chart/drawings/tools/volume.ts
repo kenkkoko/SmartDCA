@@ -1,7 +1,7 @@
 import type { Point } from "../../engine/types";
 import { distToPolyline, insidePolygon, withAlpha } from "../geometry";
 import { HIT, label, stroke, type Tool, type ToolContext } from "../tool";
-import { DEFAULT_VP_COLORS, type Anchor } from "../types";
+import { resolveVpColors, type Anchor } from "../types";
 
 export type VolumeProfile = {
   rows: { lo: number; hi: number; up: number; down: number }[];
@@ -84,15 +84,13 @@ export const volumeProfile: Tool = {
   label: "固定範圍成交量分布",
   group: "volume",
   create: 2,
-  caps: { line: false, dialog: "volume" },
+  caps: { line: false, dialog: "volume", vpColors: true },
   render(c) {
     const vp = profileFor(c);
     const { x0, x1 } = bounds(c);
     if (!vp) return;
     const t = c.theme;
-    const col = { ...DEFAULT_VP_COLORS, ...c.item.style.vp };
-    const upC = col.up ?? t.up;
-    const downC = col.down ?? t.down;
+    const col = resolveVpColors(c.item.style.vp, t.up, t.down);
     const width = Math.max(10, (x1 - x0) * 0.35);
     const max = Math.max(...vp.rows.map((r) => r.up + r.down), 1);
     // range box
@@ -106,19 +104,23 @@ export const volumeProfile: Tool = {
       const h = Math.max(0.5, y1 - y0 - (vp.rows.length < 120 ? 1 : 0));
       const wUp = (row.up / max) * width;
       const wDown = (row.down / max) * width;
-      if (wUp > 0) c.s.fillRect(x0, y0, wUp, h, withAlpha(upC, inVA ? col.inOpacity : col.outOpacity));
-      if (wDown > 0) c.s.fillRect(x0 + wUp, y0, wDown, h, withAlpha(downC, inVA ? col.inOpacity : col.outOpacity));
+      const op = inVA ? col.inOpacity : col.outOpacity;
+      if (wUp > 0) c.s.fillRect(x0, y0, wUp, h, withAlpha(inVA ? col.vaUp : col.up, op));
+      if (wDown > 0) c.s.fillRect(x0 + wUp, y0, wDown, h, withAlpha(inVA ? col.vaDown : col.down, op));
     });
     const mid = (k: number) => c.toY((vp.rows[k]!.lo + vp.rows[k]!.hi) / 2);
+    const line = (color: string) => (col.lineOpacity < 1 ? withAlpha(color, col.lineOpacity) : color);
     if (c.item.style.showPoc) {
-      stroke(c, [{ x: x0, y: mid(vp.poc) }, { x: x1, y: mid(vp.poc) }], col.poc, 1.5, "solid");
-      label(c, "POC", x1 + 4, mid(vp.poc), { size: 10, color: col.poc });
+      stroke(c, [{ x: x0, y: mid(vp.poc) }, { x: x1, y: mid(vp.poc) }], line(col.poc), 1.5, "solid");
+      label(c, "POC", x1 + 4, mid(vp.poc), { size: 10, color: col.pocLabel });
     }
     if (c.item.style.showValueArea) {
-      stroke(c, [{ x: x0, y: c.toY(vp.rows[vp.vah]!.hi) }, { x: x1, y: c.toY(vp.rows[vp.vah]!.hi) }], col.valueArea, 1, "dashed");
-      stroke(c, [{ x: x0, y: c.toY(vp.rows[vp.val]!.lo) }, { x: x1, y: c.toY(vp.rows[vp.val]!.lo) }], col.valueArea, 1, "dashed");
-      label(c, "VAH", x1 + 4, c.toY(vp.rows[vp.vah]!.hi), { size: 10, color: col.valueArea });
-      label(c, "VAL", x1 + 4, c.toY(vp.rows[vp.val]!.lo), { size: 10, color: col.valueArea });
+      const yH = c.toY(vp.rows[vp.vah]!.hi);
+      const yL = c.toY(vp.rows[vp.val]!.lo);
+      stroke(c, [{ x: x0, y: yH }, { x: x1, y: yH }], line(col.vah), 1, "dashed");
+      stroke(c, [{ x: x0, y: yL }, { x: x1, y: yL }], line(col.val), 1, "dashed");
+      label(c, "VAH", x1 + 4, yH, { size: 10, color: col.vahLabel });
+      label(c, "VAL", x1 + 4, yL, { size: 10, color: col.valLabel });
     }
   },
   hit(c, p) {
