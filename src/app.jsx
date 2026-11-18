@@ -4665,6 +4665,7 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
             const [showMACD, setShowMACD] = useLocalState('tech2-show-macd', false);
             const [showVolume, setShowVolume] = useLocalState('tech2-show-volume', true);
             const [showFearSignal, setShowFearSignal] = useLocalState('tech2-show-fear', false);
+            const [showETF, setShowETF] = useLocalState('tech2-show-etf', false);
             const [timeframeRaw, setTimeframe] = useLocalState('tech-timeframe', '1d'); // 15m | 1h | 4h | 1d | 1wk | 1mo
             const timeframe = CHART_TF[timeframeRaw] ? timeframeRaw : '1d';
             const tf = chartTf(timeframe);
@@ -4674,6 +4675,9 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
             // crypto 用鏈上 Realized Price 取代 MA200(Binance 只給 1000 根 K 棒,MA200 沒參考性)
             const cmAsset = isCryptoType ? (CM_ASSET_MAP[String(symbol || '').toLowerCase()] || null) : null;
             const [cmData, setCmData] = useState([]);
+            // 美國現貨 ETF 每日淨流入(Supabase etf_flows,GitHub Actions 每天從 SoSoValue 寫入)
+            const etfSymbol = isCryptoType && ['btc', 'bitcoin', 'btcusdt'].includes(String(symbol || '').toLowerCase()) ? 'BTC' : null;
+            const [etfRows, setEtfRows] = useState([]);
             const [fngHistory, setFngHistory] = useState([]);
             const [history, setHistory] = useState([]);
             const [loadVersion, setLoadVersion] = useState(0); // 每次重新載入 +1;即時跳動不算(圖表只在新載入時重新對齊畫面)
@@ -4864,6 +4868,25 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
             }, [cmAsset]);
 
 
+            // ─── Fetch ETF 淨流入(BTC 限定,打開開關或 AI 分析時才抓)───
+            useEffect(() => {
+                if (!etfSymbol || !supabase) { setEtfRows([]); return; }
+                let cancelled = false;
+                (async () => {
+                    try {
+                        const { data, error: err } = await supabase.from('etf_flows')
+                            .select('date,net_inflow,cum_net_inflow,value_traded')
+                            .eq('symbol', etfSymbol).order('date', { ascending: true }).limit(5000);
+                        if (err) throw err;
+                        if (!cancelled) setEtfRows(data || []);
+                    } catch (e) {
+                        console.warn('ETF flows fetch failed:', e);
+                        if (!cancelled) setEtfRows([]);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [etfSymbol]);
+
             const candleData = useMemo(() => {
                 const seen = new Set();
                 const arr = history
@@ -4900,6 +4923,30 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                 }
                 return data.length ? data : null;
             }, [showRP, cmAsset, cmData, candleData]);
+
+            // ─── ETF 淨流入副圖:把每日流量加總到每根 K 棒(週線 = 當週合計)。盤中週期不顯示 ───
+            const etfFlows = useMemo(() => {
+                if (!showETF || !etfSymbol || !tf.daily || candleData.length === 0 || etfRows.length === 0) return null;
+                const net = new Array(candleData.length).fill(null);
+                const cum = new Array(candleData.length).fill(null);
+                const day = (t) => new Date(t * 1000).toISOString().slice(0, 10);
+                let j = 0, lastCum = null;
+                for (let i = 0; i < candleData.length; i++) {
+                    const start = day(candleData[i].time);
+                    const end = i + 1 < candleData.length ? day(candleData[i + 1].time) : '9999-12-31';
+                    while (j < etfRows.length && etfRows[j].date < start) { if (etfRows[j].cum_net_inflow != null) lastCum = etfRows[j].cum_net_inflow; j++; }
+                    let sum = null;
+                    while (j < etfRows.length && etfRows[j].date < end) {
+                        const r = etfRows[j];
+                        if (r.net_inflow != null) sum = (sum ?? 0) + r.net_inflow;
+                        if (r.cum_net_inflow != null) lastCum = r.cum_net_inflow;
+                        j++;
+                    }
+                    if (sum != null) net[i] = sum / 1e6;          // 百萬美元
+                    if (lastCum != null && (sum != null || cum[i - 1] != null)) cum[i] = lastCum / 1e9; // 十億美元
+                }
+                return net.some(v => v != null) ? { net, cum } : null;
+            }, [showETF, etfSymbol, tf.daily, candleData, etfRows]);
 
             // Esc 關閉 modal(圖表正在用 Esc 取消繪圖 / 選取時會 preventDefault,不關閉)
             useEffect(() => {
@@ -4952,12 +4999,17 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                     const recent = fngHistory.slice(-30).map(d => d.fng);
                     if (recent.length > 5) out.push(`近 30 天恐懼貪婪指數介於 ${Math.min(...recent)} ~ ${Math.max(...recent)}`);
                 }
+                if (etfRows.length) {
+                    const recent = etfRows.slice(-10);
+                    const sum5 = recent.slice(-5).reduce((a, r) => a + (r.net_inflow || 0), 0);
+                    out.push(`美國現貨 BTC ETF 每日淨流入（百萬美元，最近 10 個交易日）：${recent.map(r => `${r.date.slice(5)} ${r.net_inflow != null ? (r.net_inflow / 1e6).toFixed(0) : '—'}`).join('、')}；近 5 日合計 ${(sum5 / 1e6).toFixed(0)}`);
+                }
                 if (cmData.length) {
                     const last = cmData[cmData.length - 1];
                     out.push(`鏈上 MVRV ${last.mvrv.toFixed(2)}，Realized Price（市場平均持有成本）${last.rp.toFixed(2)}，日期 ${last.date}`);
                 }
                 return out;
-            }, [fngHistory, cmData, isCryptoType]);
+            }, [fngHistory, cmData, etfRows, isCryptoType]);
 
             // ─── UI atoms ───
             const EyeToggle = ({ label, checked, onChange, color }) => (
@@ -5012,6 +5064,9 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                                 <EyeToggle label="MA200" checked={showMA200} onChange={setShowMA200} color="#f97316" />
                             ) : null}
                             <EyeToggle label="成交量" checked={showVolume} onChange={setShowVolume} color="#64748b" />
+                            {etfSymbol && (
+                                <EyeToggle label="ETF 流量" checked={showETF} onChange={setShowETF} color="#22c55e" />
+                            )}
                             <EyeToggle label="RSI" checked={showRSI} onChange={setShowRSI} color="#a78bfa" />
                             <EyeToggle label="MACD" checked={showMACD} onChange={setShowMACD} color="#fbbf24" />
                 </>
@@ -5069,6 +5124,7 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                                 showEMA={showEMA}
                                 showMA200={showMA200 && !isCryptoType}
                                 realizedPrice={realizedPrice}
+                                etfFlows={etfFlows}
                                 showRSI={showRSI}
                                 showMACD={showMACD}
                                 showVolume={showVolume}

@@ -83,6 +83,11 @@ export type TechnicalChartViewProps = {
   showMA200: boolean;
   /** Realized Price line (crypto), already aligned to candle times. */
   realizedPrice: ValuePoint[] | null;
+  /**
+   * US spot ETF net flow per candle (USD millions; cum = cumulative, USD
+   * billions), same length as `candles`. Shown in its own pane when set.
+   */
+  etfFlows?: { net: Num[]; cum: Num[] } | null;
   showRSI: boolean;
   showMACD: boolean;
   /** Volume bars at the bottom of the price pane. */
@@ -200,8 +205,9 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     panes: Pane[];
     rsi: LineSeries | null;
     macd: { hist: HistogramSeries; dif: LineSeries; dea: LineSeries } | null;
+    etf: { hist: HistogramSeries; pane: Pane } | null;
     legend: PaneLegend;
-  }>({ candles: null, volume: null, volumeMa: null, main: [], panes: [], rsi: null, macd: null, legend: new PaneLegend() });
+  }>({ candles: null, volume: null, volumeMa: null, main: [], panes: [], rsi: null, macd: null, etf: null, legend: new PaneLegend() });
   const fittedKey = useRef<string | Bar[] | null>(null);
   const dataKey = props.dataKey ?? props.candles;
   const hover = useRef(props.onHover);
@@ -355,6 +361,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
   // RSI / MACD panes: built when toggled or for a new data set (pane ids and
   // heights must survive live ticks), values filled in by the effect below
   const hasBars = props.candles.length > 0;
+  const hasEtf = !!props.etfFlows;
   useEffect(() => {
     if (!chart) return;
     const r = refs.current;
@@ -362,6 +369,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     r.panes = [];
     r.rsi = null;
     r.macd = null;
+    r.etf = null;
     r.legend.entries.clear();
     if (!hasBars) return chart.invalidate();
     if (props.showRSI) {
@@ -374,6 +382,12 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       ]);
       r.panes.push(pane);
     }
+    if (hasEtf) {
+      const pane = chart.addPane({ weight: 1 / 4 });
+      const hist = chart.addHistogram(pane, { lastValueLabel: true, title: "ETF" });
+      r.etf = { hist, pane };
+      r.panes.push(pane);
+    }
     if (props.showMACD) {
       const pane = chart.addPane({ weight: 1 / 3 });
       const hist = chart.addHistogram(pane, {});
@@ -384,7 +398,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
     }
     chart.invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chart, props.showRSI, props.showMACD, hasBars, dataKey, UP, DOWN, theme.border]);
+  }, [chart, props.showRSI, props.showMACD, hasEtf, hasBars, dataKey, UP, DOWN, theme.border]);
 
   useEffect(() => {
     if (!chart) return;
@@ -412,6 +426,14 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       r.rsi.setMarkers(m);
       r.legend.entries.set(r.panes[0].id, [{ label: "RSI(14)", color: "#a78bfa", values }]);
     }
+    if (r.etf && props.etfFlows) {
+      const { net, cum } = props.etfFlows;
+      r.etf.hist.setData(points(bars, net, (i) => withAlpha(net[i]! >= 0 ? UP : DOWN, 0.8)));
+      r.legend.entries.set(r.etf.pane.id, [
+        { label: "ETF 淨流入（百萬美元）", color: theme.text, values: net },
+        { label: "累計（十億）", color: theme.text, values: cum },
+      ]);
+    }
     if (r.macd) {
       const pane = r.panes[r.panes.length - 1]!;
       const m = macd(closes);
@@ -427,7 +449,7 @@ export function TechnicalChartView(props: TechnicalChartViewProps) {
       ]);
     }
     chart.invalidate();
-  }, [chart, props.candles, props.showRSI, props.showMACD, hasBars, dataKey, UP, DOWN, theme.text, theme.border]);
+  }, [chart, props.candles, props.etfFlows, props.showRSI, props.showMACD, hasEtf, hasBars, dataKey, UP, DOWN, theme.text, theme.border]);
 
   const appearancePanel: SidePanel = {
     id: "appearance",

@@ -1,0 +1,33 @@
+name: ETF flows
+
+on:
+  schedule:
+    # 美股收盤後資料約隔天早上更新；每天台灣時間 09:20、15:20 各抓一次
+    - cron: '20 1,7 * * *'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'How many latest days to fetch (max 300)'
+        required: false
+        default: '300'
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install
+        run: pip install supabase requests
+      - name: Fetch ETF flows
+        env:
+          SOSO_API_KEY: ${{ secrets.SOSO_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ETF_LIMIT: ${{ github.event.inputs.limit || '30' }}
+        run: python fetch_etf_flows.py
