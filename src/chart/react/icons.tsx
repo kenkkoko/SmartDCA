@@ -26,6 +26,7 @@ const ICONS: Record<string, ReactNode> = {
   disjoint_channel: svg(<><path d="M2 6L18 3M2 12L18 17" /></>),
   pitchfork: svg(<><path d="M3 10L9 10M9 4L18 4M9 10L18 10M9 16L18 16M9 4v12" /></>),
   fib_retracement: svg(<><path d="M2 3h16M2 7.5h16M2 11h16M2 17h16" /><path d="M4 17L16 3" strokeDasharray="2 2" /></>),
+  fib_expansion: svg(<><path d="M2 3h16M2 7h16M2 11h16" /><path d="M2 15h16M2 18h16" strokeDasharray="2 2" /></>),
   fib_extension: svg(<><path d="M2 4h16M2 9h16M2 14h16" /><path d="M3 17L8 11L11 15" /></>),
   fib_channel: svg(<><path d="M2 8L18 2M2 13L18 7M2 18L18 12" /></>),
   xabcd_pattern: svg(<path d="M2 15L6 5L10 12L14 3L18 14" />),

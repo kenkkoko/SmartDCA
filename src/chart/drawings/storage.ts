@@ -2,9 +2,9 @@
 // last style used per tool. Every access is guarded (private mode, quota).
 
 import { onSyncedKeys } from "../sync";
-import { getFibDefaults, setFibDefaults } from "./tools/fibonacci";
+import { setFibDefaults } from "./tools/fibonacci";
 import type { DrawingLayer } from "./layer";
-import type { Drawing, DrawingGroup, DrawingStyle, FibSettings } from "./types";
+import { defaultFibSettings, type Drawing, type DrawingGroup, type DrawingStyle, type FibKind, type FibSettings } from "./types";
 
 const PREFIX = "smartdca.chart.";
 
@@ -46,15 +46,25 @@ export function saveDrawings(symbol: string, items: Drawing[], groups: DrawingGr
   write(`drawings.${symbol}`, groups.length ? { items, groups } : items);
 }
 
-/** Restore the saved Fibonacci template into the tool defaults. */
+/**
+ * Saved Fibonacci templates. The expansion keeps the old "fibDefaults" key:
+ * templates saved before the split had the extended levels, which is what the
+ * expansion tool now uses.
+ */
+const FIB_KEYS: Record<FibKind, string> = { retracement: "fibRetraceDefaults", expansion: "fibDefaults" };
+
+/** Restore the saved Fibonacci templates into the tool defaults. */
 export function loadFibTemplate(): void {
-  const saved = read<FibSettings>("fibDefaults");
-  if (saved && Array.isArray(saved.levels)) setFibDefaults({ ...getFibDefaults(), ...saved });
+  for (const kind of ["retracement", "expansion"] as FibKind[]) {
+    const saved = read<FibSettings>(FIB_KEYS[kind]);
+    if (saved && Array.isArray(saved.levels)) setFibDefaults({ ...defaultFibSettings(kind), ...saved }, kind);
+    else setFibDefaults(null, kind);
+  }
 }
 
-export function saveFibTemplate(settings: FibSettings | null): void {
-  setFibDefaults(settings);
-  write("fibDefaults", settings);
+export function saveFibTemplate(settings: FibSettings | null, kind: FibKind = "retracement"): void {
+  setFibDefaults(settings, kind);
+  write(FIB_KEYS[kind], settings);
 }
 
 /**
@@ -94,7 +104,7 @@ export function persistLayer(layer: DrawingLayer, symbol: string): () => void {
       layer.setItems(next.items, next.groups);
     }
     if (keys.includes(PREFIX + "toolStyles")) layer.toolStyles = read<Record<string, Partial<DrawingStyle>>>("toolStyles") ?? {};
-    if (keys.includes(PREFIX + "fibDefaults")) loadFibTemplate();
+    if (keys.includes(PREFIX + "fibDefaults") || keys.includes(PREFIX + "fibRetraceDefaults")) loadFibTemplate();
   });
   return () => {
     if (timer) {

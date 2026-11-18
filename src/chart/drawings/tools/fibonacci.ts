@@ -1,7 +1,7 @@
 import type { Point } from "../../engine/types";
 import { distToSegment, readable, withAlpha } from "../geometry";
 import { HIT, label, stroke, type Tool, type ToolContext } from "../tool";
-import { defaultFibSettings, type Anchor, type FibSettings } from "../types";
+import { defaultFibSettings, type Anchor, type FibKind, type FibSettings } from "../types";
 
 // ---------------------------------------------------------------------------
 // Retracement (TradingView): 1 on the first point, 0 on the second (reverse
@@ -9,17 +9,23 @@ import { defaultFibSettings, type Anchor, type FibSettings } from "../types";
 // points unless extended, labels read "0.618(1234.56)".
 // ---------------------------------------------------------------------------
 
-/** Defaults new retracements start from ("Save as default" replaces them). */
-let fibDefaults: FibSettings = defaultFibSettings();
-export function getFibDefaults(): FibSettings {
-  return structuredClone(fibDefaults);
+/** Defaults new drawings start from, per tool ("Save as default" replaces them). */
+const fibDefaults: Record<FibKind, FibSettings> = {
+  retracement: defaultFibSettings("retracement"),
+  expansion: defaultFibSettings("expansion"),
+};
+export function fibKindOf(type: string): FibKind {
+  return type === "fib_expansion" ? "expansion" : "retracement";
 }
-export function setFibDefaults(settings: FibSettings | null): void {
-  fibDefaults = settings ? structuredClone(settings) : defaultFibSettings();
+export function getFibDefaults(kind: FibKind = "retracement"): FibSettings {
+  return structuredClone(fibDefaults[kind]);
+}
+export function setFibDefaults(settings: FibSettings | null, kind: FibKind = "retracement"): void {
+  fibDefaults[kind] = settings ? structuredClone(settings) : defaultFibSettings(kind);
 }
 
 export function fibSettingsOf(c: ToolContext): FibSettings {
-  return c.item.style.fib ?? fibDefaults;
+  return c.item.style.fib ?? fibDefaults[fibKindOf(c.item.type)];
 }
 
 /** Enabled levels (duplicates dropped) with their price. */
@@ -62,7 +68,7 @@ export const fibRetracement: Tool = {
   create: 2,
   caps: { extend: true, dialog: "fib" },
   init(item) {
-    item.style.fib = getFibDefaults();
+    item.style.fib = getFibDefaults("retracement");
   },
   render(c) {
     const s = fibSettingsOf(c);
@@ -107,6 +113,18 @@ export const fibRetracement: Tool = {
   },
 };
 
+// Expansion: the same two-point tool, but its levels go past the first point
+// (1.382 / 1.618 / 2 ...) so one drawing shows the pullback and the AB=CD
+// style targets. Has its own saved default, separate from the retracement.
+export const fibExpansion: Tool = {
+  ...fibRetracement,
+  type: "fib_expansion",
+  label: "斐波那契擴展",
+  init(item) {
+    item.style.fib = getFibDefaults("expansion");
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Trend-based extension: levels of the first leg projected from point 3.
 // ---------------------------------------------------------------------------
@@ -122,7 +140,7 @@ function extensionLevels(c: ToolContext): { value: number; price: number; color:
 
 export const fibExtension: Tool = {
   type: "fib_extension",
-  label: "斐波那契延伸",
+  label: "趨勢斐波那契延伸（三點）",
   group: "fibonacci",
   create: 3,
   caps: { extend: true },
@@ -193,4 +211,4 @@ export const fibChannel: Tool = {
   },
 };
 
-export const FIB_TOOLS: Tool[] = [fibRetracement, fibExtension, fibChannel];
+export const FIB_TOOLS: Tool[] = [fibRetracement, fibExpansion, fibExtension, fibChannel];

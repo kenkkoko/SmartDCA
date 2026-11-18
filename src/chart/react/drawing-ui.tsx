@@ -7,7 +7,7 @@ import type { DrawingLayer } from "../drawings/layer";
 import { saveFibTemplate } from "../drawings/storage";
 import type { Tool } from "../drawings/tool";
 import { getTool, TOOL_GROUPS } from "../drawings/tools";
-import { getFibDefaults } from "../drawings/tools/fibonacci";
+import { fibKindOf, getFibDefaults } from "../drawings/tools/fibonacci";
 import { AUTO_COLOR, DEFAULT_VP_COLORS, defaultFibSettings, mergeVpColors, VP_DOWN_FALLBACK, VP_UP_FALLBACK, type Drawing, type FibSettings, type VpColors } from "../drawings/types";
 import type { LineStyle } from "../engine/types";
 import { Icon } from "./icons";
@@ -536,13 +536,14 @@ export function FibSettingsDialog({ layer, item, onClose }: { layer: DrawingLaye
   const { draft, setDraft, commit, revert } = useDraft<FibDraft>(
     layer,
     item,
-    (d) => ({ fib: d.style.fib ?? getFibDefaults(), extendLeft: d.style.extendLeft, extendRight: d.style.extendRight }),
+    (d) => ({ fib: d.style.fib ?? getFibDefaults(fibKindOf(d.type)), extendLeft: d.style.extendLeft, extendRight: d.style.extendRight }),
     (d, v) => {
       d.style.fib = v.fib;
       d.style.extendLeft = v.extendLeft;
       d.style.extendRight = v.extendRight;
     },
   );
+  const fibKind = fibKindOf(item.type);
   const [menu, setMenu] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const closeMenu = useMemo(() => () => setMenu(false), []);
@@ -578,7 +579,7 @@ export function FibSettingsDialog({ layer, item, onClose }: { layer: DrawingLaye
 
   return (
     <Dialog
-      title="斐波那契回撤 · 設定"
+      title={`斐波那契${fibKind === "expansion" ? "擴展" : "回撤"} · 設定`}
       width={600}
       onCancel={() => {
         revert();
@@ -599,9 +600,9 @@ export function FibSettingsDialog({ layer, item, onClose }: { layer: DrawingLaye
                 className="block w-full cursor-pointer px-3 py-1.5 text-left text-sm hover:bg-[var(--c-hover)]"
                 data-testid="fib-save-default"
                 onClick={() => {
-                  saveFibTemplate(structuredClone(f));
+                  saveFibTemplate(structuredClone(f), fibKind);
                   setMenu(false);
-                  setToast("已儲存為預設，新的回撤會使用這組設定");
+                  setToast(`已儲存為預設，新的${fibKind === "expansion" ? "擴展" : "回撤"}會使用這組設定`);
                 }}
               >
                 儲存為預設
@@ -609,7 +610,7 @@ export function FibSettingsDialog({ layer, item, onClose }: { layer: DrawingLaye
               <button
                 className="block w-full cursor-pointer px-3 py-1.5 text-left text-sm hover:bg-[var(--c-hover)]"
                 onClick={() => {
-                  patch(getFibDefaults());
+                  patch(getFibDefaults(fibKind));
                   setMenu(false);
                 }}
               >
@@ -618,8 +619,8 @@ export function FibSettingsDialog({ layer, item, onClose }: { layer: DrawingLaye
               <button
                 className="block w-full cursor-pointer px-3 py-1.5 text-left text-sm text-[var(--c-muted)] hover:bg-[var(--c-hover)]"
                 onClick={() => {
-                  patch(defaultFibSettings());
-                  saveFibTemplate(null);
+                  patch(defaultFibSettings(fibKind));
+                  saveFibTemplate(null, fibKind);
                   setMenu(false);
                   setToast("已還原原廠設定");
                 }}

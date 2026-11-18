@@ -284,6 +284,25 @@ describe("Fibonacci retracement", () => {
     expect(getFibDefaults().reverse).toBe(true);
   });
 
+  it("retracement and expansion have separate levels and templates", () => {
+    layer.setActiveTool("fib_retracement");
+    click(200, 300);
+    click(400, 150);
+    layer.setActiveTool("fib_expansion");
+    click(200, 320);
+    click(400, 170);
+    const [ret, exp] = layer.items;
+    const on = (d: typeof ret) => d!.style.fib!.levels.filter((l) => l.enabled).map((l) => l.value);
+    expect(Math.max(...on(ret))).toBe(1);
+    expect(on(exp)).toContain(1.618);
+    const tpl = defaultFibSettings("expansion");
+    tpl.reverse = true;
+    saveFibTemplate(tpl, "expansion");
+    expect(getFibDefaults("expansion").reverse).toBe(true);
+    expect(getFibDefaults("retracement").reverse).toBe(false);
+    saveFibTemplate(null, "expansion");
+  });
+
   it("black levels are drawn light on the dark theme", () => {
     expect(readable("#000000", "#0b0e14")).not.toBe("#000000");
     expect(readable("#9a3a35", "#0b0e14")).toBe("#9a3a35");

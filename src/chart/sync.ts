@@ -22,6 +22,7 @@ export function isSyncedKey(key: string): boolean {
     key.startsWith("smartdca.chart.drawings.") ||
     key === "smartdca.chart.toolStyles" ||
     key === "smartdca.chart.fibDefaults" ||
+    key === "smartdca.chart.fibRetraceDefaults" ||
     key === "smartdca.chart.drawingPrefs" ||
     key === "smartdca.chart.appearance" ||
     key === "chart-watchlist-v1" ||

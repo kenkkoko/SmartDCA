@@ -28,6 +28,23 @@ export type FibSettings = {
 };
 
 /** The 24-row table as Kai set it up in TradingView. */
+/** Plain retracement: pullback levels between the two points only. */
+export const RETRACEMENT_FIB_LEVELS: FibLevel[] = [
+  { value: 0, color: "#787b86", enabled: true },
+  { value: 0.236, color: "#f23645", enabled: true },
+  { value: 0.382, color: "#ff9800", enabled: true },
+  { value: 0.5, color: "#4caf50", enabled: true },
+  { value: 0.618, color: "#089981", enabled: true },
+  { value: 0.786, color: "#00bcd4", enabled: true },
+  { value: 1, color: "#787b86", enabled: true },
+  { value: 0.886, color: "#2962ff", enabled: false },
+  { value: 0.65, color: "#7d3733", enabled: false },
+  { value: 1.618, color: "#9a3a35", enabled: false },
+];
+
+export type FibKind = "retracement" | "expansion";
+
+/** Expansion: retracement levels plus projections past the first point (AB=CD targets). */
 export const DEFAULT_FIB_LEVELS: FibLevel[] = [
   { value: 0, color: "#000000", enabled: true },
   { value: 0.236, color: "#000000", enabled: true },
@@ -55,9 +72,9 @@ export const DEFAULT_FIB_LEVELS: FibLevel[] = [
   { value: 4.764, color: "#65a591", enabled: false },
 ];
 
-export function defaultFibSettings(): FibSettings {
+export function defaultFibSettings(kind: FibKind = "expansion"): FibSettings {
   return {
-    levels: DEFAULT_FIB_LEVELS.map((l) => ({ ...l })),
+    levels: (kind === "retracement" ? RETRACEMENT_FIB_LEVELS : DEFAULT_FIB_LEVELS).map((l) => ({ ...l })),
     trendLine: true,
     trendLineColor: "#787b86",
     trendLineStyle: "dashed",
