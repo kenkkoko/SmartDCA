@@ -10,6 +10,10 @@ on:
         description: 'How many latest days to fetch (max 300)'
         required: false
         default: '300'
+      inspect:
+        description: 'Print the TFTC history JSON structure instead'
+        required: false
+        default: 'false'
 
 jobs:
   fetch:
@@ -31,3 +35,7 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ETF_LIMIT: ${{ github.event.inputs.limit || '30' }}
         run: python fetch_etf_flows.py
+        if: ${{ github.event.inputs.inspect != 'true' }}
+      - name: Inspect TFTC history
+        if: ${{ github.event.inputs.inspect == 'true' }}
+        run: python inspect_tftc.py
