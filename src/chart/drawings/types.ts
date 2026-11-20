@@ -92,6 +92,17 @@ export function defaultFibSettings(kind: FibKind = "expansion"): FibSettings {
   };
 }
 
+export type VfSettings = {
+  rows: number;
+  valueArea: number;
+  /** HVN threshold, % of the POC row's volume. */
+  hvnPct: number;
+  showHvn: boolean;
+  showExt: boolean;
+  /** Confluence tolerance, ± % of price. */
+  tol: number;
+};
+
 export type DrawingStyle = {
   color: string;
   width: number;
@@ -116,6 +127,8 @@ export type DrawingStyle = {
   fib?: FibSettings;
   /** Volume profile colours (missing = defaults). */
   vp?: VpColors;
+  /** V&F 量斐匯合 settings (missing fields = defaults). */
+  vf?: Partial<VfSettings>;
   /** Keep the anchors' price labels on the price axis even when not selected. */
   axisLabel?: boolean;
   /** Where line text sits: above / on / below the line, and along it. */

@@ -7,7 +7,7 @@ import { getTool } from "../drawings/tools";
 import type { Drawing } from "../drawings/types";
 import type { Chart, ChartOptions } from "../engine/chart";
 import { DARK_THEME, type Theme } from "../engine/types";
-import { btn, DrawingToolbar, FibSettingsDialog, PropertiesBar, TextDialog, VolumeSettingsDialog } from "./drawing-ui";
+import { btn, DrawingToolbar, FibSettingsDialog, PropertiesBar, TextDialog, VfSettingsDialog, VolumeSettingsDialog } from "./drawing-ui";
 import { Icon } from "./icons";
 import { LayersPanel, type FixedLayer } from "./LayersPanel";
 import { SideBar, usePhone, useSidePanel, type SidePanel } from "./SideBar";
@@ -54,7 +54,7 @@ export type DrawingChartProps = {
   fixedLayers?: FixedLayer[];
 };
 
-type DialogState = { kind: "fib" | "volume" | "text"; id: string } | null;
+type DialogState = { kind: "fib" | "volume" | "vf" | "text"; id: string } | null;
 
 export function DrawingChart({ onReady, storageKey, options, className, style, toolbar = true, theme = DARK_THEME, children, sidePanels = [], defaultSidePanel = null, fixedLayers = [] }: DrawingChartProps) {
   const [layer, setLayer] = useState<DrawingLayer | null>(null);
@@ -197,6 +197,7 @@ export function DrawingChart({ onReady, storageKey, options, className, style, t
       <SideBar panels={panels} active={sidePanel} onSelect={setSidePanel} phone={phone} />
       {layer && item && dialog?.kind === "fib" && getTool(item.type)?.caps?.dialog === "fib" ? <FibSettingsDialog layer={layer} item={item} onClose={close} /> : null}
       {layer && item && dialog?.kind === "volume" ? <VolumeSettingsDialog layer={layer} item={item} onClose={close} /> : null}
+      {layer && item && dialog?.kind === "vf" ? <VfSettingsDialog layer={layer} item={item} onClose={close} /> : null}
       {layer && item && dialog?.kind === "text" ? <TextDialog layer={layer} item={item} onClose={close} /> : null}
     </div>
   );

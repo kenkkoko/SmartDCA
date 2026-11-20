@@ -8,7 +8,8 @@ import { saveFibTemplate } from "../drawings/storage";
 import type { Tool } from "../drawings/tool";
 import { getTool, TOOL_GROUPS } from "../drawings/tools";
 import { fibKindOf, getFibDefaults } from "../drawings/tools/fibonacci";
-import { AUTO_COLOR, DEFAULT_VP_COLORS, defaultFibSettings, mergeVpColors, VP_DOWN_FALLBACK, VP_UP_FALLBACK, type Drawing, type FibSettings, type VpColors } from "../drawings/types";
+import { DEFAULT_VF, vfSettingsOf } from "../drawings/tools/vf";
+import { AUTO_COLOR, DEFAULT_VP_COLORS, defaultFibSettings, mergeVpColors, VP_DOWN_FALLBACK, VP_UP_FALLBACK, type Drawing, type FibSettings, type VfSettings, type VpColors } from "../drawings/types";
 import type { LineStyle } from "../engine/types";
 import { Icon } from "./icons";
 
@@ -318,7 +319,7 @@ const lineSample = (style: LineStyle, width = 1) => (
 // Floating properties bar
 // ===========================================================================
 
-export function PropertiesBar({ layer, onOpenDialog }: { layer: DrawingLayer; onOpenDialog: (kind: "fib" | "volume" | "text", item: Drawing) => void }) {
+export function PropertiesBar({ layer, onOpenDialog }: { layer: DrawingLayer; onOpenDialog: (kind: "fib" | "volume" | "vf" | "text", item: Drawing) => void }) {
   useLayer(layer);
   const item = layer.selected;
   if (!item) return null;
@@ -698,6 +699,68 @@ export function FibSettingsDialog({ layer, item, onClose }: { layer: DrawingLaye
 // ===========================================================================
 
 type VolumeDraft = { rows: number; valueArea: number; showPoc: boolean; showValueArea: boolean; vp: VpColors };
+
+export function VfSettingsDialog({ layer, item, onClose }: { layer: DrawingLayer; item: Drawing; onClose: () => void }) {
+  const { draft, setDraft, commit, revert } = useDraft<VfSettings>(
+    layer,
+    item,
+    (d) => vfSettingsOf(d.style),
+    (d, v) => void (d.style.vf = { ...v }),
+  );
+  const num = (key: "rows" | "valueArea" | "hvnPct" | "tol", min: number, max: number, step = 1) => (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      className="w-24 rounded-md border border-[var(--c-line)] bg-[var(--c-raised)] px-2 py-1 text-sm tabular-nums outline-none focus:border-[var(--c-accent)]"
+      value={draft[key]}
+      onChange={(e) => {
+        const v = Number(e.target.value);
+        if (Number.isFinite(v)) setDraft((d) => ({ ...d, [key]: Math.max(min, Math.min(max, v)) }));
+      }}
+    />
+  );
+  return (
+    <Dialog
+      title="V&F 量斐匯合 · 設定"
+      width={420}
+      onCancel={() => {
+        revert();
+        onClose();
+      }}
+      onOk={() => {
+        commit();
+        onClose();
+      }}
+    >
+      <p className="mb-4 text-xs leading-relaxed text-[var(--c-muted)]">
+        兩個錨點框出一段擺動：自動畫斐波回撤（0.382–0.786、黃金口袋 0.618–0.65）與延伸 1.272 / 1.618，同時算這段的 POC / VAH / VAL / HVN。斐波位與量能位在容差內重疊，就畫出橘色匯合帶並標出成員；最深色的是成員最多的最強匯合帶。
+      </p>
+      <div className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm">
+        <span>匯合容差 ±%</span>
+        {num("tol", 0.1, 3, 0.1)}
+        <span>列數</span>
+        {num("rows", 20, 400)}
+        <span>價值區 %</span>
+        {num("valueArea", 50, 95)}
+        <span>HVN 門檻（佔 POC 量能 %）</span>
+        {num("hvnPct", 20, 95)}
+      </div>
+      <div className="mt-4 flex flex-col gap-2.5">
+        <Check checked={draft.showExt} onChange={(v) => setDraft((d) => ({ ...d, showExt: v }))}>
+          顯示延伸目標位（1.272 / 1.618）
+        </Check>
+        <Check checked={draft.showHvn} onChange={(v) => setDraft((d) => ({ ...d, showHvn: v }))}>
+          顯示 HVN 高量節點
+        </Check>
+      </div>
+      <button className="mt-4 cursor-pointer text-xs text-[var(--c-accent)] hover:underline" onClick={() => setDraft({ ...DEFAULT_VF })}>
+        恢復預設
+      </button>
+    </Dialog>
+  );
+}
 
 export function VolumeSettingsDialog({ layer, item, onClose }: { layer: DrawingLayer; item: Drawing; onClose: () => void }) {
   const { draft, setDraft, commit, revert } = useDraft<VolumeDraft>(

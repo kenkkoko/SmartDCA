@@ -63,7 +63,7 @@ export type ToolCaps = {
   stats?: boolean;
   /** Line width/style controls (default true). */
   line?: boolean;
-  dialog?: "fib" | "volume";
+  dialog?: "fib" | "volume" | "vf";
   /** Volume profile: the toolbar edits style.vp colours instead of style.color. */
   vpColors?: boolean;
   /** Offer the "always show price labels" toggle (default: tools with price anchors). */

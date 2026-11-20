@@ -7,6 +7,7 @@ import { MEASURE_TOOLS } from "./measure";
 import { PATTERN_TOOLS } from "./patterns";
 import { BRUSH_TOOLS, SHAPE_TOOLS } from "./shapes";
 import { TEXT_TOOLS } from "./text";
+import { vfConfluence } from "./vf";
 import { VOLUME_TOOLS } from "./volume";
 
 export const TOOL_GROUPS: { group: ToolGroup; label: string; tools: Tool[] }[] = [
@@ -15,7 +16,7 @@ export const TOOL_GROUPS: { group: ToolGroup; label: string; tools: Tool[] }[] =
   { group: "fibonacci", label: "斐波那契", tools: FIB_TOOLS },
   { group: "patterns", label: "型態", tools: PATTERN_TOOLS },
   { group: "measure", label: "測量與部位", tools: MEASURE_TOOLS },
-  { group: "volume", label: "成交量", tools: VOLUME_TOOLS },
+  { group: "volume", label: "成交量", tools: [...VOLUME_TOOLS, vfConfluence] },
   { group: "shapes", label: "形狀", tools: SHAPE_TOOLS },
   { group: "brush", label: "畫筆", tools: BRUSH_TOOLS },
   { group: "text", label: "文字與標記", tools: TEXT_TOOLS },
