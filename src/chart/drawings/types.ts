@@ -101,7 +101,12 @@ export type VfSettings = {
   showExt: boolean;
   /** Confluence tolerance, ± % of price. */
   tol: number;
+  /** Colours and opacities (missing = the Pine script's defaults). */
+  colors?: Partial<VfColors>;
 };
+
+export type VfColorKey = "fib" | "pocket" | "volume" | "hvn" | "zone" | "anchor";
+export type VfColors = Record<VfColorKey, { color: string; opacity: number }>;
 
 export type DrawingStyle = {
   color: string;

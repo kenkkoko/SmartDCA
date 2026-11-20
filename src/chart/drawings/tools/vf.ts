@@ -12,23 +12,39 @@
 //     confluence zone is drawn and labelled with its members.
 
 import type { Point } from "../../engine/types";
-import { insidePolygon, readable, withAlpha } from "../geometry";
+import { readable, withAlpha } from "../geometry";
 import { HIT, label, stroke, type Tool, type ToolContext } from "../tool";
-import type { Anchor, VfSettings } from "../types";
+import type { Anchor, VfColorKey, VfColors, VfSettings } from "../types";
 import { computeProfile } from "./volume";
 
-export type { VfSettings };
+export type { VfColorKey, VfColors, VfSettings };
 
 export const DEFAULT_VF: VfSettings = { rows: 200, valueArea: 70, hvnPct: 60, showHvn: true, showExt: true, tol: 0.8 };
 
-export const VF_COLORS = {
-  fib: "#9598a1",
-  pocket: "#f5c518",
-  volume: "#ffffff",
-  hvn: "#26c6da",
-  zone: "#f57c00",
-  anchor: "#f5c518",
+/** Same as the Pine inputs: color.new(c, transparency) -> opacity = 1 - transparency. */
+export const DEFAULT_VF_COLORS: VfColors = {
+  fib: { color: "#787b86", opacity: 0.7 },
+  pocket: { color: "#ffeb3b", opacity: 0.2 },
+  volume: { color: "#ffffff", opacity: 1 },
+  hvn: { color: "#00bcd4", opacity: 0.6 },
+  zone: { color: "#f57c00", opacity: 0.45 },
+  anchor: { color: "#ffeb3b", opacity: 0.7 },
 };
+
+export const VF_COLOR_LABELS: [VfColorKey, string][] = [
+  ["fib", "斐波線"],
+  ["pocket", "黃金口袋底色"],
+  ["volume", "POC / VAH / VAL 線"],
+  ["hvn", "HVN"],
+  ["zone", "匯合帶"],
+  ["anchor", "錨點垂直線"],
+];
+
+export function vfColorsOf(s: VfSettings): VfColors {
+  const out = {} as VfColors;
+  for (const [k] of VF_COLOR_LABELS) out[k] = { ...DEFAULT_VF_COLORS[k], ...s.colors?.[k] };
+  return out;
+}
 
 const RETRACE = [0, 0.382, 0.5, 0.618, 0.65, 0.786, 1];
 const EXTENSIONS: [number, string][] = [
@@ -56,7 +72,7 @@ export type VfResult = {
 };
 
 export function vfSettingsOf(style: { vf?: Partial<VfSettings> }): VfSettings {
-  return { ...DEFAULT_VF, ...style.vf };
+  return { ...DEFAULT_VF, ...style.vf, colors: { ...style.vf?.colors } };
 }
 
 export function computeVf(
@@ -148,28 +164,38 @@ export const vfConfluence: Tool = {
     const top = c.rect.y;
     const bottom = c.rect.y + c.rect.height;
     const size = 10;
-    const fibC = readable(VF_COLORS.fib, bg);
-    const volC = readable(VF_COLORS.volume, bg);
-    const hvnC = readable(VF_COLORS.hvn, bg);
     const s = vfSettingsOf(c.item.style);
-    const box = (hi: number, lo: number, fillC: string, a: number, from = x1) => {
-      const y0 = c.toY(hi);
-      const y1 = c.toY(lo);
-      c.s.fillRect(from, Math.min(y0, y1), right - from, Math.abs(y1 - y0), withAlpha(fillC, a));
+    const col = vfColorsOf(s);
+    const paint = (k: VfColorKey, readableOn = true) => withAlpha(readableOn ? readable(col[k].color, bg) : col[k].color, col[k].opacity);
+    const fibC = paint("fib");
+    const volC = paint("volume");
+    const hvnC = paint("hvn");
+    // square box with a thin border, like Pine's box.new
+    const box = (hi: number, lo: number, k: VfColorKey, borderAlpha: number) => {
+      const y0 = Math.min(c.toY(hi), c.toY(lo));
+      const y1 = Math.max(c.toY(hi), c.toY(lo));
+      c.s.fillRect(x1, y0, right - x1, y1 - y0, withAlpha(col[k].color, col[k].opacity));
+      const edge = withAlpha(col[k].color, borderAlpha);
+      stroke(c, [{ x: x1, y: y0 }, { x: right, y: y0 }], edge, 1, "solid");
+      stroke(c, [{ x: x1, y: y1 }, { x: right, y: y1 }], edge, 1, "solid");
+      stroke(c, [{ x: x1, y: y0 }, { x: x1, y: y1 }], edge, 1, "solid");
+      stroke(c, [{ x: right, y: y0 }, { x: right, y: y1 }], edge, 1, "solid");
     };
 
-    // anchors
-    stroke(c, [{ x: x0, y: top }, { x: x0, y: bottom }], withAlpha(VF_COLORS.anchor, 0.7), 1, "dashed");
-    stroke(c, [{ x: x1, y: top }, { x: x1, y: bottom }], withAlpha(VF_COLORS.anchor, 0.7), 1, "dashed");
+    // anchors: the two lines are what you grab to select / move the tool
+    const anchorC = paint("anchor", false);
+    const aw = c.selected ? 1.5 : 1;
+    stroke(c, [{ x: x0, y: top }, { x: x0, y: bottom }], anchorC, aw, "dashed");
+    stroke(c, [{ x: x1, y: top }, { x: x1, y: bottom }], anchorC, aw, "dashed");
 
     // golden pocket 0.618-0.65
-    box(r.pocket.hi, r.pocket.lo, VF_COLORS.pocket, 0.2);
+    box(r.pocket.hi, r.pocket.lo, "pocket", 0.6);
 
-    // confluence zones (under the lines so the levels stay visible)
-    r.zones.forEach((z, i) => {
-      box(z.hi, z.lo, VF_COLORS.zone, i === r.best ? 0.38 : 0.24);
-      label(c, `Fib ${z.fib} ✕ ${hitsText(z.hits)}`, x1 + 6, c.toY(z.price), { size, color: "#ffffff", bg: withAlpha(VF_COLORS.zone, 0.85), bold: i === r.best });
-    });
+    // confluence zones: plain box, text inside on the left (Pine's box text)
+    for (const z of r.zones) {
+      box(z.hi, z.lo, "zone", 0.8);
+      label(c, `Fib ${z.fib} ✕ ${hitsText(z.hits)}`, x1 + 6, c.toY(z.price), { size, color: "#ffffff" });
+    }
 
     // Fibonacci levels
     for (const f of r.fibs) {
@@ -182,7 +208,7 @@ export const vfConfluence: Tool = {
     const vline = (p: number, name: string, w: number) => {
       const y = c.toY(p);
       stroke(c, [{ x: x0, y }, { x: right, y }], volC, w, "solid");
-      label(c, `${name} ${c.fmt(p)}`, right - 2, y - 2, { size, color: textFor(volC), bg: volC, align: "right", baseline: "bottom", pad: 3 });
+      label(c, `${name} ${c.fmt(p)}`, right - 2, y - 2, { size, color: textFor(readable(col.volume.color, bg)), bg: volC, align: "right", baseline: "bottom", pad: 3 });
     };
     vline(r.poc, "POC", 2);
     vline(r.vah, "VAH", 1);
@@ -194,23 +220,14 @@ export const vfConfluence: Tool = {
         label(c, `HVN ${c.fmt(p)}`, right - 2, y - 1, { size: 9, color: hvnC, align: "right", baseline: "bottom" });
       }
   },
+  // only the two anchor lines are grabbable, so dragging inside the range
+  // still pans the chart
   hit(c, p) {
     const r = resultFor(c);
     if (!r) return null;
-    const { x0, right } = xs(c, r);
-    const yTop = c.toY(Math.max(r.swingHi, ...r.fibs.map((f) => f.price)));
-    const yBot = c.toY(Math.min(r.swingLo, ...r.fibs.map((f) => f.price)));
-    const poly: Point[] = [
-      { x: x0, y: yTop },
-      { x: right, y: yTop },
-      { x: right, y: yBot },
-      { x: x0, y: yBot },
-    ];
-    if (!insidePolygon(p, poly)) return null;
-    // close to a line counts as a direct hit, anywhere else inside as a weak one
-    const levels = [r.poc, r.vah, r.val, ...r.fibs.map((f) => f.price)];
-    const d = Math.min(...levels.map((v) => Math.abs(c.toY(v) - p.y)));
-    return d <= HIT ? d : HIT - 1;
+    const { x0, x1 } = xs(c, r);
+    const d = Math.min(Math.abs(p.x - x0), Math.abs(p.x - x1));
+    return d <= HIT ? d : null;
   },
   // one handle per anchor, on the swing's high and low
   handles(c) {

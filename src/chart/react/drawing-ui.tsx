@@ -8,7 +8,7 @@ import { saveFibTemplate } from "../drawings/storage";
 import type { Tool } from "../drawings/tool";
 import { getTool, TOOL_GROUPS } from "../drawings/tools";
 import { fibKindOf, getFibDefaults } from "../drawings/tools/fibonacci";
-import { DEFAULT_VF, vfSettingsOf } from "../drawings/tools/vf";
+import { DEFAULT_VF, VF_COLOR_LABELS, vfColorsOf, vfSettingsOf } from "../drawings/tools/vf";
 import { AUTO_COLOR, DEFAULT_VP_COLORS, defaultFibSettings, mergeVpColors, VP_DOWN_FALLBACK, VP_UP_FALLBACK, type Drawing, type FibSettings, type VfSettings, type VpColors } from "../drawings/types";
 import type { LineStyle } from "../engine/types";
 import { Icon } from "./icons";
@@ -755,7 +755,21 @@ export function VfSettingsDialog({ layer, item, onClose }: { layer: DrawingLayer
           顯示 HVN 高量節點
         </Check>
       </div>
-      <button className="mt-4 cursor-pointer text-xs text-[var(--c-accent)] hover:underline" onClick={() => setDraft({ ...DEFAULT_VF })}>
+      <div className="mt-5 border-t border-[var(--c-line)] pt-4">
+        <p className="mb-3 text-xs font-semibold text-[var(--c-muted)]">顏色</p>
+        <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2 text-sm" data-testid="vf-colors">
+          {VF_COLOR_LABELS.map(([key, text]) => {
+            const cur = vfColorsOf(draft)[key];
+            const set = (patch: Partial<typeof cur>) =>
+              setDraft((d) => ({ ...d, colors: { ...d.colors, [key]: { ...vfColorsOf(d)[key], ...patch } } }));
+            return [
+              <span key={key + "l"}>{text}</span>,
+              <ColorButton key={key} title={text} color={cur.color} opacity={cur.opacity} onChange={(c) => c && set({ color: c })} onOpacity={(o) => set({ opacity: o })} />,
+            ];
+          })}
+        </div>
+      </div>
+      <button className="mt-4 cursor-pointer text-xs text-[var(--c-accent)] hover:underline" onClick={() => setDraft({ ...DEFAULT_VF, colors: {} })}>
         恢復預設
       </button>
     </Dialog>
