@@ -92,6 +92,8 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
             const [theme, setThemeState] = useState(() => document.documentElement.getAttribute('data-theme') || 'light');
             const setTheme = (t) => {
                 document.documentElement.setAttribute('data-theme', t);
+                // 使用者明確選了主題 → <meta name="color-scheme"> 跟著固定，瀏覽器原生元件（捲軸、表單）也一致
+                document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', t);
                 try { localStorage.setItem('theme', t); } catch (e) {}
                 applyChartDefaults();
                 setThemeState(t);
@@ -109,8 +111,22 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                     setThemeState(t);
                     window.dispatchEvent(new Event(THEME_EVENT));
                 };
+                // 另一個分頁改了主題 → 這個分頁也跟著換
+                const onStorage = (e) => {
+                    if (e.key !== 'theme') return;
+                    const t = e.newValue === 'light' || e.newValue === 'dark' ? e.newValue : (mq.matches ? 'dark' : 'light');
+                    document.documentElement.setAttribute('data-theme', t);
+                    document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', e.newValue === 'light' || e.newValue === 'dark' ? e.newValue : 'light dark');
+                    applyChartDefaults();
+                    setThemeState(t);
+                    window.dispatchEvent(new Event(THEME_EVENT));
+                };
                 mq.addEventListener ? mq.addEventListener('change', onSystem) : mq.addListener(onSystem);
-                return () => { mq.removeEventListener ? mq.removeEventListener('change', onSystem) : mq.removeListener(onSystem); };
+                window.addEventListener('storage', onStorage);
+                return () => {
+                    mq.removeEventListener ? mq.removeEventListener('change', onSystem) : mq.removeListener(onSystem);
+                    window.removeEventListener('storage', onStorage);
+                };
             }, []);
             return [theme, setTheme];
         };
@@ -2111,15 +2127,7 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
         // 都走自家 CORS proxy(cors.hellokai07.com)+ DOMParser。
         // 2026-10:Google News 開始擋 Cloudflare 的連線(proxy 回 503)、rss2json 也停用(403),
         // 所以每個市場都準備幾個來源,依序嘗試,第一個有結果的就用。回傳 [{ title, link, pubDate, thumbnail }]
-        const fetchWithTimeout = async (url, ms) => {
-            const ctrl = new AbortController();
-            const timer = setTimeout(() => ctrl.abort(), ms);
-            try {
-                return await fetch(url, { signal: ctrl.signal });
-            } finally {
-                clearTimeout(timer);
-            }
-        };
+        const fetchWithTimeout = (url, ms) => fetch(url, { signal: AbortSignal.timeout(ms) });
         const fetchRss = async (rssUrl, limit = 6) => {
             const res = await fetchWithTimeout('https://cors.hellokai07.com/?' + encodeURIComponent(rssUrl), 8000);
             if (!res.ok) throw new Error(`新聞來源回應 ${res.status}`);
@@ -4551,7 +4559,12 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                             onClick={(e) => e.stopPropagation()}
                             onChange={(e) => setDraft(e.target.value)}
                             onBlur={() => commitName(gi)}
-                            onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') commitName(gi); if (e.key === 'Escape') setEditing(null); }}
+                            onKeyDown={(e) => {
+                                e.stopPropagation();
+                                // 注音、倉頡選字時按的 Enter 不算「確定」（Safari 要再看 keyCode 229）
+                                if (e.key === 'Enter' && !(e.nativeEvent.isComposing || e.keyCode === 229)) commitName(gi);
+                                if (e.key === 'Escape') setEditing(null);
+                            }}
                             className="h-6 min-w-0 flex-1 rounded border border-[var(--c-accent)] bg-[var(--c-raised)] px-1.5 text-xs text-[var(--c-text)] outline-none"
                         />
                     ) : (
@@ -6456,7 +6469,7 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
         const computeHoldings = (transactions) => {
             const map = new Map();
             // Sort by date ascending so weighted-average cost is computed correctly
-            const sorted = [...transactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+            const sorted = transactions.toSorted((a, b) => new Date(a.date) - new Date(b.date));
             for (const tx of sorted) {
                 const key = `${tx.symbol}::${tx.asset_type}`;
                 if (!map.has(key)) {
@@ -6781,7 +6794,7 @@ import { startChartSync, onSyncedKeys } from './chart/sync';
                 }
 
                 // Sort transactions ascending for cumulative computation
-                const txsAsc = [...filteredTxs].sort((a, b) => new Date(a.date) - new Date(b.date));
+                const txsAsc = filteredTxs.toSorted((a, b) => new Date(a.date) - new Date(b.date));
 
                 const valueSeries = [];
                 const costSeries = [];

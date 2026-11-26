@@ -165,9 +165,7 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
     (async () => {
       const jr = await supabase.from('forum_judgments').select('*').order('sort', { ascending: true });
       if (cancelled || jr.error || !jr.data) return;
-      const grouped = {};
-      for (const j of jr.data) (grouped[j.post_id] = grouped[j.post_id] || []).push(j);
-      setJudgmentsByPost(grouped);
+      setJudgmentsByPost(Object.groupBy(jr.data, (j) => j.post_id));
       if (!isAdmin) return;
       const rr = await supabase.from('forum_judgment_results').select('*');
       if (cancelled || rr.error || !rr.data) return;
@@ -196,7 +194,7 @@ const PostList = ({ supabase, isAdmin, onOpen }) => {
         (p.tags || []).some((t) => t.toLowerCase().includes(q))
       );
     }
-    r = [...r].sort((a, b) => {
+    r = r.toSorted((a, b) => {
       const da = new Date(a.created_at).getTime();
       const db = new Date(b.created_at).getTime();
       return sortDesc ? db - da : da - db;

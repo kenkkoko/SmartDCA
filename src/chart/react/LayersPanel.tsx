@@ -103,7 +103,8 @@ export function LayersPanel({ layer, onClose, fixed = [] }: { layer: DrawingLaye
         onClick={(e) => e.stopPropagation()}
         onBlur={() => commitName(id, isGroup)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") commitName(id, isGroup);
+          // Enter used to pick a character in a Chinese/Japanese IME is not "done" (Safari also needs keyCode 229)
+          if (e.key === "Enter" && !(e.nativeEvent.isComposing || e.keyCode === 229)) commitName(id, isGroup);
           if (e.key === "Escape") setEditing(null);
         }}
         className="h-6 min-w-0 flex-1 rounded border border-[var(--c-accent)] bg-[var(--c-raised)] px-1.5 text-xs outline-none"
